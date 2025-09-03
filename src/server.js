@@ -1,3 +1,9 @@
+// Load .env for local/Codespaces runs
+require('dotenv').config();
+if (!process.env.GSCRIPT_WEBAPP_URL) {
+  console.log('⚠️  GSCRIPT_WEBAPP_URL is not set (check your .env).');
+}
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const { scrapePlanet } = require('./scraper');
