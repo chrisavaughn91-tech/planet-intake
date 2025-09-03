@@ -580,33 +580,45 @@ async function parseLeadDetail(page){
   };
 }
 
-// ---------- go to next lead via right-arrow; return false on end/error ----------
-async function goToNextLead(page, log){
-  const next =
-    (await firstVisible(page.locator('a[href*="/Lead/MoveNext"]'))) ||
-    (await firstVisible(page.getByRole('link', { name: /next/i }))) ||
-    (await firstVisible(page.locator('button[onclick*="MoveNext"]')));
-
-  if(!next) return false;
-  log('Moving to next lead');
-
-  const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(()=>null);
-  await clickWithModalGuard(page, next, 'MoveNext / Next lead', 5, log);
-  await nav;
-
+// Detect Planet's MoveNext end screen
+async function isMoveNextErrorPage(page) {
   const url = page.url();
-  if (/\/Lead\/MoveNext/i.test(url)) {
-    // final 'Oops' page shows when there is no next record
-    const oops = await page.locator('text=Error Occured').first().isVisible().catch(()=>false);
-    if (oops) return false;
+  if (/\/Lead\/MoveNext/i.test(url)) return true;
+  try {
+    const hasOops  = await page.locator('text=Oops!').count().catch(()=>0);
+    const hasErr   = await page.locator('text=Error Occured').count().catch(()=>0);
+    const hasHome  = await page.locator('a:has-text("Take Me Home")').count().catch(()=>0);
+    return (hasOops && hasErr) || hasHome > 0;
+  } catch {
+    return false;
   }
-  return true;
+}
+
+// Navigate to next lead; return "moved", "none", or "end"
+async function gotoNextLead(page) {
+  const next = page.locator(
+    'a[href*="MoveNext"], a[onclick*="MoveNext"], a[aria-label="Next"], a:has-text("Next"), button:has-text("Next")'
+  ).first();
+
+  if ((await next.count()) === 0) return 'none';
+
+  const disabled = await next.evaluateAll(nodes =>
+    nodes.some(n => n.getAttribute('disabled') || (n.className||'').toLowerCase().includes('disabled'))
+  );
+  if (disabled) return 'none';
+
+  await next.click().catch(()=>{});
+  await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(()=>{});
+
+  if (await isMoveNextErrorPage(page)) return 'end';
+  return 'moved';
 }
 
 // ---------- main scraper ----------
 async function scrapePlanet({ username, password, email, maxLeads = 5, runId, stream }){
+  const max = Math.max(1, Math.floor(Number(maxLeads) || 200));
   const log = makeLogger(runId, stream);
-  log(`Starting scrape with max ${maxLeads} leads...`);
+  log(`Starting scrape with max ${max} leads...`);
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
@@ -624,7 +636,7 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
     await goToAllLeads(page, log);
 
     // Open the first lead (fallback path if arrowing fails)
-    const links = await collectLeadPackLinks(page, Math.max(1, maxLeads));
+    const links = await collectLeadPackLinks(page, Math.max(1, max));
     if (links.length === 0) {
       return { ok:false, error: "No leads found in inbox." };
     }
@@ -634,9 +646,9 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
     await page.waitForLoadState('domcontentloaded');
     await sleep(350);
 
-    while (leadCount < maxLeads) {
+    while (true) {
       await dismissAnyModal(page, log);
-      log(`Processing lead ${leadCount + 1}`);
+      log(`Processing lead ${leadCount + 1}${max ? ' of ' + max : ''}`);
       // primary name from header
       let primaryName = await getPrimaryNameFromHeader(page);
 
@@ -665,12 +677,24 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
       sumAllLeadsMonthly += leadMonthly;
       leadCount++;
 
-      if (leadCount >= maxLeads) break;
+      if (leadCount >= max) {
+        log(`Reached max leads (${max}) — finishing.`);
+        break;
+      }
 
-      // try right-arrow to next lead; if none, stop
-      const moved = await goToNextLead(page, log);
-      if (!moved) break;
+      log('Moving to next lead');
+      const nav = await gotoNextLead(page);
 
+      if (nav === 'end') {
+        log('Reached end-of-list (MoveNext error page) — finishing.');
+        break;
+      }
+      if (nav === 'none') {
+        log('No Next button (or disabled) — finishing.');
+        break;
+      }
+
+      await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(()=>{});
       await sleep(300);
     }
 
