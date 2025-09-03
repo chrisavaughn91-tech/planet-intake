@@ -1,0 +1,22 @@
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// sanity root route
+app.get('/', (_req, res) => res.status(200).send('root-ok'));
+
+// health route
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
+// stub scrape route
+app.post('/scrape', async (req, res) => {
+  const { username, email } = req.body || {};
+  res.json({
+    clickToCallRows: [],
+    pdfRows: [],
+    meta: { ok: true, received: { username: !!username, email: !!email } }
+  });
+});
+
+const port = process.env.PORT || 8080;
+app.listen(port, () => console.log('Server listening on ' + port));

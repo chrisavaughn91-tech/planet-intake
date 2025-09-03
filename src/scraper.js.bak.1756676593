@@ -1,0 +1,233 @@
+const { chromium } = require('playwright');
+const pdfParse = require('pdf-parse');
+
+const BASE_URL = 'https://m.planetaltig.com';
+const LOGIN_PATH = '/Account/Login';
+const LEADS_PATH = '/Lead/Inbox';
+
+const SELECTORS = {
+  user: 'input[name="UserName"], input#UserName, input[name="AOUserName"]',
+  pass: 'input[name="Password"], input#Password',
+  loginBtn: 'button[type="submit"], input[type="submit"], button:has-text("Login")',
+  leadLinks: 'a[href*="/Lead/InboxDetail"], a[href*="InboxDetail?LeadId="], a.lead-link',
+  clickToCallList: 'a[href^="tel:"], button[data-call], .fa-phone, .call-number, a:has(i.fa-phone)',
+  posSummaryBtn: 'button:has-text("POS Summary"), a:has-text("POS Summary"), button:has-text("Summary")',
+  moreBtn: 'button:has-text("More"), a:has-text("More")',
+};
+
+const PHONE_RE = /(?:\+?1[\s-.]?)?(?:\(?\d{3}\)?[\s-.]?)?\d{3}[\s-.]?\d{4}/g;
+const ONLY_DIGITS = /\D/g;
+
+function normalizePhone(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (/do\s*not\s*call|^\s*dnc\s*$/i.test(s)) return null;
+  const digits = s.replace(ONLY_DIGITS, '');
+  if (digits.length === 7) return { e164: null, national: digits, flag: 'NO_AREA_CODE' };
+  if (digits.length === 10 || (digits.length === 11 && digits.startsWith('1'))) {
+    const d10 = digits.length === 11 ? digits.slice(1) : digits;
+    if (/^(\d)\1{9}$/.test(d10)) return null;
+    if (/^0{10}$/.test(d10)) return null;
+    return { e164: `+1${d10}`, national: d10, flag: null };
+  }
+  return null;
+}
+
+function uniqByNational(arr) {
+  const seen = new Set();
+  return arr.filter(r => {
+    const key = r.national || r.e164 || r.raw;
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractPhonesFromText(text) {
+  const out = [];
+  for (const m of text.matchAll(PHONE_RE)) {
+    const tryNorm = normalizePhone(m[0]);
+    if (tryNorm) out.push({ ...tryNorm, raw: m[0] });
+  }
+  return uniqByNational(out);
+}
+
+function parsePolicyBlocks(text) {
+  const blocks = text.split(/(?:\n\s*\n){2,}/);
+  const policies = [];
+  const today = new Date();
+
+  for (const block of blocks) {
+    const special = (block.match(/Special\s*\$?([\d,]+\.\d{2})/i) || [])[1];
+    const paidTo = (block.match(/Policy\s+Paid\s+To\s*[:\-]?\s*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4})/i) || [])[1];
+    const mode = (block.match(/Mode\s*[:\-]?\s*(Monthly|Quarterly|Semi-Annual|Annual|Direct Bill)/i) || [])[1];
+    const dueDayStr = (block.match(/\bDue\s*Day\s*[:\-]?\s*([0-9]{1,2})\b/i) || [])[1];
+    const hasLapsedWatermark = /LAPSED\s+POLICY/i.test(block);
+
+    if (!special && !paidTo && !mode && !dueDayStr && !hasLapsedWatermark) continue;
+
+    let specialMonthly = special ? parseFloat(special.replace(/,/g, '')) : 0;
+    let policyPaidTo = paidTo ? new Date(paidTo) : null;
+    const dueDay = dueDayStr ? parseInt(dueDayStr, 10) : null;
+
+    let isLapsed = false;
+    if (hasLapsedWatermark) {
+      isLapsed = true;
+    } else if (policyPaidTo) {
+      if (/Annual/i.test(mode || '')) {
+        const diffDays = (today - policyPaidTo) / (1000*60*60*24);
+        if (diffDays > 365) isLapsed = true;
+      } else {
+        const anchor = new Date(today.getFullYear(), today.getMonth(), Math.min(dueDay || 1, 28));
+        const diffDays = (anchor - policyPaidTo) / (1000*60*60*24);
+        if (diffDays > 31) isLapsed = true;
+      }
+    }
+
+    policies.push({
+      specialMonthly,
+      specialAnnual: specialMonthly * 12,
+      paidTo: paidTo || null,
+      mode: mode || null,
+      dueDay: dueDay || null,
+      isLapsed,
+    });
+  }
+
+  return policies;
+}
+
+function phonesToRows(phones, source, leadName, extraFlags = []) {
+  return phones.map(p => ({
+    name: leadName || '',
+    phone: p.e164 || p.national || p.raw,
+    flag: p.flag ? (extraFlags.concat(p.flag)).join('+') : (extraFlags.length ? extraFlags.join('+') : 'KEEP'),
+    source,
+    note: '',
+  }));
+}
+
+async function scrapePlanet({ username, password, maxLeads = 5 }) {
+  const browser = await chromium.launch({ headless: true });
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+
+  const clickToCallRows = [];
+  const pdfRows = [];
+  let meta = { premiumMonthly: 0, premiumAnnual: 0 };
+
+  try {
+    await page.goto(BASE_URL + LOGIN_PATH, { waitUntil: 'domcontentloaded' });
+    await page.fill(SELECTORS.user, username);
+    await page.fill(SELECTORS.pass, password);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+      page.click(SELECTORS.loginBtn),
+    ]);
+
+    await page.goto(BASE_URL + LEADS_PATH, { waitUntil: 'domcontentloaded' });
+
+    const leadLinks = await page.$$eval(SELECTORS.leadLinks, els =>
+      els.map(e => ({ href: e.href, text: e.textContent?.trim() || '' })).slice(0, 20)
+    );
+
+    for (const [idx, lead] of leadLinks.entries()) {
+      if (idx >= maxLeads) break;
+      await page.goto(lead.href, { waitUntil: 'domcontentloaded' });
+
+      const leadName = (await page.title()).replace(/\s*-\s*Detail.*/i, '').trim() || lead.text || '';
+
+      const rawNumbers = await page.$$eval(SELECTORS.clickToCallList, els =>
+        els.map(e => {
+          const href = e.getAttribute && e.getAttribute('href');
+          return href && href.startsWith('tel:') ? href.replace(/^tel:/, '') : (e.textContent || '').trim();
+        }).filter(Boolean)
+      );
+
+      const normPhones = uniqByNational(
+        rawNumbers.map(r => normalizePhone(r)).filter(Boolean)
+      );
+      clickToCallRows.push(...phonesToRows(normPhones, 'click2call', leadName));
+
+      try {
+        const moreBtn = await page.$(SELECTORS.moreBtn);
+        if (moreBtn) await moreBtn.click().catch(()=>{});
+      } catch {}
+
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 7000 }).catch(() => null),
+        (async () => {
+          const btn = await page.$(SELECTORS.posSummaryBtn);
+          if (btn) await btn.click();
+        })(),
+      ]);
+
+      if (download) {
+        const buf = await download.createReadStream().then(stream => {
+          return new Promise((res, rej) => {
+            const chunks = [];
+            stream.on('data', c => chunks.push(c));
+            stream.on('end', () => res(Buffer.concat(chunks)));
+            stream.on('error', rej);
+          });
+        });
+
+        const pdfData = await pdfParse(buf);
+        const text = pdfData.text || '';
+
+        const pdfPhones = extractPhonesFromText(text);
+        const secPhoneBoost = /Sec\.?\s*Ph|Second\s*Phone/i.test(text) ? ['SECOND_PHONE'] : [];
+        const dncBlock = /DNC|Do\s*Not\s*Call/i.test(text) ? ['DNC'] : [];
+
+        const filteredPdf = pdfPhones
+          .filter(p => !(p.flag === null && dncBlock.length))
+          .map(p => ({ ...p, flag: p.flag || (dncBlock.length ? 'DNC' : null) }));
+
+        pdfRows.push(...phonesToRows(uniqByNational(filteredPdf), 'pos-pdf', leadName, secPhoneBoost));
+
+        const policies = parsePolicyBlocks(text);
+        const active = policies.filter(p => !p.isLapsed);
+        const monthly = active.reduce((s, p) => s + (p.specialMonthly || 0), 0);
+        const annual = active.reduce((s, p) => s + (p.specialAnnual || 0), 0);
+        meta.premiumMonthly += monthly;
+        meta.premiumAnnual += annual;
+      }
+    }
+
+    const dedup = rows => {
+      const seen = new Set();
+      return rows.filter(r => {
+        const key = String(r.phone || '').replace(/\D/g,'');
+        if (!key) return false;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
+    return {
+      clickToCallRows: dedup(clickToCallRows),
+      pdfRows: dedup(pdfRows),
+      meta: {
+        ...meta,
+        premiumStars: starBucket(meta.premiumAnnual)
+      }
+    };
+
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+}
+
+function starBucket(annual) {
+  if (annual >= 2400) return '★★★★★';
+  if (annual >= 1800) return '★★★★';
+  if (annual >= 1200) return '★★★';
+  if (annual >= 600)  return '★★';
+  if (annual > 0)     return '★';
+  return '☆';
+}
+
+module.exports = { scrapePlanet };
