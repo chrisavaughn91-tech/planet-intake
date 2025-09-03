@@ -266,7 +266,7 @@ async function harvestClickToCall(page){
 
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(()=>{});
-  await page.waitForTimeout(350); // numbers slide down
+  await page.waitForTimeout(800); // numbers slide down
 
   const after  = new Set(await gatherVisibleNumberTokens(page));
   const diff   = Array.from(after).filter(s => !before.has(s));
@@ -567,6 +567,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       // 2) policies + phones + monthly total (active only)
       const detail = await parseLeadDetail(page);
       if (detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
+      if (!primaryName || !primaryName.trim()) primaryName = "(Unknown Lead)";
       policyPhoneRows.push(...detail.policyRows);
 
       // per-lead rollup
