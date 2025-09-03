@@ -113,6 +113,74 @@ async function firstVisible(locator){
 }
 
 // ---------- browser helpers ----------
+async function dismissAnyModal(page) {
+  try {
+    const hasBackdrop = await page.$('.modal-backdrop.in, .modal-backdrop.show');
+    const hasDialog   = await page.$('.modal.in, .modal.show, [role="dialog"].modal');
+
+    if (hasBackdrop || hasDialog) {
+      streamLog('Modal detected — attempting to dismiss');
+
+      const closeSelectors = [
+        'button.close',
+        'button[aria-label="Close"]',
+        'button:has-text("Close")',
+        'button:has-text("Cancel")',
+        'a:has-text("Close")',
+        '#SeniorPreCallerModal button.close',
+        '#SeniorPreCallerModal button:has-text("Close")',
+      ];
+
+      for (const sel of closeSelectors) {
+        const btn = await page.$(sel);
+        if (btn) {
+          try { await btn.click({ timeout: 1000 }); } catch {}
+        }
+      }
+
+      try { await page.keyboard.press('Escape'); } catch {}
+
+      const backdrop = await page.$('.modal-backdrop.in, .modal-backdrop.show');
+      if (backdrop) {
+        try { await backdrop.click({ timeout: 1000 }); } catch {}
+      }
+
+      await page.evaluate(() => {
+        document.querySelectorAll('.modal-backdrop, .modal').forEach(el => {
+          el.style.pointerEvents = 'none';
+        });
+      });
+
+      await page.waitForTimeout(200);
+
+      streamLog('Modal dismiss attempt finished');
+    }
+  } catch (e) {
+    // non-fatal
+  }
+}
+
+async function clickWithModalGuard(page, locator, label = 'click target', maxTries = 5) {
+  for (let i = 1; i <= maxTries; i++) {
+    try {
+      const el = (typeof locator === 'string') ? page.locator(locator) : locator;
+      await el.waitFor({ state: 'visible', timeout: 3000 });
+      await el.click({ timeout: 2000 });
+      return;
+    } catch (err) {
+      const msg = String(err || '');
+      const maybeBackdrop = /intercepts pointer events|not receive pointer events|Element is not attached/i.test(msg);
+      streamLog(`Click failed on ${label} (try ${i}/${maxTries}) — ${msg.slice(0,120)}…`);
+      if (maybeBackdrop) {
+        await dismissAnyModal(page);
+      } else {
+        await page.waitForTimeout(300);
+      }
+      if (i === maxTries) throw err;
+    }
+  }
+}
+
 async function launch(){
   const browser = await chromium.launch({
     headless: true,
@@ -167,6 +235,7 @@ async function login(page, creds){
 
   // Make sure we’re on the app, then we’ll navigate ourselves to the pack:
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(()=>{});
+  await dismissAnyModal(page);
 }
 
 // ---------- go to All Leads ----------
@@ -176,22 +245,18 @@ async function goToAllLeads(page){
     (await firstVisible(page.getByRole("button",{ name: /my leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("My Leads"), button:has-text("My Leads")')));
 
-  if(myLeads){ await myLeads.click().catch(()=>{}); await sleep(300); }
+  if (myLeads) { await clickWithModalGuard(page, myLeads, 'My Leads'); await sleep(300); }
 
   const allLeads =
     (await firstVisible(page.getByRole("link",  { name: /all leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /all leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("All Leads"), button:has-text("All Leads")')));
 
-  if(allLeads){
-    await Promise.allSettled([
-      page.waitForNavigation({ waitUntil:"domcontentloaded", timeout: 15000 }),
-      allLeads.click()
-    ]);
-  }
+  if (allLeads) { await clickWithModalGuard(page, allLeads, 'All Leads'); }
 
   // Force the URL either way.
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
+  await dismissAnyModal(page);
 
   // Wait until the list actually renders links to /Lead/InboxDetail?LeadId=
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
@@ -270,7 +335,7 @@ async function harvestClickToCall(page){
   if(!callBtn) return rows;
 
   const before = new Set(await gatherVisibleNumberTokens(page));
-  await callBtn.click().catch(()=>{});
+  await clickWithModalGuard(page, callBtn, 'Click-to-Call');
   await page.waitForTimeout(800); // numbers slide down
 
   const after  = new Set(await gatherVisibleNumberTokens(page));
@@ -520,9 +585,10 @@ async function goToNextLead(page){
     (await firstVisible(page.locator('button[onclick*="MoveNext"]')));
 
   if(!next) return false;
+  streamLog('Moving to next lead');
 
   const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(()=>null);
-  await next.click().catch(()=>{});
+  await clickWithModalGuard(page, next, 'MoveNext / Next lead');
   await nav;
 
   const url = page.url();
@@ -559,10 +625,13 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       return { ok:false, error: "No leads found in inbox." };
     }
     // go to first lead card
-    await page.goto(links[0].href, { waitUntil: "domcontentloaded" });
+    streamLog('Opening first lead');
+    await clickWithModalGuard(page, page.locator('a[href*="/Lead/InboxDetail"]').first(), 'open first lead');
+    await page.waitForLoadState('domcontentloaded');
     await sleep(350);
 
     while (leadCount < maxLeads) {
+      await dismissAnyModal(page);
       streamLog(`Processing lead ${leadCount + 1}`);
       // primary name from header
       let primaryName = await getPrimaryNameFromHeader(page);
