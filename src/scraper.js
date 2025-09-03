@@ -1,6 +1,11 @@
 // src/scraper.js
 const { chromium } = require("playwright");
 
+function streamLog(msg) {
+  console.log(msg);
+  if (global.__logStream) global.__logStream(msg);
+}
+
 // ---- URLs ----
 const BASE = "https://m.planetaltig.com";
 const LOGIN_URL = `${BASE}/Account/Login`;
@@ -531,6 +536,7 @@ async function goToNextLead(page){
 
 // ---------- main scraper ----------
 async function scrapePlanet({ username, password, maxLeads = 5 }){
+  streamLog(`Starting scrape with max ${maxLeads} leads...`);
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
@@ -544,6 +550,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
 
   try{
     await login(page, { username, password });
+    streamLog('Logged in, navigating to leads...');
     await goToAllLeads(page);
 
     // Open the first lead (fallback path if arrowing fails)
@@ -556,6 +563,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await sleep(350);
 
     while (leadCount < maxLeads) {
+      streamLog(`Processing lead ${leadCount + 1}`);
       // primary name from header
       let primaryName = await getPrimaryNameFromHeader(page);
 
@@ -593,6 +601,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       await sleep(300);
     }
 
+    streamLog('Scrape finished.');
     return {
       ok: true,
       leads,                    // per-lead (name, monthly, star, phones)

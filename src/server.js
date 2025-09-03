@@ -15,6 +15,23 @@ const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
 // Health endpoint (used by Cloud Run)
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
+// Live log streaming endpoint using Server-Sent Events (SSE)
+app.get('/logs', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const log = (msg) => res.write(`data: ${msg}\n\n`);
+  global.__logStream = log;
+
+  log('[SSE] Live log stream started...');
+
+  req.on('close', () => {
+    global.__logStream = null;
+  });
+});
+
 // Main scrape endpoint
 app.post('/scrape', async (req, res) => {
   const { username, password, email } = req.body || {};
