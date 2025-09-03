@@ -1,67 +1,66 @@
-function json(o){ return ContentService.createTextOutput(JSON.stringify(o))
-  .setMimeType(ContentService.MimeType.JSON); }
-
-function toCsv(rows){
-  rows = rows || [];
-  return rows.map(r => (Array.isArray(r) ? r : Object.values(r))
-    .map(v => {
-      let s = String(v == null ? '' : v);
-      if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g,'""') + '"';
-      return s;
-    }).join(',')).join('\n');
-}
-
-function writeSheet_(ss, name, rows){
-  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
-  sh.clearContents();
-  if (!rows || !rows.length) { sh.getRange(1,1).setValue('No data'); return; }
-  const isObj = !Array.isArray(rows[0]);
-  const data = isObj ? [Object.keys(rows[0])].concat(rows.map(o => Object.keys(rows[0]).map(k => o[k]))) : rows;
-  sh.getRange(1,1,data.length,data[0].length).setValues(data);
-}
-
-function doPost(e){
+/** Webhook to build + share the Planet sheet */
+function doPost(e) {
   try {
-    const body = e && e.postData && e.postData.contents || '{}';
-    const data = JSON.parse(body);
-    const email = (data.email || '').trim();
+    var data = JSON.parse(e.postData.contents || "{}");
 
-    const title = data.title || ('Planet Scrape ' + new Date().toISOString().slice(0,19).replace('T',' '));
-    const summaryRows = data.summaryRows || [];
-    const allRows = data.allRows || [];
+    // optional shared secret
+    var EXPECTED_KEY = data.expectedKey || ""; // leave blank if you don't want to check
 
-    // 1) Create spreadsheet
-    const ss = SpreadsheetApp.create(title);
-    const ssUrl = ss.getUrl();
-
-    // 2) Write sheets (adapt names if needed)
-    if (summaryRows.length) writeSheet_(ss, 'Summary', summaryRows);
-    if (allRows.length) writeSheet_(ss, 'AllNumbers', allRows);
-
-    // 3) Build CSV (use Summary if present, else AllNumbers)
-    const forCsv = summaryRows.length ? summaryRows : allRows;
-    const csv = toCsv(forCsv);
-    const csvFile = DriveApp.createFile(title + '.csv', csv, MimeType.CSV);
-
-    // 4) Make the CSV link-viewable and email it (if email provided)
-    csvFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    const csvUrl = csvFile.getUrl();
-
-    if (email) {
-      const subject = 'Your Planet Intake results';
-      const bodyText = 'Hi,\n\nYour scrape has finished.\n\nSheet: ' + ssUrl + '\nCSV: ' + csvUrl + '\n\nRegards,\nPlanet Intake Bot';
-      MailApp.sendEmail({
-        to: email,
-        subject: subject,
-        htmlBody: bodyText.replace(/\n/g,'<br>'),
-        attachments: [csvFile.getAs(MimeType.CSV)],
-        name: 'Planet Intake Bot'
-      });
+    if (EXPECTED_KEY && data.key !== EXPECTED_KEY) {
+      return _json({ ok: false, error: "bad key" }, 401);
     }
 
-    return json({ ok:true, sheetUrl: ssUrl, csvUrl });
+    var email = data.email || "";
+    var title = data.title || ("Planet Scrape — " + email + " — " +
+                 new Date().toISOString().replace("T"," ").slice(0,19));
+
+    var summaryRows = data.summaryRows || [["Primary Name","Monthly Special Total","Star","ClickToCall Count","PolicyPhones Count"]];
+    var allRows     = data.allRows     || [["Primary Name","Phone"]];
+
+    // Create spreadsheet with Summary + AllNumbers
+    var ss = SpreadsheetApp.create(title);
+    var url = ss.getUrl();
+    var id  = ss.getId();
+
+    // Build sheets
+    var summary = ss.getSheets()[0]; // default Sheet1
+    summary.setName("Summary");
+    var all = ss.insertSheet("AllNumbers");
+
+    // Write data
+    if (summaryRows.length) {
+      summary.getRange(1,1,summaryRows.length,summaryRows[0].length).setValues(summaryRows);
+    }
+    if (allRows.length) {
+      all.getRange(1,1,allRows.length,allRows[0].length).setValues(allRows);
+    }
+
+    // Freeze header + bold
+    summary.setFrozenRows(1);
+    all.setFrozenRows(1);
+    summary.getRange(1,1,1,summary.getMaxColumns()).setFontWeight("bold");
+    all.getRange(1,1,1,all.getMaxColumns()).setFontWeight("bold");
+
+    // Text format for both columns on AllNumbers
+    all.getRange(1,1,all.getMaxRows(),2).setNumberFormat("@");
+
+    // Share with the user and notify
+    DriveApp.getFileById(id).addViewer(email);
+    try { MailApp.sendEmail(email, "Your Planet sheet is ready", url); } catch (err) {}
+
+    return _json({ ok: true, spreadsheetId: id, url: url });
   } catch (err) {
-    return json({ ok:false, error: String(err && err.message || err) });
+    return _json({ ok: false, error: String(err && err.message || err) }, 500);
   }
 }
 
+function _json(obj, code) {
+  var out = ContentService.createTextOutput(JSON.stringify(obj));
+  out.setMimeType(ContentService.MimeType.JSON);
+  if (code) out.setHeader("X-Status-Code", String(code));
+  return out;
+}
+
+function doGet() {
+  return ContentService.createTextOutput('Webhook is up. Use POST only.');
+}

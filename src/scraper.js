@@ -1,13 +1,4 @@
-// src/scraper.js
 const { chromium } = require("playwright");
-const { createSheetAndShare } = require("./sheets");
-
-function makeLogger(runId, stream) {
-  return (msg) => {
-    if (stream) stream(runId, msg);
-    else console.log(msg);
-  };
-}
 
 // ---- URLs ----
 const BASE = "https://m.planetaltig.com";
@@ -116,74 +107,6 @@ async function firstVisible(locator){
 }
 
 // ---------- browser helpers ----------
-async function dismissAnyModal(page, log) {
-  try {
-    const hasBackdrop = await page.$('.modal-backdrop.in, .modal-backdrop.show');
-    const hasDialog   = await page.$('.modal.in, .modal.show, [role="dialog"].modal');
-
-    if (hasBackdrop || hasDialog) {
-      log('Modal detected — attempting to dismiss');
-
-      const closeSelectors = [
-        'button.close',
-        'button[aria-label="Close"]',
-        'button:has-text("Close")',
-        'button:has-text("Cancel")',
-        'a:has-text("Close")',
-        '#SeniorPreCallerModal button.close',
-        '#SeniorPreCallerModal button:has-text("Close")',
-      ];
-
-      for (const sel of closeSelectors) {
-        const btn = await page.$(sel);
-        if (btn) {
-          try { await btn.click({ timeout: 1000 }); } catch {}
-        }
-      }
-
-      try { await page.keyboard.press('Escape'); } catch {}
-
-      const backdrop = await page.$('.modal-backdrop.in, .modal-backdrop.show');
-      if (backdrop) {
-        try { await backdrop.click({ timeout: 1000 }); } catch {}
-      }
-
-      await page.evaluate(() => {
-        document.querySelectorAll('.modal-backdrop, .modal').forEach(el => {
-          el.style.pointerEvents = 'none';
-        });
-      });
-
-      await page.waitForTimeout(200);
-
-      log('Modal dismiss attempt finished');
-    }
-  } catch (e) {
-    // non-fatal
-  }
-}
-
-async function clickWithModalGuard(page, locator, label = 'click target', maxTries = 5, log) {
-  for (let i = 1; i <= maxTries; i++) {
-    try {
-      const el = (typeof locator === 'string') ? page.locator(locator) : locator;
-      await el.waitFor({ state: 'visible', timeout: 3000 });
-      await el.click({ timeout: 2000 });
-      return;
-    } catch (err) {
-      const msg = String(err || '');
-      const maybeBackdrop = /intercepts pointer events|not receive pointer events|Element is not attached/i.test(msg);
-      log(`Click failed on ${label} (try ${i}/${maxTries}) — ${msg.slice(0,120)}…`);
-      if (maybeBackdrop) {
-        await dismissAnyModal(page, log);
-      } else {
-        await page.waitForTimeout(300);
-      }
-      if (i === maxTries) throw err;
-    }
-  }
-}
-
 async function launch(){
   const browser = await chromium.launch({
     headless: true,
@@ -199,7 +122,7 @@ async function launch(){
 }
 
 // ---------- login ----------
-async function login(page, creds, log){
+async function login(page, creds){
   await page.goto(LOGIN_URL, { waitUntil: "load", timeout: 60000 });
 
   // Prefer the first visible text/email input and the first password input.
@@ -238,28 +161,31 @@ async function login(page, creds, log){
 
   // Make sure we’re on the app, then we’ll navigate ourselves to the pack:
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(()=>{});
-  await dismissAnyModal(page, log);
 }
 
 // ---------- go to All Leads ----------
-async function goToAllLeads(page, log){
+async function goToAllLeads(page){
   const myLeads =
     (await firstVisible(page.getByRole("link",  { name: /my leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /my leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("My Leads"), button:has-text("My Leads")')));
 
-  if (myLeads) { await clickWithModalGuard(page, myLeads, 'My Leads', 5, log); await sleep(300); }
+  if(myLeads){ await myLeads.click().catch(()=>{}); await sleep(300); }
 
   const allLeads =
     (await firstVisible(page.getByRole("link",  { name: /all leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /all leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("All Leads"), button:has-text("All Leads")')));
 
-  if (allLeads) { await clickWithModalGuard(page, allLeads, 'All Leads', 5, log); }
+  if(allLeads){
+    await Promise.allSettled([
+      page.waitForNavigation({ waitUntil:"domcontentloaded", timeout: 15000 }),
+      allLeads.click()
+    ]);
+  }
 
   // Force the URL either way.
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
-  await dismissAnyModal(page, log);
 
   // Wait until the list actually renders links to /Lead/InboxDetail?LeadId=
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
@@ -327,7 +253,7 @@ async function gatherVisibleNumberTokens(page){
 }
 
 // ---------- harvest Click-to-Call by “diffing” before/after click ----------
-async function harvestClickToCall(page, log){
+async function harvestClickToCall(page){
   const rows = [];
 
   const callBtn =
@@ -338,8 +264,8 @@ async function harvestClickToCall(page, log){
   if(!callBtn) return rows;
 
   const before = new Set(await gatherVisibleNumberTokens(page));
-  await clickWithModalGuard(page, callBtn, 'Click-to-Call', 5, log);
-  await page.waitForTimeout(800); // numbers slide down
+  await callBtn.click().catch(()=>{});
+  await page.waitForTimeout(350); // numbers slide down
 
   const after  = new Set(await gatherVisibleNumberTokens(page));
   const diff   = Array.from(after).filter(s => !before.has(s));
@@ -580,45 +506,30 @@ async function parseLeadDetail(page){
   };
 }
 
-// Detect Planet's MoveNext end screen
-async function isMoveNextErrorPage(page) {
-  const url = page.url();
-  if (/\/Lead\/MoveNext/i.test(url)) return true;
-  try {
-    const hasOops  = await page.locator('text=Oops!').count().catch(()=>0);
-    const hasErr   = await page.locator('text=Error Occured').count().catch(()=>0);
-    const hasHome  = await page.locator('a:has-text("Take Me Home")').count().catch(()=>0);
-    return (hasOops && hasErr) || hasHome > 0;
-  } catch {
-    return false;
-  }
-}
+// ---------- go to next lead via right-arrow; return false on end/error ----------
+async function goToNextLead(page){
+  const next =
+    (await firstVisible(page.locator('a[href*="/Lead/MoveNext"]'))) ||
+    (await firstVisible(page.getByRole('link', { name: /next/i }))) ||
+    (await firstVisible(page.locator('button[onclick*="MoveNext"]')));
 
-// Navigate to next lead; return "moved", "none", or "end"
-async function gotoNextLead(page) {
-  const next = page.locator(
-    'a[href*="MoveNext"], a[onclick*="MoveNext"], a[aria-label="Next"], a:has-text("Next"), button:has-text("Next")'
-  ).first();
+  if(!next) return false;
 
-  if ((await next.count()) === 0) return 'none';
-
-  const disabled = await next.evaluateAll(nodes =>
-    nodes.some(n => n.getAttribute('disabled') || (n.className||'').toLowerCase().includes('disabled'))
-  );
-  if (disabled) return 'none';
-
+  const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(()=>null);
   await next.click().catch(()=>{});
-  await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(()=>{});
+  await nav;
 
-  if (await isMoveNextErrorPage(page)) return 'end';
-  return 'moved';
+  const url = page.url();
+  if (/\/Lead\/MoveNext/i.test(url)) {
+    // final 'Oops' page shows when there is no next record
+    const oops = await page.locator('text=Error Occured').first().isVisible().catch(()=>false);
+    if (oops) return false;
+  }
+  return true;
 }
 
 // ---------- main scraper ----------
-async function scrapePlanet({ username, password, email, maxLeads = 5, runId, stream }){
-  const max = Math.max(1, Math.floor(Number(maxLeads) || 200));
-  const log = makeLogger(runId, stream);
-  log(`Starting scrape with max ${max} leads...`);
+async function scrapePlanet({ username, password, maxLeads = 5 }){
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
@@ -631,36 +542,30 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
   let sumAllLeadsMonthly = 0;
 
   try{
-    await login(page, { username, password }, log);
-    log('Logged in, navigating to leads...');
-    await goToAllLeads(page, log);
+    await login(page, { username, password });
+    await goToAllLeads(page);
 
     // Open the first lead (fallback path if arrowing fails)
-    const links = await collectLeadPackLinks(page, Math.max(1, max));
+    const links = await collectLeadPackLinks(page, Math.max(1, maxLeads));
     if (links.length === 0) {
       return { ok:false, error: "No leads found in inbox." };
     }
     // go to first lead card
-    log('Opening first lead');
-    await clickWithModalGuard(page, page.locator('a[href*="/Lead/InboxDetail"]').first(), 'open first lead', 5, log);
-    await page.waitForLoadState('domcontentloaded');
+    await page.goto(links[0].href, { waitUntil: "domcontentloaded" });
     await sleep(350);
 
-    while (true) {
-      await dismissAnyModal(page, log);
-      log(`Processing lead ${leadCount + 1}${max ? ' of ' + max : ''}`);
+    while (leadCount < maxLeads) {
       // primary name from header
       let primaryName = await getPrimaryNameFromHeader(page);
 
       // 1) click-to-call
-      const c2c = await harvestClickToCall(page, log);
+      const c2c = await harvestClickToCall(page);
       c2c.forEach(r => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
       // 2) policies + phones + monthly total (active only)
       const detail = await parseLeadDetail(page);
       if (detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
-      if (!primaryName || !primaryName.trim()) primaryName = "(Unknown Lead)";
       policyPhoneRows.push(...detail.policyRows);
 
       // per-lead rollup
@@ -677,28 +582,16 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
       sumAllLeadsMonthly += leadMonthly;
       leadCount++;
 
-      if (leadCount >= max) {
-        log(`Reached max leads (${max}) — finishing.`);
-        break;
-      }
+      if (leadCount >= maxLeads) break;
 
-      log('Moving to next lead');
-      const nav = await gotoNextLead(page);
+      // try right-arrow to next lead; if none, stop
+      const moved = await goToNextLead(page);
+      if (!moved) break;
 
-      if (nav === 'end') {
-        log('Reached end-of-list (MoveNext error page) — finishing.');
-        break;
-      }
-      if (nav === 'none') {
-        log('No Next button (or disabled) — finishing.');
-        break;
-      }
-
-      await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(()=>{});
       await sleep(300);
     }
 
-    const result = {
+    return {
       ok: true,
       leads,                    // per-lead (name, monthly, star, phones)
       // flattened for quick jq/testing:
@@ -710,32 +603,6 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
         sumMonthlyAcrossLeads: Number(sumAllLeadsMonthly.toFixed(2))
       }
     };
-
-    let sheet = null;
-    if (email) {
-      // Include email when calling Apps Script so it can deliver results
-      const payload = { email, result };
-      sheet = await createSheetAndShare(payload);
-    }
-
-    if (sheet) {
-      log(`Sheet ready: ${sheet.url}`);
-      log(`CSV emailed to ${email}`);
-    }
-    log('Scrape finished.');
-
-    if (sheet) {
-      return {
-        ok: true,
-        sheetUrl: sheet.url,
-        csvUrl: sheet.csvUrl || null,
-        meta: result.meta,
-        leadCount: result.meta.leadCount,
-        sumMonthlyAcrossLeads: result.meta.sumMonthlyAcrossLeads
-      };
-    }
-
-    return result;
 
   }catch(err){
     return { ok: false, error: String(err && err.message ? err.message : err) };
