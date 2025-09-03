@@ -35,11 +35,6 @@ const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Backend-only max leads (default 200). Users never set this.
-// You can change it at deploy time with:
-//   --set-env-vars MAX_LEADS_DEFAULT=200
-const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
-
 // Health endpoint (used by Cloud Run)
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
@@ -119,6 +114,9 @@ app.get('/run', (req, res) => {
           <input name="email" type="email" placeholder="you@company.com" required />
           <small><a id="watchLogsLink" href="#" target="_blank" rel="noopener">watch live logs</a></small>
         </label>
+        <label>Lead limit
+          <input name="max" type="number" min="1" max="1000" value="200" />
+        </label>
         <div class="actions">
           <button id="go" type="submit">Run scraper →</button>
           <span id="msg" class="muted"></span>
@@ -167,12 +165,13 @@ app.post('/scrape', (req, res) => {
   try {
     const isJson = (req.headers['content-type'] || '').includes('application/json');
     const { username, password, email } = isJson ? req.body : req.body || {};
+    const max = Number(req.body?.max) || Number(process.env.MAX_LEADS_DEFAULT) || 200;
     if (!username || !password || !email) {
       return res.status(400).json({ ok: false, error: 'Missing username, password, or email' });
     }
 
     const runId = newRunId();
-    scrapePlanet({ username, password, email, maxLeads: MAX_LEADS_DEFAULT, runId, stream })
+    scrapePlanet({ username, password, email, maxLeads: max, runId, stream })
       .catch(err => {
         stream(runId, `SCRAPE ERROR: ${err && err.message ? err.message : err}`);
       });
