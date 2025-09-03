@@ -1,13 +1,6 @@
 // src/scraper.js
 const { chromium } = require("playwright");
-const fs = require("fs");
 const { createSheetAndShare } = require("./sheets");
-const {
-  normalizePersonName,
-  normalizeAndFlag,
-  dedupePhones,
-  labelWindowAccepts,
-} = require("./utils/phone");
 
 function makeLogger(runId, stream) {
   return (msg) => {
@@ -27,6 +20,91 @@ const PACK_ANCHOR = '/Lead/InboxDetail?LeadId=';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const nowIso = () => new Date().toISOString();
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+const toPretty = (d10) => d10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : null;
+
+function sameDigits(s){ return /^([0-9])\1{9}$/.test(s); }
+
+// NANP validation (10 digits)
+function validUS10(d10){
+  if(!d10 || d10.length !== 10) return false;
+  if(sameDigits(d10)) return false;
+  const npa = d10.slice(0,3), nxx = d10.slice(3,6), line = d10.slice(6);
+  if(/[01]/.test(npa[0])) return false; // NPA can’t start 0/1
+  if(/[01]/.test(nxx[0])) return false; // NXX can’t start 0/1
+  // 555-01xx fake block
+  if(npa === '555' && /^01\d\d$/.test(line)) return false;
+  // service codes (211/311/…911) as NPAs: reject
+  if(/^(211|311|411|511|611|711|811|911)$/.test(npa)) return false;
+  return true;
+}
+
+const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
+
+function normalizePhoneCandidate(raw, contextLabel){
+  // grab extension if present
+  let ext = null;
+  const extMatch = String(raw).match(/\b(?:x|ext\.?|#)\s*([0-9]{2,6})\b/i);
+  if(extMatch) ext = extMatch[1];
+
+  let s = String(raw)
+    .replace(/\b(?:x|ext\.?|#)\s*[0-9]{2,6}\b/ig,'') // remove ext bit
+    .replace(/[^\d+]/g, '');
+
+  // handle +1 or leading 1
+  if(s.startsWith('+1')) s = s.slice(2);
+  if(s.length === 11 && s.startsWith('1')) s = s.slice(1);
+
+  // classify
+  let rawDigits = null, pretty = null, valid = false, flags = [];
+  let tollFree = false, international = false;
+
+  if(s.startsWith('+') && !s.startsWith('+1')){
+    international = true;
+  }
+
+  if(/^\d{10}$/.test(s)){
+    rawDigits = s;
+    valid = validUS10(s);
+    pretty = valid ? toPretty(s) : null;
+    if(TOLL_FREE.has(s.slice(0,3))) { tollFree = true; }
+  }else if(/^\d{7}$/.test(s)){
+    rawDigits = s;
+    flags.push("Needs Area Code");
+  }else{
+    // reject weird lengths
+    return null;
+  }
+
+  // context flags (label/source)
+  if(contextLabel && /fax/i.test(contextLabel)) flags.push("Fax");
+  if(international) flags.push("International");
+  if(ext) flags.push("Has Extension");
+  if(tollFree) flags.push("Toll-free kept");
+
+  return {
+    original: String(raw),
+    rawDigits,
+    phone: pretty,
+    extension: ext,
+    valid,
+    tollFree,
+    international,
+    flags
+  };
+}
+
+function uniqBy(arr, keyFn){
+  const seen = new Set();
+  const out = [];
+  for(const x of arr){
+    const k = keyFn(x);
+    if(!seen.has(k)){
+      seen.add(k);
+      out.push(x);
+    }
+  }
+  return out;
+}
 
 async function firstVisible(locator){
   const n = await locator.count();
@@ -248,25 +326,6 @@ async function gatherVisibleNumberTokens(page){
   }, TOKEN_RE.source);
 }
 
-function buildCompactCsv(rows){
-  const byName = new Map();
-  for (const r of rows) {
-    if (r.status !== 'ok') continue;
-    const name = r.primaryName || '';
-    const key = `${r.rawDigits || ''}#${r.extension || ''}`;
-    if (!byName.has(name)) byName.set(name, new Map());
-    const map = byName.get(name);
-    if (!map.has(key)) map.set(key, r.pretty || r.rawDigits || r.phone || '');
-  }
-  const lines = ['"Primary Name","Phones"'];
-  for (const [name, map] of byName.entries()) {
-    const phones = Array.from(map.values()).join(', ');
-    const esc = (s) => String(s).replace(/"/g, '""');
-    lines.push(`"${esc(name)}","${esc(phones)}"`);
-  }
-  return lines.join('\n');
-}
-
 // ---------- harvest Click-to-Call by “diffing” before/after click ----------
 async function harvestClickToCall(page, log){
   const rows = [];
@@ -285,12 +344,30 @@ async function harvestClickToCall(page, log){
   const after  = new Set(await gatherVisibleNumberTokens(page));
   const diff   = Array.from(after).filter(s => !before.has(s));
 
+  const seen = new Set();
   for (const token of diff) {
-    const norm = normalizeAndFlag(token, { from: 'click', inPdfLabelWindow: true });
-    rows.push({ ...norm, source: 'click', label: '' });
+    const norm = normalizePhoneCandidate(token, "ClickToCall");
+    if (!norm) continue;
+    const key = `${norm.rawDigits || norm.original}-${norm.extension||""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    rows.push({
+      primaryName: null,            // filled by caller
+      source: "click2call",
+      lineType: "ClickToCall",
+      original: norm.original,
+      rawDigits: norm.rawDigits,
+      phone: norm.phone,
+      extension: norm.extension || null,
+      tollFree: !!norm.tollFree,
+      international: !!norm.international,
+      valid: !!norm.valid,
+      flag: norm.flags.join(", ")
+    });
   }
 
-  return dedupePhones(rows);
+  return uniqBy(rows, r => `${r.rawDigits || r.original}-${r.extension||""}`);
 }
 
 // ---------- expand all policies ("More" -> "Less") ----------
@@ -335,24 +412,6 @@ async function getPrimaryNameFromHeader(page){
     return cands.length ? cands[0].t : null;
   });
   return name || null;
-}
-
-async function getCityStateZip(page){
-  const txt = await page.evaluate(() => {
-    const cands = Array.from(document.querySelectorAll('body *'))
-      .map(el => (el.textContent || '').trim())
-      .filter(t => /,\s*[A-Za-z]{2,}\s*,?\s*\d{5}/.test(t));
-    return cands.length ? cands[0] : '';
-  });
-  let city = '', state = '', zip = '';
-  if (txt) {
-    const parts = txt.split(',');
-    city = (parts[0] || '').trim();
-    state = (parts[1] || '').trim();
-    const m = String(txt).match(/(\d{5})/);
-    zip = m ? m[1] : '';
-  }
-  return { city, state, zip };
 }
 
 // ---------- parse all policy blocks & phones; compute monthly total (active only) ----------
@@ -425,13 +484,28 @@ async function parseLeadDetail(page){
   // ---- collect policy phones (Ph:/Sec Ph:) from DOM AND from each policy text block ----
   const policyRows = [];
   const seen = new Set();
-  const pushPolicyNumber = (token, label) => {
-    const windowText = `${label || ''} ${token}`;
-    const norm = normalizeAndFlag(token, { from: 'pdf', inPdfLabelWindow: labelWindowAccepts(windowText) });
-    const key = `${norm.digits || ''}-${norm.extension || ''}`;
+  const pushPolicyNumber = (token, label, primaryName) => {
+    const norm = normalizePhoneCandidate(token, label);
+    if (!norm) return;
+    const key = `${norm.rawDigits || norm.original}-${norm.extension || ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    policyRows.push({ ...norm, source: 'pdf', label: label || '' });
+    policyRows.push({
+      primaryName,
+      source: "policy",
+      lineType: /sec/i.test(label) ? "Secondary" :
+                /cell/i.test(label) ? "Cell" :
+                /home/i.test(label) ? "Home" :
+                /work/i.test(label) ? "Work" : "Policy",
+      original: norm.original,
+      rawDigits: norm.rawDigits,
+      phone: norm.phone,
+      extension: norm.extension || null,
+      tollFree: !!norm.tollFree,
+      international: !!norm.international,
+      valid: !!norm.valid,
+      flag: norm.flags.join(", ")
+    });
   };
 
   // A) same-line label forms inside each policy text block (handles "Ph: 555…  Sec Ph: 444…")
@@ -446,7 +520,7 @@ async function parseLeadDetail(page){
       const tokRe = new RegExp(blockTokenReSrc, 'gi');
       let t;
       while ((t = tokRe.exec(span))) {
-        pushPolicyNumber(t[0], label);
+        pushPolicyNumber(t[0], label, primaryNameHeader || null);
       }
     }
   }
@@ -495,7 +569,7 @@ async function parseLeadDetail(page){
   for (const { label, strings } of domPairs) {
     for (const s of strings) {
       tokenRe.lastIndex = 0;
-      let m; while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label);
+      let m; while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
     }
   }
 
@@ -536,8 +610,13 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
-  const allRows = [];
+  const clickToCallRows = [];
+  const policyPhoneRows = [];
+
+  // per-lead results
+  const leads = [];
   let leadCount = 0;
+  let sumAllLeadsMonthly = 0;
 
   try{
     await login(page, { username, password }, log);
@@ -558,69 +637,60 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
     while (leadCount < maxLeads) {
       await dismissAnyModal(page, log);
       log(`Processing lead ${leadCount + 1}`);
+      // primary name from header
+      let primaryName = await getPrimaryNameFromHeader(page);
 
-      const leadUrl = page.url();
-      const leadIdMatch = leadUrl.match(/LeadId=(\d+)/i);
-      const leadId = leadIdMatch ? leadIdMatch[1] : '';
+      // 1) click-to-call
+      const c2c = await harvestClickToCall(page, log);
+      c2c.forEach(r => (r.primaryName = primaryName || r.primaryName));
+      clickToCallRows.push(...c2c);
 
-      let primaryNameRaw = await getPrimaryNameFromHeader(page);
-      let primaryName = normalizePersonName(primaryNameRaw || '') || '(Unknown Lead)';
-
-      const { city, state, zip } = await getCityStateZip(page);
-
-      const clickItems = await harvestClickToCall(page, log);
+      // 2) policies + phones + monthly total (active only)
       const detail = await parseLeadDetail(page);
-      const pdfItems = detail.policyRows || [];
+      if (detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
+      if (!primaryName || !primaryName.trim()) primaryName = "(Unknown Lead)";
+      policyPhoneRows.push(...detail.policyRows);
 
-      // Override primary name if detail has a better header
-      if (detail.primaryNameHeader) {
-        primaryName = normalizePersonName(detail.primaryNameHeader) || primaryName;
-      }
+      // per-lead rollup
+      const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
+      const leadStar = leadMonthly > 100 ? "⭐" : "";
+      leads.push({
+        primaryName: primaryName || null,
+        monthlySpecialTotal: leadMonthly,
+        star: leadStar,
+        clickToCall: c2c,
+        policyPhones: detail.policyRows
+      });
 
-      const clickSet = new Set(clickItems.map(i => `${i.digits || ''}#${i.extension || ''}`));
-      const policyExtra = pdfItems.filter(i => !clickSet.has(`${i.digits || ''}#${i.extension || ''}`));
-
-      const clickCount = clickItems.length;
-      const policyExtraCount = policyExtra.length;
-
-      const combined = dedupePhones([...clickItems, ...pdfItems]);
-      for (const item of combined) {
-        const flags = [...(item.flags || [])];
-        if (item.status === 'discard') flags.push('Discard');
-        allRows.push({
-          leadId,
-          primaryName,
-          phone: item.pretty || item.digits,
-          pretty: item.pretty || item.digits,
-          rawDigits: item.digits || '',
-          extension: item.extension || '',
-          flags: flags.join(', '),
-          status: item.status,
-          source: item.source,
-          label: item.label || '',
-          city,
-          state,
-          zip,
-          clickCount,
-          policyExtraCount,
-        });
-      }
-
+      sumAllLeadsMonthly += leadMonthly;
       leadCount++;
+
       if (leadCount >= maxLeads) break;
+
+      // try right-arrow to next lead; if none, stop
       const moved = await goToNextLead(page, log);
       if (!moved) break;
+
       await sleep(300);
     }
 
-    const result = { ok: true, allRows, meta: { ts: nowIso(), leadCount } };
+    const result = {
+      ok: true,
+      leads,                    // per-lead (name, monthly, star, phones)
+      // flattened for quick jq/testing:
+      clickToCall: clickToCallRows,
+      policyPhones: policyPhoneRows,
+      meta: {
+        ts: nowIso(),
+        leadCount,
+        sumMonthlyAcrossLeads: Number(sumAllLeadsMonthly.toFixed(2))
+      }
+    };
 
     let sheet = null;
     if (email) {
-      const csvString = buildCompactCsv(allRows);
-      const csvPath = '/tmp/leads.csv';
-      require('fs').writeFileSync(csvPath, csvString, 'utf8');
-      const payload = { email, result: { allRows }, csvData: csvString };
+      // Include email when calling Apps Script so it can deliver results
+      const payload = { email, result };
       sheet = await createSheetAndShare(payload);
     }
 
@@ -631,7 +701,14 @@ async function scrapePlanet({ username, password, email, maxLeads = 5, runId, st
     log('Scrape finished.');
 
     if (sheet) {
-      return { ok: true, sheetUrl: sheet.url, csvUrl: sheet.csvUrl || null, meta: result.meta, leadCount: result.meta.leadCount };
+      return {
+        ok: true,
+        sheetUrl: sheet.url,
+        csvUrl: sheet.csvUrl || null,
+        meta: result.meta,
+        leadCount: result.meta.leadCount,
+        sumMonthlyAcrossLeads: result.meta.sumMonthlyAcrossLeads
+      };
     }
 
     return result;
