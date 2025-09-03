@@ -687,7 +687,9 @@ async function scrapePlanet({ username, password, email, maxLeads = 5 }){
 
     let sheet = null;
     if (email) {
-      sheet = await createSheetAndShare({ email, result });
+      // Include email when calling Apps Script so it can deliver results
+      const payload = { email, result };
+      sheet = await createSheetAndShare(payload);
     }
 
     if (sheet) {

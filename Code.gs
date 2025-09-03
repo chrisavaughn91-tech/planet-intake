@@ -1,90 +1,67 @@
-function _json(o) {
-  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+function json(o){ return ContentService.createTextOutput(JSON.stringify(o))
+  .setMimeType(ContentService.MimeType.JSON); }
+
+function toCsv(rows){
+  rows = rows || [];
+  return rows.map(r => (Array.isArray(r) ? r : Object.values(r))
+    .map(v => {
+      let s = String(v == null ? '' : v);
+      if (/[",\n]/.test(s)) s = '"' + s.replace(/"/g,'""') + '"';
+      return s;
+    }).join(',')).join('\n');
 }
 
-function _toCsv(rows) {
-  return (rows || []).map(r =>
-    (r || []).map(v => '"' + String(v ?? "").replace(/"/g, '""') + '"').join(",")
-  ).join("\r\n");
+function writeSheet_(ss, name, rows){
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  sh.clearContents();
+  if (!rows || !rows.length) { sh.getRange(1,1).setValue('No data'); return; }
+  const isObj = !Array.isArray(rows[0]);
+  const data = isObj ? [Object.keys(rows[0])].concat(rows.map(o => Object.keys(rows[0]).map(k => o[k]))) : rows;
+  sh.getRange(1,1,data.length,data[0].length).setValues(data);
 }
 
-function doGet(e) {
-  return _json({ ok: true, error: "POST only" });
-}
-
-function doPost(e) {
+function doPost(e){
   try {
-    var data = JSON.parse(e.postData.contents || '{}');
-    if (data.expectedKey && data.key !== data.expectedKey) {
-      return _json({ ok: false, error: 'bad key' });
-    }
+    const body = e && e.postData && e.postData.contents || '{}';
+    const data = JSON.parse(body);
+    const email = (data.email || '').trim();
 
-    var email = data.email;
-    var title = data.title || 'Planet Scrape';
-    var summaryRows = Array.isArray(data.summaryRows) ? data.summaryRows : [];
-    var allRows = Array.isArray(data.allRows) ? data.allRows : [];
+    const title = data.title || ('Planet Scrape ' + new Date().toISOString().slice(0,19).replace('T',' '));
+    const summaryRows = data.summaryRows || [];
+    const allRows = data.allRows || [];
 
-    var ss = SpreadsheetApp.create(title);
-    var id = ss.getId();
-    var url = ss.getUrl();
+    // 1) Create spreadsheet
+    const ss = SpreadsheetApp.create(title);
+    const ssUrl = ss.getUrl();
 
-    var summary = ss.getActiveSheet();
-    summary.setName('Summary');
-    if (summaryRows.length) summary.getRange(1,1,summaryRows.length,summaryRows[0].length).setValues(summaryRows);
+    // 2) Write sheets (adapt names if needed)
+    if (summaryRows.length) writeSheet_(ss, 'Summary', summaryRows);
+    if (allRows.length) writeSheet_(ss, 'AllNumbers', allRows);
 
-    var all = ss.insertSheet('AllNumbers');
-    if (allRows.length) all.getRange(1,1,allRows.length,allRows[0].length).setValues(allRows);
+    // 3) Build CSV (use Summary if present, else AllNumbers)
+    const forCsv = summaryRows.length ? summaryRows : allRows;
+    const csv = toCsv(forCsv);
+    const csvFile = DriveApp.createFile(title + '.csv', csv, MimeType.CSV);
 
-    // Freeze header + bold only actual header width
-    summary.setFrozenRows(1);
-    all.setFrozenRows(1);
-    if (summaryRows.length) summary.getRange(1,1,1,summaryRows[0].length).setFontWeight('bold');
-    if (allRows.length)     all.getRange(1,1,1,allRows[0].length).setFontWeight('bold');
+    // 4) Make the CSV link-viewable and email it (if email provided)
+    csvFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const csvUrl = csvFile.getUrl();
 
-    // Keep first two columns of AllNumbers as text (names + phone)
-    all.getRange(1,1,all.getMaxRows(),2).setNumberFormat('@');
-
-    // Optional: NeedsAreaCode
-    var csvUrl = "";
-    if (Array.isArray(data.needsAreaRows) && data.needsAreaRows.length) {
-      var needs = ss.insertSheet('NeedsAreaCode');
-      needs.getRange(1,1,data.needsAreaRows.length,data.needsAreaRows[0].length).setValues(data.needsAreaRows);
-      needs.setFrozenRows(1);
-      needs.getRange(1,1,1,data.needsAreaRows[0].length).setFontWeight('bold');
-      needs.getRange(1,1,needs.getMaxRows(),2).setNumberFormat('@');
-    }
-
-    // Optional: AllNumbers_Details (audit)
-    if (Array.isArray(data.detailsRows) && data.detailsRows.length) {
-      var det = ss.insertSheet('AllNumbers_Details');
-      det.getRange(1,1,data.detailsRows.length,data.detailsRows[0].length).setValues(data.detailsRows);
-      det.setFrozenRows(1);
-      det.getRange(1,1,1,data.detailsRows[0].length).setFontWeight('bold');
-      // text format first two columns (Name + Phone)
-      det.getRange(1,1,det.getMaxRows(),2).setNumberFormat('@');
-    }
-
-    // ALSO create a CSV for AllNumbers
-    var csvName = title + ' - AllNumbers.csv';
-    var csvBlob = Utilities.newBlob(_toCsv(allRows), 'text/csv', csvName);
-    var csvFile = DriveApp.createFile(csvBlob);
-    csvFile.addViewer(email);
-    csvUrl = csvFile.getUrl();
-
-    // Share sheet with the user and notify
-    DriveApp.getFileById(id).addViewer(email);
-    try {
+    if (email) {
+      const subject = 'Your Planet Intake results';
+      const bodyText = 'Hi,\n\nYour scrape has finished.\n\nSheet: ' + ssUrl + '\nCSV: ' + csvUrl + '\n\nRegards,\nPlanet Intake Bot';
       MailApp.sendEmail({
         to: email,
-        subject: 'Your Planet files are ready',
-        body: url,
-        attachments: [csvBlob]
+        subject: subject,
+        htmlBody: bodyText.replace(/\n/g,'<br>'),
+        attachments: [csvFile.getAs(MimeType.CSV)],
+        name: 'Planet Intake Bot'
       });
-    } catch (err) {}
+    }
 
-    return _json({ ok: true, sheetUrl: url, csvUrl: csvUrl, spreadsheetId: id, url: url });
+    return json({ ok:true, sheetUrl: ssUrl, csvUrl });
   } catch (err) {
-    return _json({ ok: false, error: String(err && err.message ? err.message : err) });
+    return json({ ok:false, error: String(err && err.message || err) });
   }
 }
 
