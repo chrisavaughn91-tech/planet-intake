@@ -2,10 +2,10 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const { scrapePlanet } = require('./scraper');
-const { createSheetAndShare } = require('./sheets');
 
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Backend-only max leads (default 200). Users never set this.
 // You can change it at deploy time with:
@@ -32,6 +32,18 @@ app.get('/logs', async (req, res) => {
   });
 });
 
+// Simple HTML form for manual runs
+app.get('/run', (_req, res) => {
+  res.send(`<!DOCTYPE html><html><body>
+    <form method="POST" action="/scrape">
+      <div><input name="username" placeholder="Username" /></div>
+      <div><input name="password" type="password" placeholder="Password" /></div>
+      <div><input name="email" type="email" placeholder="Email" /></div>
+      <button type="submit">Run</button>
+    </form>
+  </body></html>`);
+});
+
 // Main scrape endpoint
 app.post('/scrape', async (req, res) => {
   const { username, password, email } = req.body || {};
@@ -46,24 +58,14 @@ app.post('/scrape', async (req, res) => {
     // Users don’t choose maxLeads; enforce backend default.
     const maxLeads = MAX_LEADS_DEFAULT;
 
-    // Run the scraper
-    const result = await scrapePlanet({ username, password, maxLeads });
+    // Run the scraper and forward the email to Apps Script
+    const result = await scrapePlanet({ username, password, email, maxLeads });
 
     if (!result?.ok) {
       return res.status(200).json(result || { ok: false, error: 'Unknown scrape error' });
     }
 
-    // Create a new Google Sheet for this run and share it with the user
-    const sheet = await createSheetAndShare({ email, result });
-
-    return res.json({
-      ok: true,
-      sheetUrl: sheet.url,
-      csvUrl: sheet.csvUrl || null,
-      meta: result.meta,
-      leadCount: result.meta?.leadCount,
-      sumMonthlyAcrossLeads: result.meta?.sumMonthlyAcrossLeads
-    });
+    return res.json(result);
   } catch (err) {
     console.error('SCRAPE ERROR:', err?.stack || err);
     res.status(200).json({ ok: false, error: String(err?.message || err) });

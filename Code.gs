@@ -74,10 +74,15 @@ function doPost(e) {
     // Share sheet with the user and notify
     DriveApp.getFileById(id).addViewer(email);
     try {
-      MailApp.sendEmail(email, 'Your Planet files are ready', url + "\n\nCSV: " + csvUrl);
+      MailApp.sendEmail({
+        to: email,
+        subject: 'Your Planet files are ready',
+        body: url,
+        attachments: [csvBlob]
+      });
     } catch (err) {}
 
-    return _json({ ok: true, spreadsheetId: id, url: url, csvUrl: csvUrl });
+    return _json({ ok: true, sheetUrl: url, csvUrl: csvUrl, spreadsheetId: id, url: url });
   } catch (err) {
     return _json({ ok: false, error: String(err && err.message ? err.message : err) });
   }

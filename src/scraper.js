@@ -1,5 +1,6 @@
 // src/scraper.js
 const { chromium } = require("playwright");
+const { createSheetAndShare } = require("./sheets");
 
 function streamLog(msg) {
   console.log(msg);
@@ -601,7 +602,7 @@ async function goToNextLead(page){
 }
 
 // ---------- main scraper ----------
-async function scrapePlanet({ username, password, maxLeads = 5 }){
+async function scrapePlanet({ username, password, email, maxLeads = 5 }){
   streamLog(`Starting scrape with max ${maxLeads} leads...`);
   const { browser, context, page } = await launch();
 
@@ -671,7 +672,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     }
 
     streamLog('Scrape finished.');
-    return {
+    const result = {
       ok: true,
       leads,                    // per-lead (name, monthly, star, phones)
       // flattened for quick jq/testing:
@@ -683,6 +684,24 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
         sumMonthlyAcrossLeads: Number(sumAllLeadsMonthly.toFixed(2))
       }
     };
+
+    let sheet = null;
+    if (email) {
+      sheet = await createSheetAndShare({ email, result });
+    }
+
+    if (sheet) {
+      return {
+        ok: true,
+        sheetUrl: sheet.url,
+        csvUrl: sheet.csvUrl || null,
+        meta: result.meta,
+        leadCount: result.meta.leadCount,
+        sumMonthlyAcrossLeads: result.meta.sumMonthlyAcrossLeads
+      };
+    }
+
+    return result;
 
   }catch(err){
     return { ok: false, error: String(err && err.message ? err.message : err) };
