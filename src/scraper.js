@@ -2,9 +2,11 @@
 const { chromium } = require("playwright");
 const { createSheetAndShare } = require("./sheets");
 
-function streamLog(msg) {
-  console.log(msg);
-  if (global.__logStream) global.__logStream(msg);
+function makeLogger(runId, stream) {
+  return (msg) => {
+    if (stream) stream(runId, msg);
+    else console.log(msg);
+  };
 }
 
 // ---- URLs ----
@@ -114,13 +116,13 @@ async function firstVisible(locator){
 }
 
 // ---------- browser helpers ----------
-async function dismissAnyModal(page) {
+async function dismissAnyModal(page, log) {
   try {
     const hasBackdrop = await page.$('.modal-backdrop.in, .modal-backdrop.show');
     const hasDialog   = await page.$('.modal.in, .modal.show, [role="dialog"].modal');
 
     if (hasBackdrop || hasDialog) {
-      streamLog('Modal detected — attempting to dismiss');
+      log('Modal detected — attempting to dismiss');
 
       const closeSelectors = [
         'button.close',
@@ -154,14 +156,14 @@ async function dismissAnyModal(page) {
 
       await page.waitForTimeout(200);
 
-      streamLog('Modal dismiss attempt finished');
+      log('Modal dismiss attempt finished');
     }
   } catch (e) {
     // non-fatal
   }
 }
 
-async function clickWithModalGuard(page, locator, label = 'click target', maxTries = 5) {
+async function clickWithModalGuard(page, locator, label = 'click target', maxTries = 5, log) {
   for (let i = 1; i <= maxTries; i++) {
     try {
       const el = (typeof locator === 'string') ? page.locator(locator) : locator;
@@ -171,9 +173,9 @@ async function clickWithModalGuard(page, locator, label = 'click target', maxTri
     } catch (err) {
       const msg = String(err || '');
       const maybeBackdrop = /intercepts pointer events|not receive pointer events|Element is not attached/i.test(msg);
-      streamLog(`Click failed on ${label} (try ${i}/${maxTries}) — ${msg.slice(0,120)}…`);
+      log(`Click failed on ${label} (try ${i}/${maxTries}) — ${msg.slice(0,120)}…`);
       if (maybeBackdrop) {
-        await dismissAnyModal(page);
+        await dismissAnyModal(page, log);
       } else {
         await page.waitForTimeout(300);
       }
@@ -197,7 +199,7 @@ async function launch(){
 }
 
 // ---------- login ----------
-async function login(page, creds){
+async function login(page, creds, log){
   await page.goto(LOGIN_URL, { waitUntil: "load", timeout: 60000 });
 
   // Prefer the first visible text/email input and the first password input.
@@ -236,28 +238,28 @@ async function login(page, creds){
 
   // Make sure we’re on the app, then we’ll navigate ourselves to the pack:
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(()=>{});
-  await dismissAnyModal(page);
+  await dismissAnyModal(page, log);
 }
 
 // ---------- go to All Leads ----------
-async function goToAllLeads(page){
+async function goToAllLeads(page, log){
   const myLeads =
     (await firstVisible(page.getByRole("link",  { name: /my leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /my leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("My Leads"), button:has-text("My Leads")')));
 
-  if (myLeads) { await clickWithModalGuard(page, myLeads, 'My Leads'); await sleep(300); }
+  if (myLeads) { await clickWithModalGuard(page, myLeads, 'My Leads', 5, log); await sleep(300); }
 
   const allLeads =
     (await firstVisible(page.getByRole("link",  { name: /all leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /all leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("All Leads"), button:has-text("All Leads")')));
 
-  if (allLeads) { await clickWithModalGuard(page, allLeads, 'All Leads'); }
+  if (allLeads) { await clickWithModalGuard(page, allLeads, 'All Leads', 5, log); }
 
   // Force the URL either way.
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
-  await dismissAnyModal(page);
+  await dismissAnyModal(page, log);
 
   // Wait until the list actually renders links to /Lead/InboxDetail?LeadId=
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
@@ -325,7 +327,7 @@ async function gatherVisibleNumberTokens(page){
 }
 
 // ---------- harvest Click-to-Call by “diffing” before/after click ----------
-async function harvestClickToCall(page){
+async function harvestClickToCall(page, log){
   const rows = [];
 
   const callBtn =
@@ -336,7 +338,7 @@ async function harvestClickToCall(page){
   if(!callBtn) return rows;
 
   const before = new Set(await gatherVisibleNumberTokens(page));
-  await clickWithModalGuard(page, callBtn, 'Click-to-Call');
+  await clickWithModalGuard(page, callBtn, 'Click-to-Call', 5, log);
   await page.waitForTimeout(800); // numbers slide down
 
   const after  = new Set(await gatherVisibleNumberTokens(page));
@@ -579,17 +581,17 @@ async function parseLeadDetail(page){
 }
 
 // ---------- go to next lead via right-arrow; return false on end/error ----------
-async function goToNextLead(page){
+async function goToNextLead(page, log){
   const next =
     (await firstVisible(page.locator('a[href*="/Lead/MoveNext"]'))) ||
     (await firstVisible(page.getByRole('link', { name: /next/i }))) ||
     (await firstVisible(page.locator('button[onclick*="MoveNext"]')));
 
   if(!next) return false;
-  streamLog('Moving to next lead');
+  log('Moving to next lead');
 
   const nav = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(()=>null);
-  await clickWithModalGuard(page, next, 'MoveNext / Next lead');
+  await clickWithModalGuard(page, next, 'MoveNext / Next lead', 5, log);
   await nav;
 
   const url = page.url();
@@ -602,8 +604,9 @@ async function goToNextLead(page){
 }
 
 // ---------- main scraper ----------
-async function scrapePlanet({ username, password, email, maxLeads = 5 }){
-  streamLog(`Starting scrape with max ${maxLeads} leads...`);
+async function scrapePlanet({ username, password, email, maxLeads = 5, runId, stream }){
+  const log = makeLogger(runId, stream);
+  log(`Starting scrape with max ${maxLeads} leads...`);
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
@@ -616,9 +619,9 @@ async function scrapePlanet({ username, password, email, maxLeads = 5 }){
   let sumAllLeadsMonthly = 0;
 
   try{
-    await login(page, { username, password });
-    streamLog('Logged in, navigating to leads...');
-    await goToAllLeads(page);
+    await login(page, { username, password }, log);
+    log('Logged in, navigating to leads...');
+    await goToAllLeads(page, log);
 
     // Open the first lead (fallback path if arrowing fails)
     const links = await collectLeadPackLinks(page, Math.max(1, maxLeads));
@@ -626,19 +629,19 @@ async function scrapePlanet({ username, password, email, maxLeads = 5 }){
       return { ok:false, error: "No leads found in inbox." };
     }
     // go to first lead card
-    streamLog('Opening first lead');
-    await clickWithModalGuard(page, page.locator('a[href*="/Lead/InboxDetail"]').first(), 'open first lead');
+    log('Opening first lead');
+    await clickWithModalGuard(page, page.locator('a[href*="/Lead/InboxDetail"]').first(), 'open first lead', 5, log);
     await page.waitForLoadState('domcontentloaded');
     await sleep(350);
 
     while (leadCount < maxLeads) {
-      await dismissAnyModal(page);
-      streamLog(`Processing lead ${leadCount + 1}`);
+      await dismissAnyModal(page, log);
+      log(`Processing lead ${leadCount + 1}`);
       // primary name from header
       let primaryName = await getPrimaryNameFromHeader(page);
 
       // 1) click-to-call
-      const c2c = await harvestClickToCall(page);
+      const c2c = await harvestClickToCall(page, log);
       c2c.forEach(r => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
@@ -665,13 +668,12 @@ async function scrapePlanet({ username, password, email, maxLeads = 5 }){
       if (leadCount >= maxLeads) break;
 
       // try right-arrow to next lead; if none, stop
-      const moved = await goToNextLead(page);
+      const moved = await goToNextLead(page, log);
       if (!moved) break;
 
       await sleep(300);
     }
 
-    streamLog('Scrape finished.');
     const result = {
       ok: true,
       leads,                    // per-lead (name, monthly, star, phones)
@@ -691,6 +693,12 @@ async function scrapePlanet({ username, password, email, maxLeads = 5 }){
       const payload = { email, result };
       sheet = await createSheetAndShare(payload);
     }
+
+    if (sheet) {
+      log(`Sheet ready: ${sheet.url}`);
+      log(`CSV emailed to ${email}`);
+    }
+    log('Scrape finished.');
 
     if (sheet) {
       return {
