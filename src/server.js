@@ -42,6 +42,7 @@ app.post('/scrape', async (req, res) => {
     return res.json({
       ok: true,
       sheetUrl: sheet.url,
+      csvUrl: sheet.csvUrl || null,
       meta: result.meta,
       leadCount: result.meta?.leadCount,
       sumMonthlyAcrossLeads: result.meta?.sumMonthlyAcrossLeads
