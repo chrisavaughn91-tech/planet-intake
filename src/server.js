@@ -3,34 +3,6 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { scrapePlanet } = require('./scraper');
 
-const newRunId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-const sseClients = new Map(); // runId -> Set(res)
-
-function attachSse(res) {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-}
-
-function addClient(runId, res) {
-  if (!sseClients.has(runId)) sseClients.set(runId, new Set());
-  const set = sseClients.get(runId);
-  set.add(res);
-  res.on('close', () => {
-    set.delete(res);
-    if (!set.size) sseClients.delete(runId);
-  });
-}
-
-function stream(runId, msg) {
-  console.log(msg);
-  const set = sseClients.get(runId);
-  if (!set) return;
-  const line = `data: ${msg}\n\n`;
-  for (const res of set) res.write(line);
-}
-
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -43,13 +15,21 @@ const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
 // Health endpoint (used by Cloud Run)
 app.get('/health', (_req, res) => res.status(200).send('ok'));
 
-// Live log streaming endpoint for specific runs (Server-Sent Events)
-app.get('/logs', (req, res) => {
-  const runId = String(req.query.runId || '');
-  if (!runId) return res.status(400).send('Missing runId');
-  attachSse(res);
-  addClient(runId, res);
-  res.write(`data: [SSE] Live log stream started for ${runId}...\n\n`);
+// Live log streaming endpoint using Server-Sent Events (SSE)
+app.get('/logs', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const log = (msg) => res.write(`data: ${msg}\n\n`);
+  global.__logStream = log;
+
+  log('[SSE] Live log stream started...');
+
+  req.on('close', () => {
+    global.__logStream = null;
+  });
 });
 
 // Simple HTML form for manual runs
@@ -59,7 +39,7 @@ app.get('/run', (req, res) => {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Planet Leads Scraper</title>
+  <title>Planet Intake • Run Scraper</title>
   <style>
     :root{
       --bg:#0b1220; --panel:#111a2b; --ink:#eaf2ff; --muted:#a9b7d0; --accent:#43b6ff; --accent2:#6ee7b7; --danger:#ff7676;
@@ -101,7 +81,7 @@ app.get('/run', (req, res) => {
   <div class="wrap">
     <div class="card">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
-        <h1>Planet Leads Scraper</h1>
+        <h1>Run Planet Intake Scraper</h1>
         <span class="badge">Live</span>
       </div>
       <p class="sub">Enter your Planet credentials and an email. We’ll run the scraper, build your Google Sheet and CSV, and email them to you.</p>
@@ -117,20 +97,28 @@ app.get('/run', (req, res) => {
         </div>
         <label>Email (delivery address)
           <input name="email" type="email" placeholder="you@company.com" required />
-          <small><a id="watchLogsLink" href="#" target="_blank" rel="noopener">watch live logs</a></small>
         </label>
+        <div class="hint">Tip: keep this tab open and <a href="/logs" target="_blank">watch live logs</a> while it runs.</div>
         <div class="actions">
           <button id="go" type="submit">Run scraper →</button>
+          <a class="ghost" href="/logs" target="_blank"><button class="ghost" type="button">Open live logs</button></a>
           <span id="msg" class="muted"></span>
         </div>
       </form>
+
+      <div class="footer">
+        <div class="muted">Need help? Ping the team.</div>
+        <div class="muted">Keyboard: <code class="k">Ctrl</code> + <code class="k">Enter</code> to submit</div>
+      </div>
     </div>
   </div>
   <script>
     const f = document.getElementById('f');
     const msg = document.getElementById('msg');
     const go = document.getElementById('go');
-    const watchLogsLink = document.getElementById('watchLogsLink');
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') f.requestSubmit();
+    });
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
       msg.textContent = 'Starting...';
@@ -145,9 +133,9 @@ app.get('/run', (req, res) => {
         });
         const j = await r.json();
         if (j.ok) {
-          watchLogsLink.href = j.logsUrl;
-          window.open(j.logsUrl, '_blank');
-          msg.textContent = 'Running… check the logs tab.';
+          msg.innerHTML = 'Done. '
+            + (j.sheetUrl ? '<a href="' + j.sheetUrl + '" target="_blank">Open Sheet</a>' : '')
+            + (j.csvUrl ? ' • <a href="' + j.csvUrl + '" target="_blank">CSV</a>' : '');
         } else {
           msg.textContent = 'Failed: ' + (j.error || 'Unknown error');
         }
@@ -163,7 +151,7 @@ app.get('/run', (req, res) => {
 });
 
 // Main scrape endpoint
-app.post('/scrape', (req, res) => {
+app.post('/scrape', async (req, res) => {
   try {
     const isJson = (req.headers['content-type'] || '').includes('application/json');
     const { username, password, email } = isJson ? req.body : req.body || {};
@@ -171,12 +159,8 @@ app.post('/scrape', (req, res) => {
       return res.status(400).json({ ok: false, error: 'Missing username, password, or email' });
     }
 
-    const runId = newRunId();
-    scrapePlanet({ username, password, email, maxLeads: MAX_LEADS_DEFAULT, runId, stream })
-      .catch(err => {
-        stream(runId, `SCRAPE ERROR: ${err && err.message ? err.message : err}`);
-      });
-    return res.json({ ok: true, runId, logsUrl: `/logs?runId=${runId}` });
+    const result = await scrapePlanet({ username, password, email, maxLeads: MAX_LEADS_DEFAULT });
+    return res.json({ ok: true, ...result });
   } catch (err) {
     console.error('SCRAPE ERROR:', err);
     return res.status(500).json({ ok: false, error: String((err && err.message) || err) });
