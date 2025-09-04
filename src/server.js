@@ -7,61 +7,78 @@ if (!process.env.GSCRIPT_WEBAPP_URL) {
 
 const express = require('express');
 const bodyParser = require('body-parser');
+const path = require('path');
 const { scrapePlanet } = require('./scraper');
 const { createSheetAndShare } = require('./sheets');
-const { emit } = require('./events');
+const { emit, bus } = require('./events');
 
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
-/* START:SSE_BLOCK */
-const path = require('path');
-const { bus } = require('./events');
-
-// Keep track of connected SSE clients
-const sseClients = new Set();
-
-app.get('/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders?.(); // in case compression is on
-
-  // Welcome ping so the client knows we're connected
-  res.write(`event: hello\ndata: ${JSON.stringify({ ok: true })}\n\n`);
-  sseClients.add(res);
-
-  // Heartbeat to keep the connection open on proxies
-  const hb = setInterval(() => {
-    if (!res.writableEnded) res.write(`event: ping\ndata: {}\n\n`);
-  }, 20000);
-
-  req.on('close', () => {
-    clearInterval(hb);
-    sseClients.delete(res);
-  });
-});
-
-// Broadcast helper
-function broadcast(evt) {
-  const line = `event: ${evt.type || 'evt'}\ndata: ${JSON.stringify(evt)}\n\n`;
-  for (const client of sseClients) {
-    if (!client.writableEnded) client.write(line);
+const clients = new Set();
+function broadcast(obj) {
+  const line = `data: ${JSON.stringify(obj)}\n\n`;
+  for (const res of clients) {
+    try { res.write(line); } catch {}
   }
 }
+module.exports.broadcast = broadcast;
 
-// Pipe events from the bus to connected clients
 bus.on('evt', broadcast);
+
+app.get('/events', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  res.flushHeaders();
+  clients.add(res);
+  res.write(`data: ${JSON.stringify({type:'hello', ts: Date.now()})}\n\n`);
+
+  req.on('close', () => clients.delete(res));
+});
+
+// heartbeat
+setInterval(() => broadcast({ type: 'heartbeat', ts: Date.now() }), 10000);
 
 // Serve the tiny dashboard at /live
 app.get('/live', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'live.html'));
 });
-/* END:SSE_BLOCK */
+
+// landing page
+app.get('/', (_req, res) => {
+  res.send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Planet Intake – Live Stream</title>
+<style>body{font:14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;padding:16px;}
+#log{white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; border:1px solid #ddd; border-radius:8px; padding:12px; max-height:70vh; overflow:auto;}
+.badge{display:inline-block; padding:2px 8px; border-radius:999px; background:#eee; margin-right:8px;}
+</style></head>
+<body>
+  <h1>Planet Intake – Live Stream</h1>
+  <div><span class="badge">SSE</span>Connecting to <code>/events</code>…</div>
+  <div id="log" style="margin-top:12px;"></div>
+  <script>
+    const el = document.getElementById('log');
+    const es = new EventSource('/events');
+    es.onmessage = (e) => {
+      try { const msg = JSON.parse(e.data); append(msg); }
+      catch { append({raw:e.data}); }
+    };
+    es.onerror = () => append({type:'error', at: Date.now()});
+    function append(obj){
+      const line = '['+new Date().toLocaleTimeString()+'] ' + JSON.stringify(obj);
+      el.textContent += line + "\\n";
+      el.scrollTop = el.scrollHeight;
+    }
+  </script>
+</body></html>`);
+});
 
 /* START:STATUS */
 app.get('/status', (_req, res) => {
-  res.json({ ok: true, listeners: [...sseClients].length, time: new Date().toISOString() });
+  res.json({ ok: true, listeners: clients.size, time: new Date().toISOString() });
 });
 /* END:STATUS */
 
