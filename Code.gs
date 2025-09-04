@@ -1,132 +1,233 @@
-// ---- name normalization helpers ----
-function toTitleCase_(s) {
-  if (!s) return '';
-  return String(s)
-    .toLowerCase()
-    .replace(/\b([a-z])/g, (m) => m.toUpperCase());
-}
+/** @OnlyCurrentDoc */
 
-function normalizeLeadName_(name) {
-  if (!name) return '';
-  const str = String(name).trim();
-  const m = str.match(/^([^,]+),\s*(.+)$/); // LAST, FIRST
-  if (m) {
-    const last = toTitleCase_(m[1]);
-    const first = toTitleCase_(m[2]);
-    return `${first} ${last}`;
-  }
-  return toTitleCase_(str);
-}
-// ------------------------------------
+// -----------------------------
+// Version tag (for diagnostics)
+// -----------------------------
+const VERSION_TAG = 'sheet-polish-v2';
 
-/** Webhook to build + share the Planet sheet */
+// -----------------------------
+// Entry point
+// -----------------------------
 function doPost(e) {
   try {
-    var data = JSON.parse(e.postData.contents || "{}");
+    const payload = parsePayload_(e);
+    const ss = openTargetSpreadsheet_(payload);
 
-    // optional shared secret
-    var EXPECTED_KEY = data.expectedKey || ""; // leave blank if you don't want to check
+    const summaryRows = coalesce_(payload, ['summaryRows','summary','summary_list'], []);
+    const goodList    = coalesce_(payload, ['allNumbersGood','goodNumbers','valid_numbers'], []);
+    const flaggedList = coalesce_(payload, ['allNumbersFlagged','flaggedNumbers','flagged_numbers'], []);
 
-    if (EXPECTED_KEY && data.key !== EXPECTED_KEY) {
-      return _json({ ok: false, error: "bad key" }, 401);
-    }
-
-    var email = data.email || "";
-    var title = data.title || ("Planet Scrape — " + email + " — " +
-                 new Date().toISOString().replace("T"," ").slice(0,19));
-
-    var summaryRows    = data.summaryRows    || [];
-    var goodNumbers    = data.goodNumbers    || [];
-    var flaggedNumbers = data.flaggedNumbers || [];
-
-    // Create spreadsheet with Summary + AllNumbers
-    var ss = SpreadsheetApp.create(title);
-    var url = ss.getUrl();
-    var id  = ss.getId();
-
-    // Rename default sheet to Summary
-    var firstSheet = ss.getSheets()[0];
-    firstSheet.setName("Summary");
-
-    // Build sheets
     renderSummarySheet_(ss, summaryRows);
-    renderAllNumbersSheet_(ss, goodNumbers, flaggedNumbers);
+    renderAllNumbersSheet_(ss, goodList, flaggedList);
 
-    // Share with the user and notify
-    DriveApp.getFileById(id).addViewer(email);
-    try { MailApp.sendEmail(email, "Your Planet sheet is ready", url); } catch (err) {}
-
-    return _json({ ok: true, spreadsheetId: id, url: url });
+    return json_(200, {
+      ok: true,
+      meta: {
+        versionTag: VERSION_TAG,
+        summaryCount: Array.isArray(summaryRows) ? summaryRows.length : 0,
+        goodCount: Array.isArray(goodList) ? goodList.length : 0,
+        flaggedCount: Array.isArray(flaggedList) ? flaggedList.length : 0
+      }
+    });
   } catch (err) {
-    return _json({ ok: false, error: String(err && err.message || err) }, 500);
+    return json_(500, { ok:false, error: String(err), versionTag: VERSION_TAG });
   }
 }
 
-function renderSummarySheet_(ss, summaryRows) {
-  // summaryRows is an array of objects: { name, badge, monthlySpecial, clickToCallCount, extraPolicyPhonesCount }
-  const sheet = ss.getSheetByName('Summary') || ss.insertSheet('Summary');
+// -----------------------------
+// Summary sheet rendering
+// -----------------------------
+function renderSummarySheet_(ss, rows) {
+  const sheet = getOrCreateSheet_(ss, 'Summary');
+
+  // Header order & labels
+  const headers = ['Badge','Lead','Total Premium','Listed #’s','+ #’s'];
+  prepareSheetWithHeaders_(sheet, headers);
+
+  const out = [];
+  (rows || []).forEach((r) => {
+    const nameRaw = coalesce_(r, ['lead','primaryName','name'], '');
+    const premiumRaw = coalesce_(r, ['totalPremium','monthlySpecial'], 0);
+    const listedRaw  = coalesce_(r, ['listedCount','clickToCallCount'], 0);
+    const extraRaw   = coalesce_(r, ['extraPolicyCount','policyPhoneCount'], 0);
+    const allLapsed  = coalesce_(r, ['allPoliciesLapsed'], false);
+
+    const lead = normalizeName_(String(nameRaw));
+    const premium = toNumber_(premiumRaw);
+    const listed  = toInt_(listedRaw);
+    const extra   = toInt_(extraRaw);
+
+    let badge = coalesce_(r, ['badge','star'], null);
+    if (!badge) badge = computeBadge_(premium, allLapsed);
+
+    out.push([badge, lead, premium, listed, extra]);
+  });
+
+  // Write table
+  if (out.length) {
+    sheet.getRange(2, 1, out.length, headers.length).setValues(out);
+  }
+
+  // Formats
+  const last = 1 + out.length;
+  if (out.length) {
+    sheet.getRange(2, 3, out.length, 1).setNumberFormat('$#,##0.00'); // Total Premium
+  }
+
+  // Styling
+  finalizeSheetStyling_(sheet, headers.length, last);
+}
+
+// -----------------------------
+// AllNumbers sheet rendering
+// -----------------------------
+function renderAllNumbersSheet_(ss, goodList, flaggedList) {
+  const sheet = getOrCreateSheet_(ss, 'AllNumbers');
+
+  const headers = ['Lead','Phone','Lead','Phone','Flag'];
+  prepareSheetWithHeaders_(sheet, headers);
+
+  // Coerce to arrays of arrays, normalize names
+  const goodRows = (goodList || []).map((x) => {
+    const arr = toRow_(x, ['primaryName','lead','name'], ['phone','number']);
+    return [ normalizeName_(arr[0] || ''), String(arr[1] || '') ];
+  });
+
+  const flaggedRows = (flaggedList || []).map((x) => {
+    const arr = toRow_(x, ['primaryName','lead','name'], ['phone','number'], ['flag','reason','label']);
+    return [ normalizeName_(arr[0] || ''), String(arr[1] || ''), String(arr[2] || '') ];
+  });
+
+  // Write compact block A–B
+  if (goodRows.length) {
+    sheet.getRange(2, 1, goodRows.length, 2).setValues(goodRows);
+  }
+
+  // Write compact block C–E
+  if (flaggedRows.length) {
+    sheet.getRange(2, 3, flaggedRows.length, 3).setValues(flaggedRows);
+  }
+
+  const lastRow = 1 + Math.max(goodRows.length, flaggedRows.length);
+  finalizeSheetStyling_(sheet, headers.length, lastRow);
+}
+
+// -----------------------------
+// Helpers: sheet setup & polish
+// -----------------------------
+function getOrCreateSheet_(ss, name) {
+  const found = ss.getSheetByName(name);
+  return found || ss.insertSheet(name);
+}
+
+function prepareSheetWithHeaders_(sheet, headers) {
   sheet.clearContents();
-
-  const headers = ["Badge","Lead","Total Premium","Listed #s","Added #s"];
-  sheet.getRange(1,1,1,headers.length).setValues([headers]);
-
-  // Normalize name + map to the new column order
-  const values = (summaryRows || []).map(r => ([
-    r.badge || "",
-    normalizeLeadName_(r.name || ""),
-    Number(r.monthlySpecial || 0),
-    Number(r.clickToCallCount || 0),
-    Number(r.extraPolicyPhonesCount || 0)
-  ]));
-
-  if (values.length) {
-    sheet.getRange(2,1,values.length,headers.length).setValues(values);
-  }
-
-  // Currency format for Total Premium (column C)
-  if (sheet.getLastRow() >= 2) {
-    sheet.getRange(2,3, sheet.getLastRow()-1, 1).setNumberFormat("$#,##0.00");
-  }
-
+  // preserve existing banding by removing and re-applying in finalize
+  const existingBands = sheet.getBandings();
+  existingBands.forEach(b => b.remove());
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+       .setFontWeight('bold');
   sheet.setFrozenRows(1);
-  sheet.autoResizeColumns(1, headers.length);
 }
 
-function renderAllNumbersSheet_(ss, goodNumbers, flaggedNumbers) {
-  // goodNumbers: [{name, phone}]
-  // flaggedNumbers: [{name, phone, flag}]
-  const sheet = ss.getSheetByName('AllNumbers') || ss.insertSheet('AllNumbers');
-  sheet.clearContents();
+function finalizeSheetStyling_(sheet, headerCount, lastRow) {
+  // Column sizing
+  sheet.autoResizeColumns(1, headerCount);
 
-  const headers = ["Lead","Phone","Lead","Number","Flag"];
-  sheet.getRange(1,1,1,headers.length).setValues([headers]);
-
-  const good = (goodNumbers || [])
-    .filter(g => g && g.phone)
-    .map(g => [ normalizeLeadName_(g.name || ""), g.phone || "" ]);
-
-  const flagged = (flaggedNumbers || [])
-    .filter(f => f && f.phone)
-    .map(f => [ normalizeLeadName_(f.name || ""), f.phone || "", f.flag || "" ]);
-
-  if (good.length) {
-    sheet.getRange(2, 1, good.length, 2).setValues(good); // A:B
+  // Banded rows
+  if (lastRow >= 2) {
+    sheet.getRange(1, 1, lastRow, headerCount)
+         .applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY);
   }
-  if (flagged.length) {
-    sheet.getRange(2, 3, flagged.length, 3).setValues(flagged); // C:D:E
+}
+
+// -----------------------------
+// Helpers: parsing & coercion
+// -----------------------------
+function parsePayload_(e) {
+  if (!e || !e.postData || !e.postData.contents) {
+    throw new Error('Missing POST body');
   }
-
-  sheet.setFrozenRows(1);
-  sheet.autoResizeColumns(1, headers.length);
+  let data;
+  try { data = JSON.parse(e.postData.contents); }
+  catch (err) { throw new Error('Invalid JSON: ' + err); }
+  return data || {};
 }
 
-function _json(obj, code) {
-  var out = ContentService.createTextOutput(JSON.stringify(obj));
-  out.setMimeType(ContentService.MimeType.JSON);
-  if (code) out.setHeader("X-Status-Code", String(code));
-  return out;
+// If client passes a specific spreadsheetId, open that; else use active
+function openTargetSpreadsheet_(payload) {
+  const id = coalesce_(payload, ['spreadsheetId','sheetId'], null);
+  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActive();
 }
 
-function doGet() {
-  return ContentService.createTextOutput('Webhook is up. Use POST only.');
+function coalesce_(obj, keys, fallback) {
+  for (const k of keys) {
+    if (obj && Object.prototype.hasOwnProperty.call(obj, k)) return obj[k];
+  }
+  return fallback;
+}
+
+function toNumber_(x) {
+  const n = typeof x === 'string' ? Number(x.replace(/[^0-9.\-]/g,'')) : Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
+function toInt_(x) {
+  const n = toNumber_(x);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function toRow_(item, nameKeys, phoneKeys, flagKeys) {
+  // Accept object or array
+  if (Array.isArray(item)) {
+    // For arrays, trust positional
+    return [
+      String(item[0] ?? ''),
+      String(item[1] ?? ''),
+      String(item[2] ?? '')
+    ];
+  }
+  // Object: map via keys
+  const name  = coalesce_(item, nameKeys, '');
+  const phone = coalesce_(item, phoneKeys, '');
+  const flag  = flagKeys ? coalesce_(item, flagKeys, '') : '';
+  return [String(name || ''), String(phone || ''), String(flag || '')];
+}
+
+// -----------------------------
+// Helpers: names & badges
+// -----------------------------
+function normalizeName_(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const m = s.match(/^\s*([^,]+)\s*,\s*(.+)$/); // "LAST, FIRST"
+  if (m) {
+    return toTitleCase_(m[2]) + ' ' + toTitleCase_(m[1]);
+  }
+  return toTitleCase_(s);
+}
+function toTitleCase_(str) {
+  return String(str)
+    .toLowerCase()
+    .replace(/[\p{L}’']+/gu, w => w.charAt(0).toUpperCase() + w.slice(1));
+}
+
+// Badge logic:
+// - 🔴 if allPoliciesLapsed
+// - ⭐ if premium >= 100
+// - 🟣 if 0 <= premium < 50
+// - 🟠 otherwise (50–99.99)
+function computeBadge_(premium, allLapsed) {
+  if (allLapsed === true) return '🔴';
+  if (premium >= 100)    return '⭐';
+  if (premium >= 0 && premium < 50) return '🟣';
+  return '🟠';
+}
+
+// -----------------------------
+// Response helper
+// -----------------------------
+function json_(status, obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
