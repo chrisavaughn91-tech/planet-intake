@@ -1,41 +1,29 @@
 "use strict";
 
 // src/sheets.js (CommonJS; Node 18+)
+const axios = require("axios");
 
 /**
- * Post payload to an Apps Script Web App while preserving POST across redirects.
- * Handles Google's /echo -> /exec hop automatically.
- * @param {string} execUrl - The Apps Script Web App "exec" URL.
- * @param {object} payload - JSON serializable body.
- * @returns {Promise<object|string>} Parsed JSON or raw text.
+ * Post the payload to a Google Apps Script Web App.
+ * @param {string} execUrl - Full /exec URL, e.g.
+ *   https://script.google.com/macros/s/AKfycbxvt86xnMFTqA--bwiRlp33TTAodKnPMXTsAYd1Pf-canbXfBpBz0i6cS0OJ3mbDoaZ/exec
+ * @param {object} payload - JSON body the GAS doPost() expects
+ * @returns {Promise<any>} parsed JSON or raw body
  */
 async function pushToSheets(execUrl, payload) {
   if (!execUrl) throw new Error("Missing execUrl");
+  const res = await axios.post(execUrl, payload, {
+    headers: { "Content-Type": "application/json" },
+    // axios will follow the script.google.com -> script.googleusercontent.com redirect
+    maxRedirects: 5,
+    validateStatus: s => s < 500
+  });
 
-  async function post(url, hops = 0) {
-    if (hops > 6) throw new Error("Too many redirects");
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      redirect: "manual",          // we will follow ourselves
-    });
-
-    // Follow Google’s bounce while keeping POST
-    if ([301, 302, 303, 307, 308].includes(res.status)) {
-      let next = res.headers.get("location");
-      if (!next) throw new Error("Redirect without Location header");
-      // Apps Script’s first hop is often /echo; normalize to /exec
-      next = next.replace("/echo?", "/exec?");
-      return post(next, hops + 1);
-    }
-
-    const text = await res.text();
-    try { return JSON.parse(text); } catch { return text; }
+  let data = res.data;
+  if (typeof data === "string") {
+    try { data = JSON.parse(data); } catch (_) {}
   }
-
-  return post(execUrl, 0);
+  return data;
 }
 
 /**
