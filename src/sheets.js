@@ -87,16 +87,16 @@ function buildAllNumbersRows(leads) {
 }
 
 function buildSummaryRows(leads) {
-  return [
-    ["Primary Name", "Monthly Special Total", "Star", "ClickToCall Count", "PolicyPhones Count"],
-    ...((leads || []).map((L) => [
-      L.primaryName || "",
-      Number(L.monthlySpecialTotal || 0),
-      L.star || "",
-      (L.clickToCall || []).length,
-      (L.policyPhones || []).length, // already extras-only
-    ])),
-  ];
+  // Expected layout (matches your sheet): Badge | Lead | Total Premium | Listed #s | + #s
+  const header = ["Badge", "Lead", "Total Premium", "Listed #s", "+ #s"];
+  const body = (leads || []).map((L) => [
+    L.star || "",                            // Badge emoji
+    L.primaryName || "",                     // Lead
+    Number(L.monthlySpecialTotal || 0),      // Total Premium (number; Apps Script formats to currency)
+    (L.clickToCall || []).length,            // Listed #s (ClickToCall count)
+    (L.policyPhones || []).length,           // + #s (extras-only policy numbers)
+  ]);
+  return [header, ...body];
 }
 
 /**
