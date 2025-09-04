@@ -1,4 +1,5 @@
-/** @OnlyCurrentDoc */
+// After edits: Deploy → Manage deployments → select current Web app → Edit → Deploy
+// Execute as: Me    |  Who has access: Anyone (or Anyone with the link)
 /**
  * Planet Intake – Sheet Writer (polished + safe fallback)
  * - Creates a new spreadsheet when no spreadsheetId is provided.
@@ -29,6 +30,7 @@ function doGet() {
  */
 function doPost(e) {
   try {
+    console.log('POST bytes:', e?.postData?.contents?.length || 0);
     const payload = parseJson_(e);
 
     // Open target or create new spreadsheet safely
