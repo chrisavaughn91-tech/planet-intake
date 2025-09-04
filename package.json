@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "test:push": "node scripts/test-push.js"
+    "test:push": "node scripts/test-push.js",
+    "test": "npm run -s test:push"
   },
   "dependencies": {
     "axios": "^1.11.0",
