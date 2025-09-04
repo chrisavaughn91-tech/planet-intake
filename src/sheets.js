@@ -2,46 +2,54 @@ const axios = require("axios");
 
 /* ---------- row builders ---------- */
 function buildAllNumbersRows(leads) {
-  // Two parallel lists: valid NANP (10-digit) vs 7-digit "Needs Area Code"
+  // A–B: valid NANP (10-digit) pretty; C–E: flagged numbers (primary | number | flag)
   const header = [
     "Primary Name", "Phone",
-    "Primary Name (Needs Area Code)", "Phone (Needs Area Code)"
+    "Primary Name (Flagged)", "Phone (Flagged)", "Flag Reason"
   ];
   const rows = [header];
 
   for (const L of (leads || [])) {
     const primary = L.primaryName || "";
     const seenValid = new Set();
-    const seenShort = new Set();
+    const seenFlag  = new Set();
     const valid = [];
-    const short = [];
+    const flagged = []; // { phone, flag }
 
     const visit = (r) => {
       const key = `${r.rawDigits || r.original || r.phone || ""}|${r.extension || ""}`;
-      const is10 = /^\d{10}$/.test(String(r.rawDigits || ""));
-      const is7  = /^\d{7}$/.test(String(r.rawDigits || ""));
-      if (is10) {
+      const rd  = String(r.rawDigits || "");
+      const is10 = /^\d{10}$/.test(rd);
+      const is7  = /^\d{7}$/.test(rd);
+      const numberStr = String(r.phone || r.rawDigits || r.original || "");
+
+      if (is10 && r.valid) {
         if (seenValid.has(key)) return;
         seenValid.add(key);
-        valid.push(String(r.phone || "")); // pretty only
-      } else if (is7) {
-        if (seenShort.has(key)) return;
-        seenShort.add(key);
-        // pretty for 7-digit already set as xxx-xxxx in scraper
-        short.push(String(r.phone || ""));
+        valid.push(numberStr); // pretty only
+      } else {
+        if (seenFlag.has(key)) return;
+        seenFlag.add(key);
+        // Choose flag reason
+        let reason = "Invalid";
+        if (is7) reason = "Needs Area Code";
+        else if (r.international) reason = "International";
+        else if (r.flags && r.flags.length) reason = r.flags[0];
+        flagged.push({ phone: numberStr, flag: String(reason) });
       }
     };
 
     (L.clickToCall || []).forEach(visit);
     (L.policyPhones || []).forEach(visit);
 
-    const maxLen = Math.max(valid.length, short.length, 1);
+    const maxLen = Math.max(valid.length, flagged.length, 1);
     for (let i = 0; i < maxLen; i++) {
       rows.push([
-        i < valid.length ? primary : "",
-        i < valid.length ? valid[i] : "",
-        i < short.length ? primary : "",
-        i < short.length ? short[i] : ""
+        i < valid.length   ? primary : "",
+        i < valid.length   ? valid[i] : "",
+        i < flagged.length ? primary : "",
+        i < flagged.length ? flagged[i].phone : "",
+        i < flagged.length ? flagged[i].flag  : ""
       ]);
     }
   }

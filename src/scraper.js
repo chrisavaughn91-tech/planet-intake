@@ -646,13 +646,13 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       const hasValidNumber = [...c2c, ...uniquePolicyRows].some(r => !!r.valid && /^\d{10}$/.test(String(r.rawDigits||'')));
       let leadStar = "";
       if (allPoliciesLapsed) {
-        leadStar = "🔴⭐"; // red star
+        leadStar = "🔴";   // all policies lapsed
       } else if (!hasValidNumber) {
-        leadStar = "🟠⭐"; // orange star
+        leadStar = "🟠";   // no valid numbers
       } else if (leadMonthly >= 100) {
-        leadStar = "⭐";   // gold star
+        leadStar = "⭐";   // gold (≥100)
       } else if (leadMonthly < 50) {
-        leadStar = "🟣⭐"; // purple star
+        leadStar = "🟣";   // purple (<50)
       } else {
         leadStar = "";     // 50–99.99 → no star
       }
