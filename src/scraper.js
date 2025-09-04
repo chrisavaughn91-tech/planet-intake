@@ -652,7 +652,13 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       (c2c || []).forEach(accValid);
       (policyPhonesExtra || []).forEach(accValid);
 
-      let leadStar = "";
+      // Badge precedence:
+      // 🔴 = all policies lapsed (regardless of total)
+      // 🟠 = no valid numbers (unless already red)
+      // ⭐ = total >= 100
+      // 🟣 = total < 50 (unless already red/orange)
+      // "" = 50–99.99
+      let leadStar;
       if (allPoliciesLapsed) {
         leadStar = "🔴";
       } else if (validDigits.size === 0) {
