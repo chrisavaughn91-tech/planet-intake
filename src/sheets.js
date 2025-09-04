@@ -1,35 +1,49 @@
 "use strict";
 
-// src/sheets.js (CommonJS; Node 18+)
 const axios = require("axios");
 
 /**
- * Post the payload to a Google Apps Script Web App.
- * @param {string} execUrl - Full /exec URL, e.g.
- *   https://script.google.com/macros/s/AKfycbxvt86xnMFTqA--bwiRlp33TTAodKnPMXTsAYd1Pf-canbXfBpBz0i6cS0OJ3mbDoaZ/exec
+ * POST payload to a Google Apps Script Web App endpoint.
+ * Handles the initial 302 redirect by re-POSTing to the Location.
+ * @param {string} execUrl - Full /exec URL
  * @param {object} payload - JSON body the GAS doPost() expects
- * @returns {Promise<any>} parsed JSON or raw body
+ * @returns {Promise<any>} Parsed JSON (or raw text) from Apps Script
  */
 async function pushToSheets(execUrl, payload) {
   if (!execUrl) throw new Error("Missing execUrl");
-  const res = await axios.post(execUrl, payload, {
+
+  // 1) Try the direct /exec POST WITHOUT following redirects
+  const first = await axios.post(execUrl, payload, {
     headers: { "Content-Type": "application/json" },
-    // axios will follow the script.google.com -> script.googleusercontent.com redirect
-    maxRedirects: 5,
-    validateStatus: s => s < 500
+    maxRedirects: 0,
+    // accept 302 so we can manually follow it
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 302,
   });
 
-  let data = res.data;
+  // 2) If Apps Script responded with a 302, manually POST to the Location
+  if (first.status === 302 && first.headers?.location) {
+    const second = await axios.post(first.headers.location, payload, {
+      headers: { "Content-Type": "application/json" },
+      // allow normal redirects after this point
+    });
+    return normalize(second.data);
+  }
+
+  // 3) Normal 2xx response
+  return normalize(first.data);
+}
+
+function normalize(data) {
   if (typeof data === "string") {
-    try { data = JSON.parse(data); } catch (_) {}
+    try { return JSON.parse(data); } catch { return data; }
   }
   return data;
 }
 
 /**
- * Build the Apps Script payload from the scraper result and
- * call the Web App. Returns { url, ok }.
- * @param {{email:string, result:object}} opts
+ * Build the Apps Script payload from the scraper result and call the Web App.
+ * Returns { ok, url } on success.
+ * @param {{email?:string, result:object}} opts
  */
 async function createSheetAndShare({ email, result }) {
   const execUrl = process.env.GSCRIPT_WEBAPP_URL;
@@ -64,23 +78,20 @@ async function createSheetAndShare({ email, result }) {
       flag: Array.isArray(r.flags) ? r.flags.join(", ") : (r.flag || ""),
     }));
 
-  // Optional: pass email along so Apps Script could share, if you enable it there
   const payload = {
     summaryRows,
     goodNumbers,
     flaggedNumbers,
-    // shareEmail: email,   // enable this if you add sharing in Apps Script (see PATCH B)
+    // shareEmail: email, // enable if you've added sharing logic in Apps Script
   };
 
   const out = await pushToSheets(execUrl, payload);
 
-  if (typeof out === "object" && out && "url" in out) {
+  if (out && typeof out === "object" && "url" in out) {
     return { ok: out.ok !== false, url: out.url };
   }
-
-  // Fallback if the script returned raw text
   try {
-    const parsed = JSON.parse(String(out || "{}"));
+    const parsed = JSON.parse(String(out || ""));
     return { ok: parsed.ok !== false, url: parsed.url };
   } catch {
     return { ok: false, url: undefined };
