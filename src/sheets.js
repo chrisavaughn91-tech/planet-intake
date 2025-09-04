@@ -2,20 +2,48 @@ const axios = require("axios");
 
 /* ---------- row builders ---------- */
 function buildAllNumbersRows(leads) {
-  const rows = [["Primary Name", "Phone"]];
+  // Two parallel lists: valid NANP (10-digit) vs 7-digit "Needs Area Code"
+  const header = [
+    "Primary Name", "Phone",
+    "Primary Name (Needs Area Code)", "Phone (Needs Area Code)"
+  ];
+  const rows = [header];
+
   for (const L of (leads || [])) {
     const primary = L.primaryName || "";
-    const seen = new Set();
-    const push = (r) => {
+    const seenValid = new Set();
+    const seenShort = new Set();
+    const valid = [];
+    const short = [];
+
+    const visit = (r) => {
       const key = `${r.rawDigits || r.original || r.phone || ""}|${r.extension || ""}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      const phone = r.phone || r.rawDigits || r.original || "";
-      if (!phone) return;
-      rows.push([primary, String(phone)]); // keep as text
+      const is10 = /^\d{10}$/.test(String(r.rawDigits || ""));
+      const is7  = /^\d{7}$/.test(String(r.rawDigits || ""));
+      if (is10) {
+        if (seenValid.has(key)) return;
+        seenValid.add(key);
+        valid.push(String(r.phone || "")); // pretty only
+      } else if (is7) {
+        if (seenShort.has(key)) return;
+        seenShort.add(key);
+        // pretty for 7-digit already set as xxx-xxxx in scraper
+        short.push(String(r.phone || ""));
+      }
     };
-    (L.clickToCall || []).forEach(push);
-    (L.policyPhones || []).forEach(push);
+
+    (L.clickToCall || []).forEach(visit);
+    (L.policyPhones || []).forEach(visit);
+
+    const maxLen = Math.max(valid.length, short.length, 1);
+    for (let i = 0; i < maxLen; i++) {
+      rows.push([
+        i < valid.length ? primary : "",
+        i < valid.length ? valid[i] : "",
+        i < short.length ? primary : "",
+        i < short.length ? short[i] : ""
+      ]);
+    }
   }
   return rows;
 }
