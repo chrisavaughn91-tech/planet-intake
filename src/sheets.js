@@ -2,55 +2,64 @@ const axios = require("axios");
 
 /* ---------- row builders ---------- */
 function buildAllNumbersRows(leads) {
-  // A–B: valid NANP (10-digit) pretty; C–E: flagged numbers (primary | number | flag)
-  const header = [
-    "Primary Name", "Phone",
-    "Primary Name (Flagged)", "Phone (Flagged)", "Flag Reason"
-  ];
-  const rows = [header];
-
+  // A/B: valid unique numbers; C/D/E: flagged numbers
+  const rows = [["Primary Name","Phone","Primary Name","Number","Flag"]];
   for (const L of (leads || [])) {
     const primary = L.primaryName || "";
+
+    // If all policies are lapsed, put ALL numbers into flagged with "Lapsed"
+    if (L.allPoliciesLapsed) {
+      const seen = new Set();
+      const pushLapsed = (r) => {
+        if (!r) return;
+        const key = `${r.rawDigits || r.original || r.phone || ""}|${r.extension || ""}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const phoneText = r.phone || r.rawDigits || r.original || "";
+        rows.push(["","", primary, String(phoneText), "Lapsed"]);
+      };
+      (L.clickToCall || []).forEach(pushLapsed);
+      (L.policyPhones || []).forEach(pushLapsed); // extras-only still fine here
+      continue;
+    }
+
+    // Normal path: split into valid vs flagged
     const seenValid = new Set();
-    const seenFlag  = new Set();
     const valid = [];
-    const flagged = []; // { phone, flag }
+    const flagged = [];
 
-    const visit = (r) => {
-      const key = `${r.rawDigits || r.original || r.phone || ""}|${r.extension || ""}`;
-      const rd  = String(r.rawDigits || "");
-      const is10 = /^\d{10}$/.test(rd);
-      const is7  = /^\d{7}$/.test(rd);
-      const numberStr = String(r.phone || r.rawDigits || r.original || "");
+    const consider = (r) => {
+      if (!r) return;
+      const raw = String(r.rawDigits || "");
+      const isSeven = raw.length === 7;
+      // Pretty for 7-digit in flagged view
+      const sevenPretty = isSeven ? `${raw.slice(0,3)}-${raw.slice(3)}` : null;
+      const phoneText = r.phone || sevenPretty || r.rawDigits || r.original || "";
 
-      if (is10 && r.valid) {
-        if (seenValid.has(key)) return;
+      const flagBits = [];
+      if (r.international) flagBits.push("International");
+      if (isSeven) flagBits.push("Needs area code");
+      if (r.valid === false) flagBits.push("Invalid");
+      if (flagBits.length > 0) {
+        flagged.push([primary, String(phoneText), flagBits.join(", ")]);
+        return;
+      }
+      // valid 10-digit; dedupe within this lead
+      const key = `${raw}|${r.extension || ""}`;
+      if (raw.length === 10 && !seenValid.has(key)) {
         seenValid.add(key);
-        valid.push(numberStr); // pretty only
-      } else {
-        if (seenFlag.has(key)) return;
-        seenFlag.add(key);
-        // Choose flag reason
-        let reason = "Invalid";
-        if (is7) reason = "Needs Area Code";
-        else if (r.international) reason = "International";
-        else if (r.flags && r.flags.length) reason = r.flags[0];
-        flagged.push({ phone: numberStr, flag: String(reason) });
+        valid.push([primary, String(r.phone || r.rawDigits)]);
       }
     };
 
-    (L.clickToCall || []).forEach(visit);
-    (L.policyPhones || []).forEach(visit);
+    (L.clickToCall || []).forEach(consider);
+    (L.policyPhones || []).forEach(consider); // extras-only
 
-    const maxLen = Math.max(valid.length, flagged.length, 1);
-    for (let i = 0; i < maxLen; i++) {
-      rows.push([
-        i < valid.length   ? primary : "",
-        i < valid.length   ? valid[i] : "",
-        i < flagged.length ? primary : "",
-        i < flagged.length ? flagged[i].phone : "",
-        i < flagged.length ? flagged[i].flag  : ""
-      ]);
+    const n = Math.max(valid.length, flagged.length);
+    for (let i=0;i<n;i++){
+      const v = valid[i] || ["",""];
+      const f = flagged[i] || ["","",""];
+      rows.push([v[0], v[1], f[0], f[1], f[2]]);
     }
   }
   return rows;
@@ -64,7 +73,7 @@ function buildSummaryRows(leads) {
       Number(L.monthlySpecialTotal || 0),
       L.star || "",
       (L.clickToCall || []).length,
-      (L.policyPhones || []).length,
+      (L.policyPhones || []).length, // already extras-only
     ])),
   ];
 }
