@@ -1,4 +1,5 @@
 const { chromium } = require("playwright");
+const { emit } = require('./events');
 
 // ---- URLs ----
 const BASE = "https://m.planetaltig.com";
@@ -17,6 +18,14 @@ const onlyDigits = (s) => String(s || '').replace(/\D/g, '');
 // ---------- debug + filters ----------
 const DEBUG = String(process.env.DEBUG_SCRAPER || '') === '1';
 const dlog  = (...args) => { if (DEBUG) console.log('[SCRAPER]', ...args); };
+
+/* START:EMIT_INFO */
+function info(msg) { emit('info', { msg }); }
+/* END:EMIT_INFO */
+
+/* START:EMIT_ERROR */
+function reportError(err) { emit('error', { msg: String(err && err.stack || err) }); }
+/* END:EMIT_ERROR */
 
 function sameDigits(s){ return /^([0-9])\1{9}$/.test(s); }
 
@@ -561,6 +570,10 @@ async function goToNextLead(page){
 
 // ---------- main scraper ----------
 async function scrapePlanet({ username, password, maxLeads = 5 }){
+  const startTime = Date.now();
+  /* START:EMIT_START */
+  emit('start', { username, maxLeads: maxLeads || process.env.MAX_LEADS_DEFAULT || 5 });
+  /* END:EMIT_START */
   const { browser, context, page } = await launch();
 
   // flattened arrays (kept for convenience / jq examples)
@@ -605,6 +618,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
 
     dlog(`Pack: collected ${links.length} lead link(s)`);
     if (links.length === 0) {
+      info('No leads found in inbox.');
       return { ok:false, error: "No leads found in inbox." };
     }
 
@@ -621,6 +635,10 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
         const hdr = await getPrimaryNameFromHeader(page);
         primaryName = hdr || null;
       }
+
+      /* START:EMIT_LEAD */
+      emit('lead', { index: i + 1, total: total, leadName: primaryName });
+      /* END:EMIT_LEAD */
 
       // 1) click-to-call
       const c2c = await harvestClickToCall(page);
@@ -640,6 +658,20 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       });
       dlog(`Lead ${i+1}: policy rows -> ${detail.policyRows.length} (extras only: ${policyPhonesExtra.length}), monthly active total -> ${detail.monthlyTotalActive}`);
       policyPhoneRows.push(...policyPhonesExtra);
+
+      const flaggedNumbers = [
+        ...c2c.filter(r => (r.flags || []).length),
+        ...policyPhonesExtra.filter(r => (r.flags || []).length)
+      ];
+
+      /* START:EMIT_NUMBERS */
+      emit('numbers', {
+        leadName: primaryName,
+        listedCount: c2c.length,
+        extraCount: policyPhonesExtra.length,
+        flaggedCount: flaggedNumbers.length
+      });
+      /* END:EMIT_NUMBERS */
 
       // per-lead rollup & badge
       const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
@@ -671,6 +703,10 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
         leadStar = "";
       }
 
+      /* START:EMIT_BADGE */
+      emit('badge', { leadName: primaryName, badge: leadStar, totalPremium: leadMonthly });
+      /* END:EMIT_BADGE */
+
       leads.push({
         primaryName: primaryName || null,
         monthlySpecialTotal: leadMonthly,
@@ -686,6 +722,9 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       if (leadCount >= maxLeads) break;
     }
 
+    /* START:EMIT_DONE */
+    emit('done', { processed: leadCount, ms: Date.now() - startTime });
+    /* END:EMIT_DONE */
     return {
       ok: true,
       leads,                    // per-lead (name, monthly, star, phones)
@@ -700,6 +739,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     };
 
   }catch(err){
+    reportError(err);
     return { ok: false, error: String(err && err.message ? err.message : err) };
   }finally{
     await context.close().catch(()=>{});

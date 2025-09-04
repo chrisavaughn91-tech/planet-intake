@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Planet Intake — Live Progress</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial; }
+    body { margin: 24px; color: #0f172a; }
+    h1 { margin: 0 0 12px; font-size: 20px; }
+    .row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; align-items: start; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 8px; background: #fff; box-shadow: 0 1px 0 #f1f5f9; }
+    .tag { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+    .lead { font-weight: 600; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color:#334155; }
+    .small { color:#64748b; font-size: 12px; }
+    #now { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>Live Progress <span class="small">(<span id="now"></span>)</span></h1>
+  <div id="summary" class="row">
+    <div>Summary</div>
+    <div class="log" id="sumLog">waiting…</div>
+  </div>
+  <div id="feed"></div>
+
+<script>
+  const nowEl = document.getElementById('now');
+  const feed = document.getElementById('feed');
+  const sumLog = document.getElementById('sumLog');
+  function ts() { return new Date().toLocaleTimeString(); }
+  function addRow(html) {
+    const div = document.createElement('div');
+    div.className = 'row';
+    div.innerHTML = html;
+    feed.prepend(div);
+  }
+  function setSummary(obj) {
+    sumLog.textContent = JSON.stringify(obj, null, 0);
+  }
+
+  const es = new EventSource('/events');
+  es.addEventListener('hello', () => { nowEl.textContent = new Date().toLocaleTimeString(); });
+  es.addEventListener('ping', () => { nowEl.textContent = new Date().toLocaleTimeString(); });
+
+  function on(evt, handler) { es.addEventListener(evt, (e) => handler(JSON.parse(e.data))); }
+
+  // Handle structured events from the server
+  on('start', d => {
+    addRow(`<div>Start</div><div class="log">max=${d.maxLeads} user=${d.username}</div>`);
+    setSummary({ phase: 'start', ...d });
+  });
+  on('lead', d => {
+    addRow(`<div class="lead">Lead</div><div class="log">${d.index}/${d.total} — ${d.leadName}</div>`);
+  });
+  on('numbers', d => {
+    addRow(`<div>Numbers</div><div class="log">${d.leadName} | listed=${d.listedCount} extra=${d.extraCount} flagged=${d.flaggedCount}</div>`);
+  });
+  on('badge', d => {
+    addRow(`<div>Badge</div><div class="log">${d.leadName} — badge=${d.badge} total=${d.totalPremium}</div>`);
+  });
+  on('sheet', d => {
+    addRow(`<div>Sheet</div><div class="log"><a href="${d.url}" target="_blank">${d.url}</a></div>`);
+  });
+  on('info', d => addRow(`<div><span class="tag">info</span></div><div class="log">${d.msg}</div>`));
+  on('error', d => addRow(`<div style="color:#ef4444;">Error</div><div class="log">${d.msg}</div>`));
+  on('done', d => {
+    addRow(`<div>Done</div><div class="log">processed=${d.processed} duration=${d.ms}ms</div>`);
+    setSummary({ phase: 'done', ...d });
+  });
+</script>
+</body>
+</html>
