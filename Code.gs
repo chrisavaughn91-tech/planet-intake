@@ -15,7 +15,7 @@ function doPost(e) {
                  new Date().toISOString().replace("T"," ").slice(0,19));
 
     var summaryRows = data.summaryRows || [["Primary Name","Monthly Special Total","Star","ClickToCall Count","PolicyPhones Count"]];
-    var allRows     = data.allRows     || [["Primary Name","Phone","Primary Name (Needs Area Code)","Phone (Needs Area Code)"]];
+    var allRows     = data.allRows     || [["Primary Name","Phone","Primary Name (Flagged)","Phone (Flagged)","Flag Reason"]];
 
     // Create spreadsheet with Summary + AllNumbers
     var ss = SpreadsheetApp.create(title);
@@ -41,8 +41,8 @@ function doPost(e) {
     summary.getRange(1,1,1,summary.getMaxColumns()).setFontWeight("bold");
     all.getRange(1,1,1,all.getMaxColumns()).setFontWeight("bold");
 
-    // Text format for all columns on AllNumbers (4 cols)
-    all.getRange(1,1,all.getMaxRows(),4).setNumberFormat("@");
+    // Text format for all columns on AllNumbers (5 cols)
+    all.getRange(1,1,all.getMaxRows(),5).setNumberFormat("@");
 
     // Share with the user and notify
     DriveApp.getFileById(id).addViewer(email);
