@@ -13,6 +13,11 @@ const nowIso = () => new Date().toISOString();
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const toPretty = (d10) => d10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : null;
 
+// ---------- debug + filters ----------
+const DEBUG = String(process.env.DEBUG_SCRAPER || '') === '1';
+const dlog  = (...args) => { if (DEBUG) console.log('[SCRAPER]', ...args); };
+const DNC_RE = /\b(?:do\s*not\s*call|do\s*not\s*contact|dnc|no\s*call|don't\s*call|dont\s*call)\b/i;
+
 function sameDigits(s){ return /^([0-9])\1{9}$/.test(s); }
 
 // NANP validation (10 digits)
@@ -32,6 +37,9 @@ function validUS10(d10){
 const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
 
 function normalizePhoneCandidate(raw, contextLabel){
+  // discard explicit DNC/Do Not Call lines
+  if (DNC_RE.test(String(raw))) return null;
+
   // grab extension if present
   let ext = null;
   const extMatch = String(raw).match(/\b(?:x|ext\.?|#)\s*([0-9]{2,6})\b/i);
@@ -61,6 +69,8 @@ function normalizePhoneCandidate(raw, contextLabel){
   }else if(/^\d{7}$/.test(s)){
     rawDigits = s;
     flags.push("Needs Area Code");
+    // pretty for 7-digit local style
+    pretty = `${s.slice(0,3)}-${s.slice(3)}`;
   }else{
     // reject weird lengths
     return null;
@@ -118,11 +128,15 @@ async function launch(){
     locale: "en-US"
   });
   const page = await context.newPage();
+  page.setDefaultTimeout(30000);
+  page.setDefaultNavigationTimeout(60000);
+  dlog('Browser/context/page launched');
   return { browser, context, page };
 }
 
 // ---------- login ----------
 async function login(page, creds){
+  dlog('Login: navigating to login page');
   await page.goto(LOGIN_URL, { waitUntil: "load", timeout: 60000 });
 
   // Prefer the first visible text/email input and the first password input.
@@ -161,10 +175,12 @@ async function login(page, creds){
 
   // Make sure we’re on the app, then we’ll navigate ourselves to the pack:
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(()=>{});
+  dlog('Login: completed; on dashboard/home');
 }
 
 // ---------- go to All Leads ----------
 async function goToAllLeads(page){
+  dlog('Nav: going to All Leads');
   const myLeads =
     (await firstVisible(page.getByRole("link",  { name: /my leads/i }))) ||
     (await firstVisible(page.getByRole("button",{ name: /my leads/i }))) ||
@@ -189,6 +205,7 @@ async function goToAllLeads(page){
 
   // Wait until the list actually renders links to /Lead/InboxDetail?LeadId=
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
+  dlog('Nav: All Leads loaded with pack links present');
 }
 
 // ---------- collect first N links (fallback path) ----------
@@ -256,7 +273,9 @@ async function gatherVisibleNumberTokens(page){
 async function harvestClickToCall(page){
   const rows = [];
 
+  // prefer the strip Call button (the one in the row with Appt./Comments/Resolve)
   const callBtn =
+    (await firstVisible(page.locator('div:has(button:has-text("Appt.")) >> button:has-text("Call")'))) ||
     (await firstVisible(page.getByRole("button", { name: /^Call$/ }))) ||
     (await firstVisible(page.locator('button:has-text("Call")'))) ||
     (await firstVisible(page.locator('a:has-text("Call")')));
@@ -265,10 +284,16 @@ async function harvestClickToCall(page){
 
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(()=>{});
-  await page.waitForTimeout(350); // numbers slide down
+  // drawer animates; poll ~2s until new tokens appear
+  let after = new Set();
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(300);
+    after = new Set(await gatherVisibleNumberTokens(page));
+    if (after.size > before.size) break;
+  }
 
-  const after  = new Set(await gatherVisibleNumberTokens(page));
   const diff   = Array.from(after).filter(s => !before.has(s));
+  dlog('Click2Call: tokens before/after/diff =', before.size, after.size, diff.length);
 
   const seen = new Set();
   for (const token of diff) {
@@ -298,7 +323,8 @@ async function harvestClickToCall(page){
 
 // ---------- expand all policies ("More" -> "Less") ----------
 async function expandAllPolicies(page){
-  for(let i=0;i<5;i++){
+  // one More usually expands all; loop defensively
+  for(let i=0;i<12;i++){
     const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
     if(!more) break;
     await more.click().catch(()=>{});
@@ -348,11 +374,12 @@ async function parseLeadDetail(page){
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
   let monthlyTotalActive = 0;
+  let policyCount = 0, lapsedCount = 0;
 
   for (const rawBlock of blocks) {
     const block = rawBlock.slice(0, 2500);
 
-    const isLapsed =
+    let isLapsed =
       /\bLAPSED\s+POLICY\b/i.test(block) ||
       /^\s*Lapsed\b/i.test(block) ||
       /\bStat:\s*99\b/i.test(block);
@@ -365,42 +392,43 @@ async function parseLeadDetail(page){
     }
 
     let active = !isLapsed;
-    if (active) {
-      const modeM = block.match(/\bMode\s+([A-Za-z]+)/i);
-      const dueM  = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2})\b/i);
-      const paidM = block.match(/\bPolicy\s+Paid\s+To\s+([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2})\b/i);
-      const mode = modeM ? modeM[1].toLowerCase() : null;
-      const dueDay = dueM ? parseInt(dueM[1],10) : null;
+    // date-based lapsed logic (monthly/annual)
+    const modeM = block.match(/\bMode\s+([A-Za-z]+)/i);
+    const dueM  = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2})\b/i);
+    const paidM = block.match(/\bPolicy\s+Paid\s+To\s+([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2})\b/i);
+    const mode = modeM ? modeM[1].toLowerCase() : null;
+    const dueDay = dueM ? parseInt(dueM[1],10) : null;
 
-      let paidTo = null;
-      if (paidM) {
-        const s = paidM[1];
-        const parts = s.includes('-') ? s.split('-').map(Number) : s.split('/').map(Number);
-        if (s.includes('-')) {
-          paidTo = new Date(parts[0], parts[1]-1, parts[2]); // YYYY-M-D
-        } else {
-          const Y = parts[2] < 100 ? 2000 + parts[2] : parts[2];
-          paidTo = new Date(Y, parts[0]-1, parts[1]);       // M/D/YY|YYYY
-        }
-      }
-
-      if (paidTo) {
-        const today = new Date();
-        if (mode === 'annual') {
-          const diff = Math.floor((today - paidTo) / 86400000);
-          active = diff <= 365;
-        } else if (dueDay) {
-          const last = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
-          const anchor = new Date(today.getFullYear(), today.getMonth(), Math.min(Math.max(dueDay,1), last));
-          const delta = Math.floor((anchor - paidTo) / 86400000);
-          active = delta <= 31;
-        } else {
-          const diff = Math.floor((today - paidTo) / 86400000);
-          active = diff <= 62;
-        }
+    let paidTo = null;
+    if (paidM) {
+      const s = paidM[1];
+      const parts = s.includes('-') ? s.split('-').map(Number) : s.split('/').map(Number);
+      if (s.includes('-')) {
+        paidTo = new Date(parts[0], parts[1]-1, parts[2]); // YYYY-M-D
+      } else {
+        const Y = parts[2] < 100 ? 2000 + parts[2] : parts[2];
+        paidTo = new Date(Y, parts[0]-1, parts[1]);       // M/D/YY|YYYY
       }
     }
 
+    if (active && paidTo) {
+      const today = new Date();
+      if (mode === 'annual') {
+        const diff = Math.floor((today - paidTo) / 86400000);
+        active = diff <= 365; // annual: >1 year behind = lapsed
+      } else if (dueDay) {
+        const last = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+        const anchor = new Date(today.getFullYear(), today.getMonth(), Math.min(Math.max(dueDay,1), last));
+        const delta = Math.floor((anchor - paidTo) / 86400000);
+        active = delta <= 60; // monthly: >60 days behind this month's due-day anchor = lapsed
+      } else {
+        const diff = Math.floor((today - paidTo) / 86400000);
+        active = diff <= 62; // conservative default
+      }
+    }
+
+    policyCount++;
+    if (!active) lapsedCount++;
     if (active && specialMonthly > 0) monthlyTotalActive += specialMonthly;
   }
 
@@ -502,7 +530,9 @@ async function parseLeadDetail(page){
   return {
     primaryNameHeader,
     policyRows,
-    monthlyTotalActive
+    monthlyTotalActive,
+    policyCount,
+    lapsedCount
   };
 }
 
@@ -545,50 +575,100 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await login(page, { username, password });
     await goToAllLeads(page);
 
-    // Open the first lead (fallback path if arrowing fails)
-    const links = await collectLeadPackLinks(page, Math.max(1, maxLeads));
+    // Collect links with pagination until we have enough
+    const links = await (async function collectPaginated(page, limit){
+      const out = [];
+      const seen = new Set();
+      while (out.length < limit) {
+        const need = limit - out.length;
+        const pageLinks = await collectLeadPackLinks(page, need);
+        for (const L of pageLinks) {
+          const key = L.href;
+          if (!seen.has(key)) { seen.add(key); out.push(L); }
+        }
+        if (out.length >= limit) break;
+        // Try clicking inbox "Next" pager
+        const nextBtn =
+          (await firstVisible(page.locator('a:has-text("Next")'))) ||
+          (await firstVisible(page.locator('button:has-text("Next")')));
+        if (!nextBtn) break;
+        dlog('Inbox: moving to next page for more links…');
+        await Promise.allSettled([
+          nextBtn.click(),
+          page.waitForLoadState('domcontentloaded', { timeout: 15000 })
+        ]);
+        await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 15000 }).catch(()=>{});
+      }
+      return out;
+    })(page, Math.max(1, maxLeads));
+
+    dlog(`Pack: collected ${links.length} lead link(s)`);
     if (links.length === 0) {
       return { ok:false, error: "No leads found in inbox." };
     }
-    // go to first lead card
-    await page.goto(links[0].href, { waitUntil: "domcontentloaded" });
-    await sleep(350);
 
-    while (leadCount < maxLeads) {
-      // primary name from header
-      let primaryName = await getPrimaryNameFromHeader(page);
+    const total = Math.min(links.length, maxLeads);
+    for (let i = 0; i < total; i++) {
+      const link = links[i];
+      dlog(`Lead ${i+1}/${total}: opening ${link.href}`);
+      await page.goto(link.href, { waitUntil: "domcontentloaded" });
+      await sleep(350);
+
+      // primary name comes from inbox link text (fallback to header if needed)
+      let primaryName = link.name || null;
+      if (!primaryName) {
+        const hdr = await getPrimaryNameFromHeader(page);
+        primaryName = hdr || null;
+      }
 
       // 1) click-to-call
       const c2c = await harvestClickToCall(page);
       c2c.forEach(r => (r.primaryName = primaryName || r.primaryName));
+      dlog(`Lead ${i+1}: click-to-call rows -> ${c2c.length}`);
       clickToCallRows.push(...c2c);
 
       // 2) policies + phones + monthly total (active only)
       const detail = await parseLeadDetail(page);
-      if (detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
-      policyPhoneRows.push(...detail.policyRows);
+      if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      // per-lead rollup
+      // de-dupe policy phones that already appear in click-to-call
+      const c2cKeys = new Set(c2c.map(r => `${r.rawDigits || r.original || ''}-${r.extension || ''}`));
+      const uniquePolicyRows = (detail.policyRows || []).filter(r => {
+        const k = `${r.rawDigits || r.original || ''}-${r.extension || ''}`;
+        return !c2cKeys.has(k);
+      });
+      dlog(`Lead ${i+1}: policy rows -> ${detail.policyRows.length} (unique vs c2c: ${uniquePolicyRows.length}), monthly active total -> ${detail.monthlyTotalActive}`);
+      policyPhoneRows.push(...uniquePolicyRows);
+
+      // per-lead rollup + star classification
       const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
-      const leadStar = leadMonthly > 100 ? "⭐" : "";
+      const allPoliciesLapsed = detail.policyCount > 0 && detail.lapsedCount === detail.policyCount;
+      const hasValidNumber = [...c2c, ...uniquePolicyRows].some(r => !!r.valid && /^\d{10}$/.test(String(r.rawDigits||'')));
+      let leadStar = "";
+      if (allPoliciesLapsed) {
+        leadStar = "🔴⭐"; // red star
+      } else if (!hasValidNumber) {
+        leadStar = "🟠⭐"; // orange star
+      } else if (leadMonthly >= 100) {
+        leadStar = "⭐";   // gold star
+      } else if (leadMonthly < 50) {
+        leadStar = "🟣⭐"; // purple star
+      } else {
+        leadStar = "";     // 50–99.99 → no star
+      }
+
       leads.push({
-        primaryName: primaryName || null,
+        primaryName: primaryName || "",
         monthlySpecialTotal: leadMonthly,
         star: leadStar,
         clickToCall: c2c,
-        policyPhones: detail.policyRows
+        policyPhones: uniquePolicyRows
       });
 
       sumAllLeadsMonthly += leadMonthly;
       leadCount++;
 
       if (leadCount >= maxLeads) break;
-
-      // try right-arrow to next lead; if none, stop
-      const moved = await goToNextLead(page);
-      if (!moved) break;
-
-      await sleep(300);
     }
 
     return {
