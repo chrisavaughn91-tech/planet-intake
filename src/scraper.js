@@ -12,11 +12,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const nowIso = () => new Date().toISOString();
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 const toPretty = (d10) => d10 ? `(${d10.slice(0,3)}) ${d10.slice(3,6)}-${d10.slice(6)}` : null;
+const onlyDigits = (s) => String(s || '').replace(/\D/g, '');
 
 // ---------- debug + filters ----------
 const DEBUG = String(process.env.DEBUG_SCRAPER || '') === '1';
 const dlog  = (...args) => { if (DEBUG) console.log('[SCRAPER]', ...args); };
-const DNC_RE = /\b(?:do\s*not\s*call|do\s*not\s*contact|dnc|no\s*call|don't\s*call|dont\s*call)\b/i;
 
 function sameDigits(s){ return /^([0-9])\1{9}$/.test(s); }
 
@@ -37,8 +37,8 @@ function validUS10(d10){
 const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
 
 function normalizePhoneCandidate(raw, contextLabel){
-  // discard explicit DNC/Do Not Call lines
-  if (DNC_RE.test(String(raw))) return null;
+  // Omit explicit do-not-call markers entirely
+  if (/\b(dnc|do\s*not\s*call)\b/i.test(String(raw))) return null;
 
   // grab extension if present
   let ext = null;
@@ -374,9 +374,11 @@ async function parseLeadDetail(page){
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
   let monthlyTotalActive = 0;
-  let policyCount = 0, lapsedCount = 0;
+  let policyBlockCount = 0;
+  let activeBlockCount = 0;
 
   for (const rawBlock of blocks) {
+    policyBlockCount++;
     const block = rawBlock.slice(0, 2500);
 
     let isLapsed =
@@ -415,21 +417,20 @@ async function parseLeadDetail(page){
       const today = new Date();
       if (mode === 'annual') {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 365; // annual: >1 year behind = lapsed
+        active = diff <= 366; // >1 year is lapsed
       } else if (dueDay) {
         const last = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
         const anchor = new Date(today.getFullYear(), today.getMonth(), Math.min(Math.max(dueDay,1), last));
         const delta = Math.floor((anchor - paidTo) / 86400000);
-        active = delta <= 60; // monthly: >60 days behind this month's due-day anchor = lapsed
+        active = delta <= 60; // 60-day grace
       } else {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 62; // conservative default
+        active = diff <= 60; // fallback monthly
       }
     }
 
-    policyCount++;
-    if (!active) lapsedCount++;
     if (active && specialMonthly > 0) monthlyTotalActive += specialMonthly;
+    if (active) activeBlockCount++;
   }
 
   // extract the primary name from header (after page load)
@@ -531,8 +532,8 @@ async function parseLeadDetail(page){
     primaryNameHeader,
     policyRows,
     monthlyTotalActive,
-    policyCount,
-    lapsedCount
+    policyBlockCount,
+    activeBlockCount
   };
 }
 
@@ -631,38 +632,46 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      // de-dupe policy phones that already appear in click-to-call
-      const c2cKeys = new Set(c2c.map(r => `${r.rawDigits || r.original || ''}-${r.extension || ''}`));
-      const uniquePolicyRows = (detail.policyRows || []).filter(r => {
-        const k = `${r.rawDigits || r.original || ''}-${r.extension || ''}`;
-        return !c2cKeys.has(k);
+      // Build extras-only policy numbers (exclude anything already in Click-to-Call)
+      const c2cDigits = new Set((c2c || []).map(r => r.rawDigits || onlyDigits(r.phone || r.original || '')));
+      const policyPhonesExtra = (detail.policyRows || []).filter(r => {
+        const k = r.rawDigits || onlyDigits(r.phone || r.original || '');
+        return k && !c2cDigits.has(k);
       });
-      dlog(`Lead ${i+1}: policy rows -> ${detail.policyRows.length} (unique vs c2c: ${uniquePolicyRows.length}), monthly active total -> ${detail.monthlyTotalActive}`);
-      policyPhoneRows.push(...uniquePolicyRows);
+      dlog(`Lead ${i+1}: policy rows -> ${detail.policyRows.length} (extras only: ${policyPhonesExtra.length}), monthly active total -> ${detail.monthlyTotalActive}`);
+      policyPhoneRows.push(...policyPhonesExtra);
 
-      // per-lead rollup + star classification
+      // per-lead rollup & badge
       const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
-      const allPoliciesLapsed = detail.policyCount > 0 && detail.lapsedCount === detail.policyCount;
-      const hasValidNumber = [...c2c, ...uniquePolicyRows].some(r => !!r.valid && /^\d{10}$/.test(String(r.rawDigits||'')));
+      const hasAnyPolicy = detail.policyBlockCount > 0;
+      const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
+
+      // valid numbers across both sources (after extras filter)
+      const validDigits = new Set();
+      const accValid = (r) => { if (r && r.valid && (r.rawDigits||'').length===10) validDigits.add(r.rawDigits); };
+      (c2c || []).forEach(accValid);
+      (policyPhonesExtra || []).forEach(accValid);
+
       let leadStar = "";
       if (allPoliciesLapsed) {
-        leadStar = "🔴";   // all policies lapsed
-      } else if (!hasValidNumber) {
-        leadStar = "🟠";   // no valid numbers
+        leadStar = "🔴";
+      } else if (validDigits.size === 0) {
+        leadStar = "🟠";
       } else if (leadMonthly >= 100) {
-        leadStar = "⭐";   // gold (≥100)
+        leadStar = "⭐";
       } else if (leadMonthly < 50) {
-        leadStar = "🟣";   // purple (<50)
+        leadStar = "🟣";
       } else {
-        leadStar = "";     // 50–99.99 → no star
+        leadStar = "";
       }
 
       leads.push({
-        primaryName: primaryName || "",
+        primaryName: primaryName || null,
         monthlySpecialTotal: leadMonthly,
         star: leadStar,
         clickToCall: c2c,
-        policyPhones: uniquePolicyRows
+        policyPhones: policyPhonesExtra, // extras only
+        allPoliciesLapsed
       });
 
       sumAllLeadsMonthly += leadMonthly;
