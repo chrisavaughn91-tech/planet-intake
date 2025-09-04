@@ -106,6 +106,62 @@ function buildSummaryRows(leads) {
   ];
 }
 
+/**
+ * Build arrays that match Code.gs expectations:
+ *  - goodNumbers: [ [lead, phone], ... ]
+ *  - flaggedNumbers: [ [lead, phone, flag], ... ]
+ */
+function buildGoodAndFlagged(leads) {
+  const goodNumbers = [];
+  const flaggedNumbers = [];
+
+  for (const L of (leads || [])) {
+    const primary = L.primaryName || "";
+
+    const makeFlag = (r, base) => {
+      const flags = [];
+      if (base) flags.push(base);
+      if (r?.international) flags.push("International");
+      const raw = String(r?.rawDigits || r?.phone || "").replace(/\D/g, "");
+      if (raw.length === 7) flags.push("Needs area code");
+      if (r?.valid === false) flags.push("Invalid");
+      return flags.join(", ");
+    };
+
+    const consider = (r, baseFlag = "") => {
+      if (!r) return;
+      const phone = r.phone || r.rawDigits || r.original || "";
+      const raw10 = String(r.rawDigits || phone).replace(/\D/g, "");
+
+      if (L.allPoliciesLapsed) {
+        flaggedNumbers.push([primary, String(phone), "Lapsed"]);
+        return;
+      }
+
+      const flag = makeFlag(r, baseFlag);
+      if (flag) {
+        flaggedNumbers.push([primary, String(phone), flag]);
+      } else if (raw10.length === 10) {
+        goodNumbers.push([primary, String(phone)]);
+      } else {
+        flaggedNumbers.push([primary, String(phone), "Invalid"]);
+      }
+    };
+
+    // clickToCall set
+    (L.clickToCall || []).forEach(r => consider(r, ""));
+    // policyPhones are the extras-only; preserve any explicit flags from the scrape
+    (L.policyPhones || []).forEach(r => {
+      const base =
+        Array.isArray(r?.flags) && r.flags.length ? r.flags.join(", ")
+        : (r?.flag || "Extra");
+      consider(r, base);
+    });
+  }
+
+  return { goodNumbers, flaggedNumbers };
+}
+
 /* ---------- main entry ---------- */
 async function createSheetAndShare({ email, result }) {
   // Prefer a pre-resolved echo URL if you set one; else use the /exec URL
@@ -116,11 +172,15 @@ async function createSheetAndShare({ email, result }) {
     throw new Error("Missing GSCRIPT_WEBAPP_URL (or GSCRIPT_REAL_URL) env var");
   }
 
+  const { goodNumbers, flaggedNumbers } = buildGoodAndFlagged(result.leads);
+
   const payload = {
     email,
     title: `Planet Scrape — ${email} — ${new Date().toISOString().replace("T", " ").slice(0, 19)}`,
     summaryRows: buildSummaryRows(result.leads),
-    allRows: buildAllNumbersRows(result.leads),
+    allRows: buildAllNumbersRows(result.leads),  // optional; Apps Script ignores unknown keys
+    goodNumbers,
+    flaggedNumbers,
     ...(sharedKey ? { expectedKey: sharedKey, key: sharedKey } : {}),
   };
 
