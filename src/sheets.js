@@ -2,40 +2,36 @@
 
 const axios = require("axios");
 
-/**
- * POST payload to a Google Apps Script Web App endpoint.
- * Handles the initial 302 redirect by re-POSTing to the Location.
- * @param {string} execUrl - Full /exec URL
- * @param {object} payload - JSON body the GAS doPost() expects
- * @returns {Promise<any>} Parsed JSON (or raw text) from Apps Script
- */
+/* ---------- low-level poster (used by tests and by createSheetAndShare) ---------- */
 async function pushToSheets(execUrl, payload) {
   if (!execUrl) throw new Error("Missing execUrl");
 
-  // 1) Try the direct /exec POST WITHOUT following redirects
-  const first = await axios.post(execUrl, payload, {
+  // Post without following redirects; if 30x, extract Location or parse HTML and then GET the echo URL
+  const baseOpts = {
+    timeout: 120000,
     headers: { "Content-Type": "application/json" },
     maxRedirects: 0,
-    // accept 302 so we can manually follow it
-    validateStatus: (s) => (s >= 200 && s < 300) || s === 302,
-  });
+    validateStatus: (s) => s >= 200 && s < 400, // accept 30x
+  };
 
-  // 2) If Apps Script responded with a 302, manually POST to the Location
-  if (first.status === 302 && first.headers?.location) {
-    const second = await axios.post(first.headers.location, payload, {
-      headers: { "Content-Type": "application/json" },
-      // allow normal redirects after this point
-    });
-    return normalize(second.data);
+  let data;
+  const r1 = await axios.post(execUrl, payload, baseOpts);
+  if (r1.status >= 300 && r1.status < 400) {
+    let loc = r1.headers?.location || "";
+    if (!loc && r1.data) {
+      const html = String(r1.data);
+      const m = html.match(/https:\/\/script\.googleusercontent\.com\/macros\/echo\?[^"'<> ]+/);
+      if (m) loc = m[0].replace(/&amp;/g, "&");
+    }
+    if (!loc) throw new Error("Apps Script redirected but no Location found");
+    const r2 = await axios.get(loc, { timeout: 120000 });
+    data = r2.data;
+  } else {
+    data = r1.data;
   }
 
-  // 3) Normal 2xx response
-  return normalize(first.data);
-}
-
-function normalize(data) {
   if (typeof data === "string") {
-    try { return JSON.parse(data); } catch { return data; }
+    try { data = JSON.parse(data); } catch {}
   }
   return data;
 }
@@ -46,8 +42,10 @@ function normalize(data) {
  * @param {{email?:string, result:object}} opts
  */
 async function createSheetAndShare({ email, result }) {
-  const execUrl = process.env.GSCRIPT_WEBAPP_URL;
-  if (!execUrl) throw new Error("GSCRIPT_WEBAPP_URL is not set (check your .env)");
+  // Prefer a pre-resolved echo URL if you set one; else use the /exec URL
+  const webappUrl = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL;
+  const sharedKey = process.env.GSCRIPT_SHARED_SECRET || ""; // optional
+  if (!webappUrl) throw new Error("GSCRIPT_WEBAPP_URL is not set (check your .env)");
   if (!result?.ok) throw new Error("Invalid scrape result");
 
   // ---- Summary rows (one per lead)
@@ -82,21 +80,26 @@ async function createSheetAndShare({ email, result }) {
     summaryRows,
     goodNumbers,
     flaggedNumbers,
+    sharedKey,
     // shareEmail: email, // enable if you've added sharing logic in Apps Script
   };
 
-  const out = await pushToSheets(execUrl, payload);
-
-  if (out && typeof out === "object" && "url" in out) {
-    return { ok: out.ok !== false, url: out.url };
-  }
+  let data;
   try {
-    const parsed = JSON.parse(String(out || ""));
-    return { ok: parsed.ok !== false, url: parsed.url };
-  } catch {
-    return { ok: false, url: undefined };
+    data = await pushToSheets(webappUrl, payload);
+  } catch (err) {
+    const status = err?.response?.status;
+    const msg = err?.response?.statusText || err?.message || String(err);
+    throw new Error(`Apps Script call failed${status ? ` (${status})` : ""}: ${msg}`);
   }
+
+  if (!data || !data.ok) {
+    throw new Error(`Apps Script failed: ${data && data.error ? data.error : "unknown error"}`);
+  }
+
+  return { spreadsheetId: data.spreadsheetId, url: data.url };
 }
 
+// Export the low-level poster for tests and tools
 module.exports = { pushToSheets, createSheetAndShare };
 
