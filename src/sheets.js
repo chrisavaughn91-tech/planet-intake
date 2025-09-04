@@ -1,14 +1,7 @@
 "use strict";
-
 const axios = require("axios");
 
-/**
- * Low-level helper: POST a payload directly to the Apps Script Web App.
- * Used by the smoke test (scripts/test-push.js).
- * @param {string} execUrl Full /exec URL
- * @param {object} payload JSON body
- * @returns {Promise<any>} parsed JSON or raw body
- */
+// Low-level helper used by scripts/test-push.js
 async function pushToSheets(execUrl, payload) {
   if (!execUrl) throw new Error("Missing execUrl");
   const res = await axios.post(execUrl, payload, {
@@ -224,5 +217,10 @@ async function createSheetAndShare({ email, result }) {
   return { spreadsheetId: data.spreadsheetId, url: data.url };
 }
 
-module.exports = { pushToSheets, createSheetAndShare };
+// Export BOTH helpers in a single CommonJS export.
+// (Avoid mixing `exports.foo = ...` and `module.exports = ...`.)
+module.exports = {
+  pushToSheets,
+  createSheetAndShare,
+};
 
