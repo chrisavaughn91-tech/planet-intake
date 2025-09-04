@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Planet Intake — Live</title>
+  <style>
+    body {
+      font: 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      padding: 16px 20px;
+      background-color: #f7f9fb;
+    }
+
+    h1 {
+      font-size: 18px;
+      margin-bottom: 12px;
+      color: #222;
+    }
+
+    #log {
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 12px;
+      max-height: 75vh;
+      overflow-y: auto;
+      background-color: #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+
+    .row {
+      margin: 4px 0;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .row:last-child {
+      border-bottom: none;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .badge-ok { background-color: #4CAF50; }
+    .badge-alert { background-color: #F44336; }
+    .badge-info { background-color: #2196F3; }
+    .badge-warn { background-color: #FF9800; }
+
+    .timestamp {
+      color: #888;
+      font-size: 12px;
+      min-width: 110px;
+    }
+
+    .lead {
+      flex: 1;
+      font-weight: 500;
+    }
+
+    .premium {
+      font-weight: bold;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <h1>Planet Intake — Live</h1>
+  <div id="log"></div>
+
+  <script>
+    const log = document.getElementById('log');
+    const es = new EventSource('/events');
+
+    const append = (obj) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      // Timestamp
+      const ts = new Date(obj.ts || Date.now());
+      const time = document.createElement('span');
+      time.className = 'timestamp';
+      time.textContent = ts.toLocaleTimeString();
+      row.appendChild(time);
+
+      // Badge
+      if (obj.type === 'lead' || obj.type === 'badge') {
+        const badge = document.createElement('span');
+        badge.className = 'badge ' + (obj.badge === '🔴'
+          ? 'badge-alert'
+          : obj.badge === '🟢'
+          ? 'badge-ok'
+          : obj.badge === '⚠️'
+          ? 'badge-warn'
+          : 'badge-info');
+        badge.textContent = obj.badge || 'INFO';
+        row.appendChild(badge);
+      }
+
+      // Lead name
+      if (obj.leadName) {
+        const lead = document.createElement('span');
+        lead.className = 'lead';
+        lead.textContent = obj.leadName;
+        row.appendChild(lead);
+      }
+
+      // Premium info if available
+      if (obj.totalPremium !== undefined) {
+        const premium = document.createElement('span');
+        premium.className = 'premium';
+        premium.textContent = `$${obj.totalPremium}`;
+        row.appendChild(premium);
+      }
+
+      // Fallback raw JSON
+      if (!obj.leadName && !obj.badge && !obj.totalPremium) {
+        const raw = document.createElement('span');
+        raw.className = 'lead';
+        raw.textContent = JSON.stringify(obj);
+        row.appendChild(raw);
+      }
+
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    };
+
+    es.onmessage = (e) => {
+      try {
+        append(JSON.parse(e.data));
+      } catch {
+        append({ ts: Date.now(), leadName: e.data });
+      }
+    };
+
+    es.onerror = () => {
+      append({ ts: Date.now(), badge: '⚠️', leadName: 'Connection lost' });
+    };
+  </script>
+</body>
+</html>

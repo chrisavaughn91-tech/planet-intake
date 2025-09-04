@@ -217,7 +217,7 @@ async function goToAllLeads(page){
   dlog('Nav: All Leads loaded with pack links present');
 }
 
-// ---------- collect first N links (fallback path) ----------
+// ---------- collect first N links (this-page only) ----------
 async function collectLeadPackLinks(page, limit){
   const anchors = page.locator(`a[href*="${PACK_ANCHOR}"]`);
   const count = await anchors.count();
@@ -248,6 +248,120 @@ async function collectLeadPackLinks(page, limit){
     out.push({ href: new URL(href, BASE).toString(), name });
   }
   return out;
+}
+
+// ---------- robust paginator (handles inert "Next" and last page) ----------
+async function collectLeadLinks(page, maxLeads, emitFn){
+  const seen = new Set();
+  let pageNo = 1;
+
+  const emitPag = async (action, extra = {}) => {
+    try { emitFn && emitFn({ action, page: pageNo, ...extra }); } catch {}
+  };
+
+  // parse "Showing 51 to 73 of 73 entries"
+  async function readInfo() {
+    return await page.evaluate(() => {
+      const n = Array.from(document.querySelectorAll('*'))
+        .find(el => /Showing\s+\d+\s+to\s+\d+\s+of\s+\d+\s+entries/i.test(el.textContent || ''));
+      if (!n) return null;
+      const m = (n.textContent || '').match(/Showing\s+(\d+)\s+to\s+(\d+)\s+of\s+(\d+)\s+entries/i);
+      if (!m) return null;
+      return { from: +m[1], to: +m[2], total: +m[3], raw: n.textContent.trim() };
+    });
+  }
+
+  // helper: click a next control if present
+  async function clickNext() {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const nextCandidates = [
+      'ul.pagination li:not(.disabled) a:has-text("Next")',
+      'a[aria-label="Next"]:not([aria-disabled="true"])',
+      'a.paginate_button.next:not(.disabled)',
+      'li.next a',
+      'div.dataTables_paginate a.next',
+      'a:has-text("Next")'
+    ];
+    for (const sel of nextCandidates) {
+      const h = await page.$(sel);
+      if (h) { await h.click({ delay: 50 }).catch(()=>{}); return true; }
+    }
+    return false;
+  }
+
+  // detect first-link href to notice redraw
+  const firstHref = async () => {
+    const h = await page.$(`a[href*="${PACK_ANCHOR}"]`);
+    if (!h) return null;
+    const raw = await h.getAttribute('href');
+    return raw ? new URL(raw, BASE).toString() : null;
+  };
+
+  while (seen.size < maxLeads) {
+    await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
+
+    const need = maxLeads - seen.size;
+    const pageLinks = await collectLeadPackLinks(page, need);
+    for (const L of pageLinks) {
+      const key = L.href;
+      if (!seen.has(key)) seen.add(key);
+      if (seen.size >= maxLeads) break;
+    }
+
+    if (seen.size >= maxLeads) break;
+
+    // Stop if footer says we're on last page
+    const infoRow = await readInfo();
+    if (infoRow && infoRow.to >= infoRow.total) {
+      await emitPag('end-of-list', { info: infoRow });
+      break;
+    }
+
+    // Try Next; if no Next, stop
+    const prevFirst = await firstHref();
+    const clicked = await clickNext();
+    if (!clicked) {
+      await emitPag('no-next-visible', { info: infoRow || null });
+      break;
+    }
+    await emitPag('click-next');
+
+    // Wait up to 4s for either first link to change or "Showing x to y..." to change
+    const changed = await Promise.race([
+      page.waitForFunction(
+        (selector, prev, base) => {
+          const a = document.querySelector(selector);
+          if (!a) return false;
+          const href = a.getAttribute('href') || '';
+          const abs = new URL(href, base).toString();
+          return abs && abs !== prev;
+        },
+        { timeout: 4000 },
+        `a[href*="${PACK_ANCHOR}"]`,
+        prevFirst,
+        BASE
+      ).then(() => true).catch(() => false),
+      page.waitForFunction(() => {
+        const el = Array.from(document.querySelectorAll('*'))
+          .find(e => /Showing\s+\d+\s+to\s+\d+\s+of\s+\d+\s+entries/i.test(e.textContent || ''));
+        return !!el && /\bto\s+\d+\s+of\s+\d+\s+entries\b/i.test(el.textContent || '');
+      }, { timeout: 4000 }).then(() => true).catch(() => false)
+    ]);
+
+    if (!changed) {
+      // If nothing changed, assume Next was inert (common on last page where it's still visible)
+      const info2 = await readInfo();
+      await emitPag('next-inert', { info: info2 || infoRow || null });
+      break;
+    }
+
+    // let the table finish rendering links
+    pageNo += 1;
+    await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 15000 }).catch(()=>{});
+  }
+
+  // return as objects (name will be filled later if needed)
+  return Array.from(seen).map(href => ({ href, name: null }));
 }
 
 // ---------- helpers to extract numbers from page text ----------
@@ -589,32 +703,12 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await login(page, { username, password });
     await goToAllLeads(page);
 
-    // Collect links with pagination until we have enough
-    const links = await (async function collectPaginated(page, limit){
-      const out = [];
-      const seen = new Set();
-      while (out.length < limit) {
-        const need = limit - out.length;
-        const pageLinks = await collectLeadPackLinks(page, need);
-        for (const L of pageLinks) {
-          const key = L.href;
-          if (!seen.has(key)) { seen.add(key); out.push(L); }
-        }
-        if (out.length >= limit) break;
-        // Try clicking inbox "Next" pager
-        const nextBtn =
-          (await firstVisible(page.locator('a:has-text("Next")'))) ||
-          (await firstVisible(page.locator('button:has-text("Next")')));
-        if (!nextBtn) break;
-        dlog('Inbox: moving to next page for more links…');
-        await Promise.allSettled([
-          nextBtn.click(),
-          page.waitForLoadState('domcontentloaded', { timeout: 15000 })
-        ]);
-        await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 15000 }).catch(()=>{});
-      }
-      return out;
-    })(page, Math.max(1, maxLeads));
+    // Collect links across pages safely (handles inert "Next")
+    const links = await collectLeadLinks(
+      page,
+      Math.max(1, maxLeads),
+      (payload) => emit('paginate', payload)
+    );
 
     dlog(`Pack: collected ${links.length} lead link(s)`);
     if (links.length === 0) {
