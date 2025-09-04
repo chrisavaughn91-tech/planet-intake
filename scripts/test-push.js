@@ -1,6 +1,16 @@
 // scripts/test-push.js — small smoke test to POST a sample payload to Apps Script
 try { require('dotenv').config(); } catch {}
-const { pushToSheets } = require("../src/sheets");
+// Be defensive about the export shape so we always get a callable function.
+const sheetsMod = require('../src/sheets');
+const pushToSheets =
+  (sheetsMod && typeof sheetsMod.pushToSheets === 'function') ? sheetsMod.pushToSheets :
+  (typeof sheetsMod === 'function') ? sheetsMod :
+  (sheetsMod && typeof sheetsMod.default === 'function') ? sheetsMod.default :
+  null;
+if (!pushToSheets) {
+  console.error('Could not find a function export "pushToSheets" from ../src/sheets. Got keys:', sheetsMod && Object.keys(sheetsMod));
+  process.exit(1);
+}
 
 const EXEC_URL = process.env.GSCRIPT_WEBAPP_URL; // must end with /exec
 if (!EXEC_URL) {
