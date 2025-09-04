@@ -36,6 +36,16 @@ function doPost(e) {
     // Open target or create new spreadsheet safely
     const ss = openSpreadsheetOrCreate_(payload);
 
+    // (Optional) Share the newly created sheet with a viewer, if requested.
+    try {
+      const shareEmail = coalesce_(payload, ['shareEmail', 'email'], null);
+      if (shareEmail) {
+        DriveApp.getFileById(ss.getId()).addViewer(shareEmail);
+      }
+    } catch (shareErr) {
+      console.log('Share failed: ' + shareErr);
+    }
+
     // Gather arrays with mild schema flexibility
     const summaryRows = coalesce_(payload, ['summaryRows','summary','summary_list'], []) || [];
     const goodList    = coalesce_(payload, ['goodNumbers','allNumbersGood','valid_numbers'], []) || [];
