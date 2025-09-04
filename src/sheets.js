@@ -15,7 +15,10 @@ function buildAllNumbersRows(leads) {
         const key = `${r.rawDigits || r.original || r.phone || ""}|${r.extension || ""}`;
         if (seen.has(key)) return;
         seen.add(key);
-        const phoneText = r.phone || r.rawDigits || r.original || "";
+        const raw = String(r.rawDigits || "");
+        const isSeven = raw.length === 7;
+        const sevenPretty = isSeven ? `${raw.slice(0,3)}-${raw.slice(3)}` : null;
+        const phoneText = isSeven ? sevenPretty : (r.phone || r.rawDigits || r.original || "");
         rows.push(["","", primary, String(phoneText), "Lapsed"]);
       };
       (L.clickToCall || []).forEach(pushLapsed);
@@ -34,7 +37,7 @@ function buildAllNumbersRows(leads) {
       const isSeven = raw.length === 7;
       // Pretty for 7-digit in flagged view
       const sevenPretty = isSeven ? `${raw.slice(0,3)}-${raw.slice(3)}` : null;
-      const phoneText = r.phone || sevenPretty || r.rawDigits || r.original || "";
+      const phoneText = isSeven ? sevenPretty : (r.phone || r.rawDigits || r.original || "");
 
       const flagBits = [];
       if (r.international) flagBits.push("International");
