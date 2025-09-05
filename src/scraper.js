@@ -34,11 +34,9 @@ function validUS10(d10){
   if(!d10 || d10.length !== 10) return false;
   if(sameDigits(d10)) return false;
   const npa = d10.slice(0,3), nxx = d10.slice(3,6), line = d10.slice(6);
-  if(/[01]/.test(npa[0])) return false; // NPA can’t start 0/1
-  if(/[01]/.test(nxx[0])) return false; // NXX can’t start 0/1
-  // 555-01xx fake block
+  if(/[01]/.test(npa[0])) return false;
+  if(/[01]/.test(nxx[0])) return false;
   if(npa === '555' && /^01\d\d$/.test(line)) return false;
-  // service codes (211/311/…911) as NPAs: reject
   if(/^(211|311|411|511|611|711|811|911)$/.test(npa)) return false;
   return true;
 }
@@ -46,46 +44,37 @@ function validUS10(d10){
 const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
 
 function normalizePhoneCandidate(raw, contextLabel){
-  // Omit explicit do-not-call markers entirely
   if (/\b(dnc|do\s*not\s*call)\b/i.test(String(raw))) return null;
 
-  // grab extension if present
   let ext = null;
   const extMatch = String(raw).match(/\b(?:x|ext\.?|#)\s*([0-9]{2,6})\b/i);
   if(extMatch) ext = extMatch[1];
 
   let s = String(raw)
-    .replace(/\b(?:x|ext\.?|#)\s*[0-9]{2,6}\b/ig,'') // remove ext bit
+    .replace(/\b(?:x|ext\.?|#)\s*[0-9]{2,6}\b/ig,'')
     .replace(/[^\d+]/g, '');
 
-  // handle +1 or leading 1
   if(s.startsWith('+1')) s = s.slice(2);
   if(s.length === 11 && s.startsWith('1')) s = s.slice(1);
 
-  // classify
   let rawDigits = null, pretty = null, valid = false, flags = [];
   let tollFree = false, international = false;
 
-  if(s.startsWith('+') && !s.startsWith('+1')){
-    international = true;
-  }
+  if(s.startsWith('+') && !s.startsWith('+1')) international = true;
 
   if(/^\d{10}$/.test(s)){
     rawDigits = s;
     valid = validUS10(s);
     pretty = valid ? toPretty(s) : null;
-    if(TOLL_FREE.has(s.slice(0,3))) { tollFree = true; }
+    if(TOLL_FREE.has(s.slice(0,3))) tollFree = true;
   }else if(/^\d{7}$/.test(s)){
     rawDigits = s;
     flags.push("Needs Area Code");
-    // pretty for 7-digit local style
     pretty = `${s.slice(0,3)}-${s.slice(3)}`;
   }else{
-    // reject weird lengths
     return null;
   }
 
-  // context flags (label/source)
   if(contextLabel && /fax/i.test(contextLabel)) flags.push("Fax");
   if(international) flags.push("International");
   if(ext) flags.push("Has Extension");
@@ -148,7 +137,6 @@ async function login(page, creds){
   dlog('Login: navigating to login page');
   await page.goto(LOGIN_URL, { waitUntil: "load", timeout: 60000 });
 
-  // Prefer the first visible text/email input and the first password input.
   let userInput =
     (await firstVisible(page.locator('input[type="text"]'))) ||
     (await firstVisible(page.locator('input[type="email"]'))) ||
@@ -157,7 +145,6 @@ async function login(page, creds){
   let passInput = await firstVisible(page.locator('input[type="password"]'));
 
   if(!userInput || !passInput){
-    // Fallback: first two inputs in the first form
     const form = (await firstVisible(page.locator("form"))) || page.locator("body");
     if(!userInput) userInput = await firstVisible(form.locator("input").nth(0));
     if(!passInput) passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
@@ -182,7 +169,6 @@ async function login(page, creds){
     submit.click()
   ]);
 
-  // Make sure we’re on the app, then we’ll navigate ourselves to the pack:
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(()=>{});
   dlog('Login: completed; on dashboard/home');
 }
@@ -209,48 +195,39 @@ async function goToAllLeads(page){
     ]);
   }
 
-  // Force the URL either way.
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
-
-  // Wait until the list actually renders links to /Lead/InboxDetail?LeadId=
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
   dlog('Nav: All Leads loaded with pack links present');
 }
 
-// ---------- collect first N links (this-page only) ----------
-async function collectLeadPackLinks(page, limit){
-  const anchors = page.locator(`a[href*="${PACK_ANCHOR}"]`);
-  const count = await anchors.count();
-  const out = [];
-
-  for(let i=0; i<count && out.length<limit; i++){
-    const el = anchors.nth(i);
-    const href = await el.getAttribute("href");
-    if(!href) continue;
-
-    // Try to get the name from the same row’s first cell if the link text is "Detail"
-    const name = await page.evaluate((a) => {
-      const link = a;
-      const txt  = (link.textContent || '').trim();
-      if (!/^detail$/i.test(txt)) return txt;
-
-      const tr = link.closest('tr');
-      if (!tr) return txt;
-
-      const firstCell = tr.querySelector('td, th');
-      if (!firstCell) return txt;
-
-      const nameAnchor = firstCell.querySelector('a');
-      const candidate = (nameAnchor ? nameAnchor.textContent : firstCell.textContent) || '';
-      return candidate.trim() || txt;
-    }, await el.elementHandle());
-
-    out.push({ href: new URL(href, BASE).toString(), name });
-  }
-  return out;
+// ---------- collect this page’s links fast ----------
+async function collectLeadPackLinksFast(page, limit){
+  return await page.$$eval(
+    `a[href*="${PACK_ANCHOR}"]`,
+    (els, arg) => {
+      const { limit, base } = arg;
+      const out = [];
+      for (const a of els) {
+        const href = a.getAttribute('href');
+        if (!href) continue;
+        let name = (a.textContent || '').trim();
+        if (/^detail$/i.test(name)) {
+          const tr = a.closest('tr');
+          const firstCell = tr && tr.querySelector('td, th');
+          const nameAnchor = firstCell && firstCell.querySelector('a');
+          const candidate = (nameAnchor ? nameAnchor.textContent : (firstCell && firstCell.textContent)) || '';
+          name = (candidate || name).trim();
+        }
+        out.push({ href: new URL(href, base).toString(), name });
+        if (out.length >= limit) break;
+      }
+      return out;
+    },
+    { limit, base: BASE }   // SINGLE object arg (prevents “Too many arguments”)
+  );
 }
 
-// ---------- robust paginator (handles inert "Next" and last page) ----------
+// ---------- robust paginator (keeps page-size; numeric first, then Next) ----------
 async function collectLeadLinks(page, maxLeads, emitFn){
   const seen = new Set();
   let pageNo = 1;
@@ -259,7 +236,7 @@ async function collectLeadLinks(page, maxLeads, emitFn){
     try { emitFn && emitFn({ action, page: pageNo, ...extra }); } catch {}
   };
 
-  // parse "Showing 51 to 73 of 73 entries"
+  // Parse "Showing 51 to 73 of 73 entries"
   async function readInfo() {
     return await page.evaluate(() => {
       const n = Array.from(document.querySelectorAll('*'))
@@ -267,29 +244,64 @@ async function collectLeadLinks(page, maxLeads, emitFn){
       if (!n) return null;
       const m = (n.textContent || '').match(/Showing\s+(\d+)\s+to\s+(\d+)\s+of\s+(\d+)\s+entries/i);
       if (!m) return null;
-      return { from: +m[1], to: +m[2], total: +m[3], raw: n.textContent.trim() };
+      return {
+        from: +m[1],
+        to: +m[2],
+        total: +m[3],
+        perPage: (+m[2]) - (+m[1]) + 1,
+        raw: n.textContent.trim()
+      };
     });
   }
 
-  // helper: click a next control if present
-  async function clickNext() {
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    const nextCandidates = [
-      'ul.pagination li:not(.disabled) a:has-text("Next")',
-      'a[aria-label="Next"]:not([aria-disabled="true"])',
-      'a.paginate_button.next:not(.disabled)',
-      'li.next a',
-      'div.dataTables_paginate a.next',
-      'a:has-text("Next")'
-    ];
-    for (const sel of nextCandidates) {
-      const h = await page.$(sel);
-      if (h) { await h.click({ delay: 50 }).catch(()=>{}); return true; }
+  async function getActivePageNumber(infoRow){
+    const cur = await page.$eval(
+      '.dataTables_paginate .paginate_button.current, ul.pagination li.active a, [aria-current="page"]',
+      el => (el.textContent || '').trim()
+    ).catch(()=>null);
+    if (cur && /^\d+$/.test(cur)) return parseInt(cur, 10);
+
+    if (infoRow && infoRow.perPage) {
+      return Math.floor((infoRow.from - 1) / infoRow.perPage) + 1;
     }
-    return false;
+    return 1;
   }
 
-  // detect first-link href to notice redraw
+  async function clickNumeric(toNum){
+    const sel = `.dataTables_paginate a:has-text("${toNum}"), ul.pagination a:has-text("${toNum}")`;
+    const h = await page.$(sel);
+    if (h) {
+      await page.evaluate((s) => {
+        const a = document.querySelector(s);
+        if (a) { a.scrollIntoView({block:'center'}); a.click(); }
+      }, sel).catch(()=>{});
+      return sel;
+    }
+    return null;
+  }
+
+  async function clickNext(){
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const sels = [
+      '.dataTables_paginate a.next:not(.disabled)',
+      'li.next:not(.disabled) a',
+      'a.paginate_button.next:not(.disabled)',
+      'a[aria-label="Next"]:not([aria-disabled="true"])',
+      'a:has-text("Next")'
+    ];
+    for (const sel of sels) {
+      const h = await page.$(sel);
+      if (h) {
+        await page.evaluate((s) => {
+          const a = document.querySelector(s);
+          if (a) { a.scrollIntoView({block:'center'}); a.click(); }
+        }, sel).catch(()=>{});
+        return sel;
+      }
+    }
+    return null;
+  }
+
   const firstHref = async () => {
     const h = await page.$(`a[href*="${PACK_ANCHOR}"]`);
     if (!h) return null;
@@ -301,66 +313,88 @@ async function collectLeadLinks(page, maxLeads, emitFn){
     await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
 
     const need = maxLeads - seen.size;
-    const pageLinks = await collectLeadPackLinks(page, need);
+    const pageLinks = await collectLeadPackLinksFast(page, need);
     for (const L of pageLinks) {
-      const key = L.href;
-      if (!seen.has(key)) seen.add(key);
+      if (!seen.has(L.href)) seen.add(L.href);
       if (seen.size >= maxLeads) break;
     }
 
     if (seen.size >= maxLeads) break;
 
-    // Stop if footer says we're on last page
     const infoRow = await readInfo();
     if (infoRow && infoRow.to >= infoRow.total) {
       await emitPag('end-of-list', { info: infoRow });
       break;
     }
 
-    // Try Next; if no Next, stop
     const prevFirst = await firstHref();
-    const clicked = await clickNext();
-    if (!clicked) {
+    const prevInfoRaw = infoRow ? infoRow.raw : null;
+    const activeNum = await getActivePageNumber(infoRow);
+    let clickedKind = null;
+
+    // Prefer numeric (go to active+1) so page 1 -> click "2" first
+    const numericSel = await clickNumeric(activeNum + 1);
+    if (numericSel) {
+      clickedKind = { kind: 'click-page', detail: { from: activeNum, to: activeNum + 1, selector: numericSel } };
+    } else {
+      const nextSel = await clickNext();
+      if (nextSel) clickedKind = { kind: 'click-next', detail: nextSel };
+    }
+
+    if (!clickedKind) {
       await emitPag('no-next-visible', { info: infoRow || null });
       break;
     }
-    await emitPag('click-next');
 
-    // Wait up to 4s for either first link to change or "Showing x to y..." to change
-    const changed = await Promise.race([
-      page.waitForFunction(
-        (selector, prev, base) => {
-          const a = document.querySelector(selector);
-          if (!a) return false;
+    await emitPag(clickedKind.kind, clickedKind.detail ? { detail: clickedKind.detail } : {});
+
+    // Wait up to 8s for change (either first link changes OR “Showing …” text changes)
+    const changed = await page.waitForFunction(
+      ({ selector, prevHref, base, prevInfoRaw }) => {
+        const a = document.querySelector(selector);
+        if (a) {
           const href = a.getAttribute('href') || '';
           const abs = new URL(href, base).toString();
-          return abs && abs !== prev;
-        },
-        { timeout: 4000 },
-        `a[href*="${PACK_ANCHOR}"]`,
-        prevFirst,
-        BASE
-      ).then(() => true).catch(() => false),
-      page.waitForFunction(() => {
+          if (abs && abs !== prevHref) return true;
+        }
         const el = Array.from(document.querySelectorAll('*'))
           .find(e => /Showing\s+\d+\s+to\s+\d+\s+of\s+\d+\s+entries/i.test(e.textContent || ''));
-        return !!el && /\bto\s+\d+\s+of\s+\d+\s+entries\b/i.test(el.textContent || '');
-      }, { timeout: 4000 }).then(() => true).catch(() => false)
-    ]);
+        if (el) {
+          const raw = (el.textContent || '').trim();
+          if (!prevInfoRaw || raw !== prevInfoRaw) return true;
+        }
+        return false;
+      },
+      { selector: `a[href*="${PACK_ANCHOR}"]`, prevHref: prevFirst, base: BASE, prevInfoRaw },
+      { timeout: 8000 }
+    ).catch(() => false);
 
     if (!changed) {
-      // If nothing changed, assume Next was inert (common on last page where it's still visible)
-      const info2 = await readInfo();
-      await emitPag('next-inert', { info: info2 || infoRow || null });
-      break;
+      if (clickedKind.kind === 'click-next') {
+        const numSel2 = await clickNumeric(activeNum + 1);
+        if (!numSel2) {
+          const info2 = await readInfo();
+          await emitPag('next-inert', { info: info2 || infoRow || null });
+          break;
+        }
+        await emitPag('fallback-click-page', { detail: { from: activeNum, to: activeNum + 1, selector: numSel2 } });
+        await page.waitForTimeout(600);
+      } else {
+        const nextSel2 = await clickNext();
+        if (!nextSel2) {
+          const info2 = await readInfo();
+          await emitPag('next-inert', { info: info2 || infoRow || null });
+          break;
+        }
+        await emitPag('fallback-click-next', { detail: nextSel2 });
+        await page.waitForTimeout(600);
+      }
     }
 
-    // let the table finish rendering links
     pageNo += 1;
     await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 15000 }).catch(()=>{});
   }
 
-  // return as objects (name will be filled later if needed)
   return Array.from(seen).map(href => ({ href, name: null }));
 }
 
@@ -396,7 +430,6 @@ async function gatherVisibleNumberTokens(page){
 async function harvestClickToCall(page){
   const rows = [];
 
-  // prefer the strip Call button (the one in the row with Appt./Comments/Resolve)
   const callBtn =
     (await firstVisible(page.locator('div:has(button:has-text("Appt.")) >> button:has-text("Call")'))) ||
     (await firstVisible(page.getByRole("button", { name: /^Call$/ }))) ||
@@ -407,7 +440,6 @@ async function harvestClickToCall(page){
 
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(()=>{});
-  // drawer animates; poll ~2s until new tokens appear
   let after = new Set();
   for (let i = 0; i < 6; i++) {
     await page.waitForTimeout(300);
@@ -427,7 +459,7 @@ async function harvestClickToCall(page){
     seen.add(key);
 
     rows.push({
-      primaryName: null,            // filled by caller
+      primaryName: null,
       source: "click2call",
       lineType: "ClickToCall",
       original: norm.original,
@@ -446,41 +478,38 @@ async function harvestClickToCall(page){
 
 // ---------- expand all policies ("More" -> "Less") ----------
 async function expandAllPolicies(page){
-  // one More usually expands all; loop defensively
   for(let i=0;i<12;i++){
     const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
     if(!more) break;
     await more.click().catch(()=>{});
     await sleep(350);
     const anotherMore = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
-    if(!anotherMore) break; // no more sections left
+    if(!anotherMore) break;
   }
 }
 
-// ---------- get primary name from the *lead card header* (not the top-right agent name) ----------
+// ---------- get primary name from the *lead card header* ----------
 async function getPrimaryNameFromHeader(page){
   const name = await page.evaluate(() => {
-    // Anchor on the Back button, then look just below it on the LEFT half
     const back = Array.from(document.querySelectorAll('a,button'))
       .find(el => /(^|\b)back\b/i.test(el.textContent || ''));
     const backBottom = back ? back.getBoundingClientRect().bottom : 0;
     const zoneTop = backBottom;
-    const zoneBottom = backBottom + 220;        // only a short band under Back
-    const zoneRight = window.innerWidth * 0.55; // only left side candidates
+    const zoneBottom = backBottom + 220;
+    const zoneRight = window.innerWidth * 0.55;
     const bad = /^(BACK|DETAIL|CALL|APPT\.?|COMMENTS|RESOLVE|VIEWING\s+\d+\s*\/\s*\d+)$/i;
 
     const cands = [];
     document.querySelectorAll('body *').forEach(el => {
       const rect = el.getBoundingClientRect();
       if (rect.top < zoneTop || rect.top > zoneBottom) return;
-      if (rect.left > zoneRight) return; // discard items on right side/top bar
+      if (rect.left > zoneRight) return;
       const txt = (el.textContent || '').trim();
       if (!txt) return;
       if (bad.test(txt)) return;
-      if (/\d{3,}/.test(txt)) return;      // no phone-esque strings
-      if (/[a-z]/.test(txt)) return;       // must be uppercase-ish
-      if (!/[A-Z]/.test(txt)) return;      // needs letters
-      // likely LAST, FIRST pattern or single token in caps
+      if (/\d{3,}/.test(txt)) return;
+      if (/[a-z]/.test(txt)) return;
+      if (!/[A-Z]/.test(txt)) return;
       cands.push({ t: txt, y: rect.top, x: rect.left });
     });
     cands.sort((a,b)=>a.y - b.y || a.x - b.x);
@@ -493,7 +522,6 @@ async function getPrimaryNameFromHeader(page){
 async function parseLeadDetail(page){
   await expandAllPolicies(page);
 
-  // compute monthly total (= sum of Special for Active policies only)
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
   let monthlyTotalActive = 0;
@@ -517,7 +545,6 @@ async function parseLeadDetail(page){
     }
 
     let active = !isLapsed;
-    // date-based lapsed logic (monthly/annual)
     const modeM = block.match(/\bMode\s+([A-Za-z]+)/i);
     const dueM  = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2})\b/i);
     const paidM = block.match(/\bPolicy\s+Paid\s+To\s+([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2})\b/i);
@@ -529,10 +556,10 @@ async function parseLeadDetail(page){
       const s = paidM[1];
       const parts = s.includes('-') ? s.split('-').map(Number) : s.split('/').map(Number);
       if (s.includes('-')) {
-        paidTo = new Date(parts[0], parts[1]-1, parts[2]); // YYYY-M-D
+        paidTo = new Date(parts[0], parts[1]-1, parts[2]);
       } else {
         const Y = parts[2] < 100 ? 2000 + parts[2] : parts[2];
-        paidTo = new Date(Y, parts[0]-1, parts[1]);       // M/D/YY|YYYY
+        paidTo = new Date(Y, parts[0]-1, parts[1]);
       }
     }
 
@@ -540,15 +567,15 @@ async function parseLeadDetail(page){
       const today = new Date();
       if (mode === 'annual') {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 366; // >1 year is lapsed
+        active = diff <= 366;
       } else if (dueDay) {
         const last = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
         const anchor = new Date(today.getFullYear(), today.getMonth(), Math.min(Math.max(dueDay,1), last));
         const delta = Math.floor((anchor - paidTo) / 86400000);
-        active = delta <= 60; // 60-day grace
+        active = delta <= 60;
       } else {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 60; // fallback monthly
+        active = diff <= 60;
       }
     }
 
@@ -556,10 +583,8 @@ async function parseLeadDetail(page){
     if (active) activeBlockCount++;
   }
 
-  // extract the primary name from header (after page load)
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
-  // ---- collect policy phones (Ph:/Sec Ph:) from DOM AND from each policy text block ----
   const policyRows = [];
   const seen = new Set();
   const pushPolicyNumber = (token, label, primaryName) => {
@@ -586,10 +611,9 @@ async function parseLeadDetail(page){
     });
   };
 
-  // A) same-line label forms inside each policy text block (handles "Ph: 555…  Sec Ph: 444…")
+  // A) same-line label forms inside each policy text block
   const blockTokenReSrc = TOKEN_RE.source;
   for (const rawBlock of blocks) {
-    // Find label + following number-ish text, then tokenize numbers within it
     const labelSpanRe = /(Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone)\s*:?\s*([()\-\s.\d+xext#]{7,})/ig;
     let m;
     while ((m = labelSpanRe.exec(rawBlock))) {
@@ -597,13 +621,11 @@ async function parseLeadDetail(page){
       const span = m[2] || '';
       const tokRe = new RegExp(blockTokenReSrc, 'gi');
       let t;
-      while ((t = tokRe.exec(span))) {
-        pushPolicyNumber(t[0], label, primaryNameHeader || null);
-      }
+      while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
     }
   }
 
-  // B) table/sibling label:value pairs in DOM (kept for pages that separate cells)
+  // B) table/sibling label:value pairs in DOM
   const domPairs = await page.evaluate(() => {
     const out = [];
     const labelRe = /^(?:Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone|Cell|Home|Work)\s*:?$/i;
@@ -629,7 +651,6 @@ async function parseLeadDetail(page){
       if (strings.length) out.push({ label, strings });
     };
 
-    // tables
     document.querySelectorAll('table').forEach(tbl => {
       tbl.querySelectorAll('tr').forEach(tr => {
         const cells = Array.from(tr.children);
@@ -675,7 +696,6 @@ async function goToNextLead(page){
 
   const url = page.url();
   if (/\/Lead\/MoveNext/i.test(url)) {
-    // final 'Oops' page shows when there is no next record
     const oops = await page.locator('text=Error Occured').first().isVisible().catch(()=>false);
     if (oops) return false;
   }
@@ -690,11 +710,9 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
   /* END:EMIT_START */
   const { browser, context, page } = await launch();
 
-  // flattened arrays (kept for convenience / jq examples)
   const clickToCallRows = [];
   const policyPhoneRows = [];
 
-  // per-lead results
   const leads = [];
   let leadCount = 0;
   let sumAllLeadsMonthly = 0;
@@ -703,7 +721,6 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await login(page, { username, password });
     await goToAllLeads(page);
 
-    // Collect links across pages safely (handles inert "Next")
     const links = await collectLeadLinks(
       page,
       Math.max(1, maxLeads),
@@ -723,7 +740,6 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       await page.goto(link.href, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
-      // primary name comes from inbox link text (fallback to header if needed)
       let primaryName = link.name || null;
       if (!primaryName) {
         const hdr = await getPrimaryNameFromHeader(page);
@@ -734,17 +750,14 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       emit('lead', { index: i + 1, total: total, leadName: primaryName });
       /* END:EMIT_LEAD */
 
-      // 1) click-to-call
       const c2c = await harvestClickToCall(page);
       c2c.forEach(r => (r.primaryName = primaryName || r.primaryName));
       dlog(`Lead ${i+1}: click-to-call rows -> ${c2c.length}`);
       clickToCallRows.push(...c2c);
 
-      // 2) policies + phones + monthly total (active only)
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      // Build extras-only policy numbers (exclude anything already in Click-to-Call)
       const c2cDigits = new Set((c2c || []).map(r => r.rawDigits || onlyDigits(r.phone || r.original || '')));
       const policyPhonesExtra = (detail.policyRows || []).filter(r => {
         const k = r.rawDigits || onlyDigits(r.phone || r.original || '');
@@ -767,23 +780,15 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       });
       /* END:EMIT_NUMBERS */
 
-      // per-lead rollup & badge
       const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
       const hasAnyPolicy = detail.policyBlockCount > 0;
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
 
-      // valid numbers across both sources (after extras filter)
       const validDigits = new Set();
       const accValid = (r) => { if (r && r.valid && (r.rawDigits||'').length===10) validDigits.add(r.rawDigits); };
       (c2c || []).forEach(accValid);
       (policyPhonesExtra || []).forEach(accValid);
 
-      // Badge precedence:
-      // 🔴 = all policies lapsed (regardless of total)
-      // 🟠 = no valid numbers (unless already red)
-      // ⭐ = total >= 100
-      // 🟣 = total < 50 (unless already red/orange)
-      // "" = 50–99.99
       let leadStar;
       if (allPoliciesLapsed) {
         leadStar = "🔴";
@@ -806,7 +811,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
         monthlySpecialTotal: leadMonthly,
         star: leadStar,
         clickToCall: c2c,
-        policyPhones: policyPhonesExtra, // extras only
+        policyPhones: policyPhonesExtra,
         allPoliciesLapsed
       });
 
@@ -821,8 +826,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     /* END:EMIT_DONE */
     return {
       ok: true,
-      leads,                    // per-lead (name, monthly, star, phones)
-      // flattened for quick jq/testing:
+      leads,
       clickToCall: clickToCallRows,
       policyPhones: policyPhoneRows,
       meta: {
