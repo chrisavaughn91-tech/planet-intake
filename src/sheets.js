@@ -87,16 +87,14 @@ function buildAllNumbersRows(leads) {
 }
 
 function buildSummaryRows(leads) {
-  // Expected layout (matches your sheet): Badge | Lead | Total Premium | Listed #s | + #s
-  const header = ["Badge", "Lead", "Total Premium", "Listed #s", "+ #s"];
-  const body = (leads || []).map((L) => [
+  // BODY ONLY (no header row) — Code.gs writes headers and formatting
+  return (leads || []).map((L) => [
     L.star || "",                            // Badge emoji
     L.primaryName || "",                     // Lead
-    Number(L.monthlySpecialTotal || 0),      // Total Premium (number; Apps Script formats to currency)
-    (L.clickToCall || []).length,            // Listed #s (ClickToCall count)
-    (L.policyPhones || []).length,           // + #s (extras-only policy numbers)
+    Number(L.monthlySpecialTotal || 0),      // Total Premium (Apps Script formats to currency)
+    (L.clickToCall || []).length,            // Listed #’s (ClickToCall count)
+    (L.policyPhones || []).length,           // + Policy #’s (extras-only policy numbers)
   ]);
-  return [header, ...body];
 }
 
 /**
@@ -111,45 +109,36 @@ function buildGoodAndFlagged(leads) {
   for (const L of (leads || [])) {
     const primary = L.primaryName || "";
 
-    const makeFlag = (r, base) => {
-      const flags = [];
-      if (base) flags.push(base);
-      if (r?.international) flags.push("International");
-      const raw = String(r?.rawDigits || r?.phone || "").replace(/\D/g, "");
-      if (raw.length === 7) flags.push("Needs area code");
-      if (r?.valid === false) flags.push("Invalid");
-      return flags.join(", ");
-    };
-
-    const consider = (r, baseFlag = "") => {
+    const consider = (r) => {
       if (!r) return;
       const phone = r.phone || r.rawDigits || r.original || "";
-      const raw10 = String(r.rawDigits || phone).replace(/\D/g, "");
+      const raw = String(r.rawDigits || phone).replace(/\D/g, "");
 
+      // If ALL policies lapsed for this lead, everything is flagged "Lapsed"
       if (L.allPoliciesLapsed) {
         flaggedNumbers.push([primary, String(phone), "Lapsed"]);
         return;
       }
 
-      const flag = makeFlag(r, baseFlag);
-      if (flag) {
-        flaggedNumbers.push([primary, String(phone), flag]);
-      } else if (raw10.length === 10) {
+      // Build flags WITHOUT "Extra" (policy extras should be treated like normal numbers)
+      const flags = [];
+      if (r.international) flags.push("International");
+      if (raw.length === 7) flags.push("Needs area code");
+      if (r.valid === false) flags.push("Invalid");
+      // If you still want to carry through explicit "Fax" markers from the scrape:
+      if (Array.isArray(r.flags) && r.flags.some(f => /fax/i.test(String(f)))) flags.push("Fax");
+
+      if (flags.length > 0) {
+        flaggedNumbers.push([primary, String(phone), flags.join(", ")]);
+      } else if (raw.length === 10) {
         goodNumbers.push([primary, String(phone)]);
       } else {
         flaggedNumbers.push([primary, String(phone), "Invalid"]);
       }
     };
 
-    // clickToCall set
-    (L.clickToCall || []).forEach(r => consider(r, ""));
-    // policyPhones are the extras-only; preserve any explicit flags from the scrape
-    (L.policyPhones || []).forEach(r => {
-      const base =
-        Array.isArray(r?.flags) && r.flags.length ? r.flags.join(", ")
-        : (r?.flag || "Extra");
-      consider(r, base);
-    });
+    (L.clickToCall || []).forEach(consider);
+    (L.policyPhones || []).forEach(consider); // extras-only — no "Extra" flag anymore
   }
 
   return { goodNumbers, flaggedNumbers };
