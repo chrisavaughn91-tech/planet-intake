@@ -137,7 +137,7 @@ async function launch(){
     locale: "en-US"
   });
   const page = await context.newPage();
-  page.setDefaultTimeout(30000);
+  page.setDefaultTimeout(15000);
   page.setDefaultNavigationTimeout(60000);
   dlog('Browser/context/page launched');
   return { browser, context, page };
@@ -233,22 +233,7 @@ const DT = {
     '.paginate_button.previous:not(.disabled), ul.pagination li.previous:not(.disabled) a, a[rel="prev"]:not(.disabled), a:has-text("Previous"):not(.disabled), button:has-text("Previous"):not([disabled])'
 };
 
-// --- Optional: try to set per-page to 100 to reduce page turns
-async function trySetPerPage(page, desired = 100, info) {
-  const sel = page.locator(DT.lengthSelect);
-  if (!(await sel.count())) return false;
-  const before = await getInfoText(page);
-  try {
-    await sel.first().selectOption(String(desired));
-    // Wait for the info line to update (table redraw)
-    await waitInfoChange(page, before, 5000);
-    info?.(`pack: per-page set to ${desired}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+// ----- Utils for DataTables-style redraws -----
 async function getInfoText(page) {
   const el = page.locator(DT.info).first();
   return (await el.count()) ? (await el.textContent() || '').trim() : '';
@@ -264,48 +249,78 @@ async function waitInfoChange(page, prev, timeout = 5000) {
       prev,
       { timeout }
     );
-  } catch (_) {
-    // fallback: small pause; some installs redraw slowly
-    await page.waitForTimeout(600);
-  }
+  } catch {}
+}
+async function waitRedraw(page, infoBefore, firstHrefBefore) {
+  // wait for either the info text OR the first row href to change
+  await Promise.race([
+    waitInfoChange(page, infoBefore, 6000),
+    page.waitForFunction(
+      (sel, prev) => {
+        const a = document.querySelector(sel);
+        return !!a && a.href !== prev;
+      },
+      DT.leadAnchors,
+      firstHrefBefore,
+      { timeout: 6000 }
+    ).catch(() => {})
+  ]);
+  await page.waitForTimeout(250); // small settle
+}
+
+// ----- Try to show 100 per page to reduce page turns -----
+async function trySetPerPage(page, desired = 100, info) {
+  const sel = page.locator(DT.lengthSelect).first();
+  if (!(await sel.count())) return false;
+  const before = await getInfoText(page);
+  try {
+    await sel.selectOption(String(desired));
+    await waitRedraw(page, before, await firstAnchorHref(page));
+    info?.(`pack: per-page set to ${desired}`);
+    return true;
+  } catch { return false; }
+}
+
+async function firstAnchorHref(page) {
+  const a = page.locator(DT.leadAnchors).first();
+  if (!(await a.count())) return '';
+  return (await a.getAttribute('href')) || '';
 }
 
 function dedupe(arr) { return Array.from(new Set(arr)); }
 
-// Collect links visible on the current page (no unsafe nth beyond count)
+// ----- Collect all visible links on current page (no nth()) -----
 async function collectLinksOnPage(page) {
-  const list = [];
-  const anchors = page.locator(DT.leadAnchors);
-  const n = await anchors.count();
-  for (let i = 0; i < n; i++) {
-    const href = await anchors.nth(i).getAttribute('href').catch(() => null);
-    if (!href) continue;
-    try {
-      const url = new URL(href, await page.url()).toString();
-      list.push(url);
-    } catch { /* ignore malformed */ }
-  }
-  return dedupe(list);
+  const urls = await page.$$eval(
+    DT.leadAnchors,
+    (as) => Array.from(new Set(
+      as.map(a => {
+        try { return new URL(a.getAttribute('href'), location.href).toString(); }
+        catch { return null; }
+      }).filter(Boolean)
+    ))
+  );
+  return urls;
 }
 
-// Click “Next” and wait for the table to redraw
+// ----- Pager: click Next and wait for redraw -----
 async function nextPage(page, info) {
   const btn = page.locator(DT.next).first();
   if (!(await btn.count())) return false;
-  const before = await getInfoText(page);
+  const beforeInfo = await getInfoText(page);
+  const beforeHref = await firstAnchorHref(page);
   await btn.click().catch(() => {});
-  await waitInfoChange(page, before, 5000);
+  await waitRedraw(page, beforeInfo, beforeHref);
   info?.('nav: next page');
   return true;
 }
 
-// Main paginator: collect across pages until maxNeeded or no growth
+// ----- Main: collect across pages until maxNeeded or no growth -----
 async function collectPaginated(page, maxNeeded, info) {
-  const deadline = Date.now() + 120_000; // 2 minutes hard cap
+  const deadline = Date.now() + 120_000; // 2 min guard
   let all = [];
   let pageNo = 1;
 
-  // Best-effort: increase per-page to 100 if available
   await trySetPerPage(page, 100, info).catch(() => {});
 
   while (Date.now() < deadline && all.length < maxNeeded) {
@@ -316,7 +331,6 @@ async function collectPaginated(page, maxNeeded, info) {
 
     if (all.length >= maxNeeded) break;
 
-    // If no “Next” or no growth, stop
     if (!await nextPage(page, info)) {
       if (all.length === before) info?.('pack: no next page / no more links');
       break;
