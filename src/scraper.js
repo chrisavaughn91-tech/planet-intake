@@ -217,37 +217,114 @@ async function goToAllLeads(page){
   dlog('Nav: All Leads loaded with pack links present');
 }
 
-// ---------- collect first N links (fallback path) ----------
-async function collectLeadPackLinks(page, limit){
-  const anchors = page.locator(`a[href*="${PACK_ANCHOR}"]`);
-  const count = await anchors.count();
-  const out = [];
+// ===== Selectors tuned for the Lead Inbox (DataTables-like) =====
+const DT = {
+  // Anchors in the Name column
+  leadAnchors: 'table tbody a[href*="/Lead/InboxDetail?leadId="]',
+  // “Showing X to Y of Z entries”
+  info: '.dataTables_info, div.dataTables_info, #DataTables_Table_0_info',
+  // Per-page “Show” dropdown (various common ids/names)
+  lengthSelect:
+    'select[name$="_length"], .dataTables_length select, select#LeadInboxTable_length, select[name="LeadInboxTable_length"]',
+  // Next/Prev buttons (prefer enabled)
+  next:
+    '.paginate_button.next:not(.disabled), ul.pagination li.next:not(.disabled) a, a[rel="next"]:not(.disabled), a:has-text("Next"):not(.disabled), button:has-text("Next"):not([disabled])',
+  prev:
+    '.paginate_button.previous:not(.disabled), ul.pagination li.previous:not(.disabled) a, a[rel="prev"]:not(.disabled), a:has-text("Previous"):not(.disabled), button:has-text("Previous"):not([disabled])'
+};
 
-  for(let i=0; i<count && out.length<limit; i++){
-    const el = anchors.nth(i);
-    const href = await el.getAttribute("href");
-    if(!href) continue;
-
-    // Try to get the name from the same row’s first cell if the link text is "Detail"
-    const name = await page.evaluate((a) => {
-      const link = a;
-      const txt  = (link.textContent || '').trim();
-      if (!/^detail$/i.test(txt)) return txt;
-
-      const tr = link.closest('tr');
-      if (!tr) return txt;
-
-      const firstCell = tr.querySelector('td, th');
-      if (!firstCell) return txt;
-
-      const nameAnchor = firstCell.querySelector('a');
-      const candidate = (nameAnchor ? nameAnchor.textContent : firstCell.textContent) || '';
-      return candidate.trim() || txt;
-    }, await el.elementHandle());
-
-    out.push({ href: new URL(href, BASE).toString(), name });
+// --- Optional: try to set per-page to 100 to reduce page turns
+async function trySetPerPage(page, desired = 100, info) {
+  const sel = page.locator(DT.lengthSelect);
+  if (!(await sel.count())) return false;
+  const before = await getInfoText(page);
+  try {
+    await sel.first().selectOption(String(desired));
+    // Wait for the info line to update (table redraw)
+    await waitInfoChange(page, before, 5000);
+    info?.(`pack: per-page set to ${desired}`);
+    return true;
+  } catch {
+    return false;
   }
-  return out;
+}
+
+async function getInfoText(page) {
+  const el = page.locator(DT.info).first();
+  return (await el.count()) ? (await el.textContent() || '').trim() : '';
+}
+async function waitInfoChange(page, prev, timeout = 5000) {
+  try {
+    await page.waitForFunction(
+      (sel, p) => {
+        const el = document.querySelector(sel);
+        return !!el && (el.textContent || '').trim() !== p;
+      },
+      DT.info,
+      prev,
+      { timeout }
+    );
+  } catch (_) {
+    // fallback: small pause; some installs redraw slowly
+    await page.waitForTimeout(600);
+  }
+}
+
+function dedupe(arr) { return Array.from(new Set(arr)); }
+
+// Collect links visible on the current page (no unsafe nth beyond count)
+async function collectLinksOnPage(page) {
+  const list = [];
+  const anchors = page.locator(DT.leadAnchors);
+  const n = await anchors.count();
+  for (let i = 0; i < n; i++) {
+    const href = await anchors.nth(i).getAttribute('href').catch(() => null);
+    if (!href) continue;
+    try {
+      const url = new URL(href, await page.url()).toString();
+      list.push(url);
+    } catch { /* ignore malformed */ }
+  }
+  return dedupe(list);
+}
+
+// Click “Next” and wait for the table to redraw
+async function nextPage(page, info) {
+  const btn = page.locator(DT.next).first();
+  if (!(await btn.count())) return false;
+  const before = await getInfoText(page);
+  await btn.click().catch(() => {});
+  await waitInfoChange(page, before, 5000);
+  info?.('nav: next page');
+  return true;
+}
+
+// Main paginator: collect across pages until maxNeeded or no growth
+async function collectPaginated(page, maxNeeded, info) {
+  const deadline = Date.now() + 120_000; // 2 minutes hard cap
+  let all = [];
+  let pageNo = 1;
+
+  // Best-effort: increase per-page to 100 if available
+  await trySetPerPage(page, 100, info).catch(() => {});
+
+  while (Date.now() < deadline && all.length < maxNeeded) {
+    const here = await collectLinksOnPage(page);
+    const before = all.length;
+    all = dedupe(all.concat(here));
+    info?.(`pack: page ${pageNo} collected ${here.length}, total ${all.length}`);
+
+    if (all.length >= maxNeeded) break;
+
+    // If no “Next” or no growth, stop
+    if (!await nextPage(page, info)) {
+      if (all.length === before) info?.('pack: no next page / no more links');
+      break;
+    }
+    pageNo++;
+  }
+
+  return all.slice(0, maxNeeded);
 }
 
 // ---------- helpers to extract numbers from page text ----------
@@ -595,52 +672,25 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     info('nav: inbox loaded');
 
     // Collect links with pagination until we have enough
-    const links = await (async function collectPaginated(page, limit){
-      const out = [];
-      const seen = new Set();
-      while (out.length < limit) {
-        const need = limit - out.length;
-        const pageLinks = await collectLeadPackLinks(page, need);
-        for (const L of pageLinks) {
-          const key = L.href;
-          if (!seen.has(key)) { seen.add(key); out.push(L); }
-        }
-        if (out.length >= limit) break;
-        // Try clicking inbox "Next" pager
-        const nextBtn =
-          (await firstVisible(page.locator('a:has-text("Next")'))) ||
-          (await firstVisible(page.locator('button:has-text("Next")')));
-        if (!nextBtn) break;
-        dlog('Inbox: moving to next page for more links…');
-        await Promise.allSettled([
-          nextBtn.click(),
-          page.waitForLoadState('domcontentloaded', { timeout: 15000 })
-        ]);
-        await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 15000 }).catch(()=>{});
-      }
-      return out;
-    })(page, Math.max(1, maxLeads));
-    info(`pack: collected ${links.length} link(s)`);
-    dlog(`Pack: collected ${links.length} lead link(s)`);
-    if (links.length === 0) {
+    const packLinks = await collectPaginated(page, maxLeads, info);
+    info(`pack: collected ${packLinks.length} link(s) total`);
+    dlog(`Pack: collected ${packLinks.length} lead link(s)`);
+    if (packLinks.length === 0) {
       info('No leads found in inbox.');
       return { ok:false, error: "No leads found in inbox." };
     }
 
-    const total = Math.min(links.length, maxLeads);
+    const total = Math.min(packLinks.length, maxLeads);
     for (let i = 0; i < total; i++) {
-      const link = links[i];
-      dlog(`Lead ${i+1}/${total}: opening ${link.href}`);
+      const href = packLinks[i];
+      dlog(`Lead ${i+1}/${total}: opening ${href}`);
       info(`lead ${i+1}/${total}: opening`);
-      await page.goto(link.href, { waitUntil: "domcontentloaded" });
+      await page.goto(href, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
-      // primary name comes from inbox link text (fallback to header if needed)
-      let primaryName = link.name || null;
-      if (!primaryName) {
-        const hdr = await getPrimaryNameFromHeader(page);
-        primaryName = hdr || null;
-      }
+      // primary name comes from header
+      let primaryName = await getPrimaryNameFromHeader(page);
+      primaryName = primaryName || null;
 
       /* START:EMIT_LEAD */
       emit('lead', { index: i + 1, total: total, leadName: primaryName });
