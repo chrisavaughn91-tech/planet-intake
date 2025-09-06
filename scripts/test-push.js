@@ -1,35 +1,61 @@
-// scripts/test-push.js — small smoke test to POST a sample payload to Apps Script
-try { require("dotenv").config(); } catch {}
-const mod = require("../src/sheets");
-// Quick sanity check: should show ["pushToSheets","createSheetAndShare"]
-// (Leave this log while debugging; remove later if you want.)
-console.log("exports:", Object.keys(mod));
-const { pushToSheets } = mod;
+// scripts/test-push.js — Apps Script smoke test using the *production* path
+try { require('dotenv').config(); } catch {}
+const { createSheetAndShare } = require("../src/sheets");
 
-const EXEC_URL = process.env.GSCRIPT_WEBAPP_URL; // must end with /exec
+const EXEC_URL = process.env.GSCRIPT_WEBAPP_URL; // required by createSheetAndShare internally
+const EMAIL    = process.env.REPORT_EMAIL || process.env.TEST_EMAIL;
+
 if (!EXEC_URL) {
-  console.error("GSCRIPT_WEBAPP_URL is missing. Put it in .env or export it in your shell.");
+  console.error("GSCRIPT_WEBAPP_URL is missing from .env");
+  process.exit(1);
+}
+if (!EMAIL) {
+  console.error("REPORT_EMAIL (or TEST_EMAIL) is missing from .env");
   process.exit(1);
 }
 
-const payload = {
-  summaryRows: [
-    ["⭐", "Doe, John", 120.25, 2, 1],
-    { lead: "Smith, Jane", totalPremium: "$48.00", listedCount: 1, extraPolicyCount: 0 }
+// Build a realistic `result` (same shape returned by scrapePlanet)
+const result = {
+  ok: true,
+  leads: [
+    {
+      primaryName: "DOE, JOHN",
+      monthlySpecialTotal: 120.25,
+      star: "⭐",
+      clickToCall: [
+        { original: "(614) 555-1212", rawDigits: "6145551212", phone: "(614) 555-1212", valid: true,  flags: [] },
+        { original: "555-0181",       rawDigits: "5550181",    phone: "555-0181",       valid: false, flags: ["Needs Area Code"] }
+      ],
+      policyPhones: [
+        { original: "(614) 555-4000", rawDigits: "6145554000", phone: "(614) 555-4000", valid: true,  flags: ["Home"] }
+      ],
+      allPoliciesLapsed: false
+    },
+    {
+      primaryName: "SMITH, JANE",
+      monthlySpecialTotal: 48.00,
+      star: "🟣",
+      clickToCall: [
+        { original: "555-0202", rawDigits: "5550202", phone: "555-0202", valid: false, flags: ["Needs Area Code"] }
+      ],
+      policyPhones: [],
+      allPoliciesLapsed: false
+    }
   ],
-  goodNumbers: [
-    ["John Doe", "555-0181"],
-    { name: "Jane Smith", phone: "555-0202" }
-  ],
-  flaggedNumbers: [
-    ["John Doe", "555-0830", "DNC"],
-    { lead: "Smith, Jane", number: "555-0404", flag: "Bad/Disconnected" }
-  ]
+  clickToCall: [],
+  policyPhones: [],
+  meta: {
+    ts: new Date().toISOString(),
+    leadCount: 2,
+    sumMonthlyAcrossLeads: 168.25
+  }
 };
 
-pushToSheets(EXEC_URL, payload)
-  .then(out => {
-    console.log(typeof out === "string" ? out : JSON.stringify(out, null, 2));
+// Call the same function the server uses
+createSheetAndShare({ email: EMAIL, result })
+  .then(({ url, spreadsheetId, counts }) => {
+    console.log("OK:", { url, spreadsheetId, counts });
+    process.exit(0);
   })
   .catch(err => {
     console.error("FAILED:", err?.stack || err);
