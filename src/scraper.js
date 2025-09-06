@@ -575,6 +575,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
   emit('start', { username, maxLeads: maxLeads || process.env.MAX_LEADS_DEFAULT || 5 });
   /* END:EMIT_START */
   const { browser, context, page } = await launch();
+  info('browser: ready');
 
   // flattened arrays (kept for convenience / jq examples)
   const clickToCallRows = [];
@@ -586,8 +587,12 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
   let sumAllLeadsMonthly = 0;
 
   try{
+    info('login: starting');
     await login(page, { username, password });
+    info('login: ok');
+    info('nav: go to All Leads');
     await goToAllLeads(page);
+    info('nav: inbox loaded');
 
     // Collect links with pagination until we have enough
     const links = await (async function collectPaginated(page, limit){
@@ -615,7 +620,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
       }
       return out;
     })(page, Math.max(1, maxLeads));
-
+    info(`pack: collected ${links.length} link(s)`);
     dlog(`Pack: collected ${links.length} lead link(s)`);
     if (links.length === 0) {
       info('No leads found in inbox.');
@@ -626,6 +631,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     for (let i = 0; i < total; i++) {
       const link = links[i];
       dlog(`Lead ${i+1}/${total}: opening ${link.href}`);
+      info(`lead ${i+1}/${total}: opening`);
       await page.goto(link.href, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
@@ -656,6 +662,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
         const k = r.rawDigits || onlyDigits(r.phone || r.original || '');
         return k && !c2cDigits.has(k);
       });
+      info(`lead ${i+1}: monthly=${detail.monthlyTotalActive} listed=${c2c.length} extras=${policyPhonesExtra.length}`);
       dlog(`Lead ${i+1}: policy rows -> ${detail.policyRows.length} (extras only: ${policyPhonesExtra.length}), monthly active total -> ${detail.monthlyTotalActive}`);
       policyPhoneRows.push(...policyPhonesExtra);
 
