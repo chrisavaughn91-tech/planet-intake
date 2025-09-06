@@ -1,16 +1,29 @@
 /* START:DOTENV */
 try { require('dotenv').config(); } catch {}
 /* END:DOTENV */
-if (!process.env.GSCRIPT_WEBAPP_URL) {
-  console.log('⚠️  GSCRIPT_WEBAPP_URL is not set (check your .env).');
-}
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path');
 const { scrapePlanet } = require('./scraper');
 const { createSheetAndShare } = require('./sheets');
 const { emit, bus } = require('./events');
+
+// === dev-time env sanity ===
+const IS_PROD = process.env.NODE_ENV === 'production';
+const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
+
+(function ensureEnv() {
+  const missing = REQUIRED_ENV.filter(k => !process.env[k] || String(process.env[k]).trim() === '');
+  if (missing.length) {
+    const msg = `[ENV] Missing required env var(s): ${missing.join(', ')}. Add them to .env (GSCRIPT_WEBAPP_URL is required).`;
+    if (!IS_PROD) {
+      console.error(msg);
+      process.exit(1); // fail fast during local/dev
+    } else {
+      console.warn(msg); // warn in prod; container can still boot
+    }
+  }
+})();
 
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
@@ -98,6 +111,10 @@ app.post('/scrape', async (req, res) => {
   }
   if (!email) {
     return res.status(400).json({ ok: false, error: 'email is required to share the sheet' });
+  }
+
+  if (!process.env.GSCRIPT_WEBAPP_URL) {
+    return res.status(500).json({ ok: false, error: 'GSCRIPT_WEBAPP_URL not configured' });
   }
 
   try {
