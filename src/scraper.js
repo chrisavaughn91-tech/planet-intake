@@ -218,129 +218,6 @@ async function goToAllLeads(page){
 }
 
 // ===== Selectors tuned for the Lead Inbox (DataTables-like) =====
-const DT = {
-  // Anchors in the Name column
-  leadAnchors: 'table tbody a[href*="/Lead/InboxDetail?leadId="]',
-  // “Showing X to Y of Z entries”
-  info: '.dataTables_info, div.dataTables_info, #DataTables_Table_0_info',
-  // Per-page “Show” dropdown (various common ids/names)
-  lengthSelect:
-    'select[name$="_length"], .dataTables_length select, select#LeadInboxTable_length, select[name="LeadInboxTable_length"]',
-  // Next/Prev buttons (prefer enabled)
-  next:
-    '.paginate_button.next:not(.disabled), ul.pagination li.next:not(.disabled) a, a[rel="next"]:not(.disabled), a:has-text("Next"):not(.disabled), button:has-text("Next"):not([disabled])',
-  prev:
-    '.paginate_button.previous:not(.disabled), ul.pagination li.previous:not(.disabled) a, a[rel="prev"]:not(.disabled), a:has-text("Previous"):not(.disabled), button:has-text("Previous"):not([disabled])'
-};
-
-// ----- Utils for DataTables-style redraws -----
-async function getInfoText(page) {
-  const el = page.locator(DT.info).first();
-  return (await el.count()) ? (await el.textContent() || '').trim() : '';
-}
-async function waitInfoChange(page, prev, timeout = 5000) {
-  try {
-    await page.waitForFunction(
-      (sel, p) => {
-        const el = document.querySelector(sel);
-        return !!el && (el.textContent || '').trim() !== p;
-      },
-      DT.info,
-      prev,
-      { timeout }
-    );
-  } catch {}
-}
-async function waitRedraw(page, infoBefore, firstHrefBefore) {
-  // wait for either the info text OR the first row href to change
-  await Promise.race([
-    waitInfoChange(page, infoBefore, 6000),
-    page.waitForFunction(
-      (sel, prev) => {
-        const a = document.querySelector(sel);
-        return !!a && a.href !== prev;
-      },
-      DT.leadAnchors,
-      firstHrefBefore,
-      { timeout: 6000 }
-    ).catch(() => {})
-  ]);
-  await page.waitForTimeout(250); // small settle
-}
-
-// ----- Try to show 100 per page to reduce page turns -----
-async function trySetPerPage(page, desired = 100, info) {
-  const sel = page.locator(DT.lengthSelect).first();
-  if (!(await sel.count())) return false;
-  const before = await getInfoText(page);
-  try {
-    await sel.selectOption(String(desired));
-    await waitRedraw(page, before, await firstAnchorHref(page));
-    info?.(`pack: per-page set to ${desired}`);
-    return true;
-  } catch { return false; }
-}
-
-async function firstAnchorHref(page) {
-  const a = page.locator(DT.leadAnchors).first();
-  if (!(await a.count())) return '';
-  return (await a.getAttribute('href')) || '';
-}
-
-function dedupe(arr) { return Array.from(new Set(arr)); }
-
-// ----- Collect all visible links on current page (no nth()) -----
-async function collectLinksOnPage(page) {
-  const urls = await page.$$eval(
-    DT.leadAnchors,
-    (as) => Array.from(new Set(
-      as.map(a => {
-        try { return new URL(a.getAttribute('href'), location.href).toString(); }
-        catch { return null; }
-      }).filter(Boolean)
-    ))
-  );
-  return urls;
-}
-
-// ----- Pager: click Next and wait for redraw -----
-async function nextPage(page, info) {
-  const btn = page.locator(DT.next).first();
-  if (!(await btn.count())) return false;
-  const beforeInfo = await getInfoText(page);
-  const beforeHref = await firstAnchorHref(page);
-  await btn.click().catch(() => {});
-  await waitRedraw(page, beforeInfo, beforeHref);
-  info?.('nav: next page');
-  return true;
-}
-
-// ----- Main: collect across pages until maxNeeded or no growth -----
-async function collectPaginated(page, maxNeeded, info) {
-  const deadline = Date.now() + 120_000; // 2 min guard
-  let all = [];
-  let pageNo = 1;
-
-  await trySetPerPage(page, 100, info).catch(() => {});
-
-  while (Date.now() < deadline && all.length < maxNeeded) {
-    const here = await collectLinksOnPage(page);
-    const before = all.length;
-    all = dedupe(all.concat(here));
-    info?.(`pack: page ${pageNo} collected ${here.length}, total ${all.length}`);
-
-    if (all.length >= maxNeeded) break;
-
-    if (!await nextPage(page, info)) {
-      if (all.length === before) info?.('pack: no next page / no more links');
-      break;
-    }
-    pageNo++;
-  }
-
-  return all.slice(0, maxNeeded);
-}
-
 // ---------- helpers to extract numbers from page text ----------
 const TOKEN_RE = /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
@@ -659,6 +536,108 @@ async function goToNextLead(page){
   return true;
 }
 
+/** ======================= Lead Inbox pagination helpers ======================= */
+
+/** Prefer 100 rows/page if the DataTables page-length select is present. */
+async function setInboxPageSize(page, emit) {
+  const lengthSel = page.locator('select[name$="_length"]');
+  if (await lengthSel.count()) {
+    try {
+      await lengthSel.selectOption('100');
+      emit?.('info', { msg: 'pack: per page set to 100' });
+    } catch {
+      await lengthSel.selectOption({ label: /100/ }).catch(() => {});
+      emit?.('info', { msg: 'pack: per page set to 100 (label)' });
+    }
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 8000 }).catch(() => {});
+  } else {
+    emit?.('info', { msg: 'pack: page-size select not found; using site default' });
+  }
+}
+
+/** Collect all lead links (first column anchors) on the current table page. */
+async function collectLinksOnThisPage(page) {
+  const linkLoc = page.locator('table tbody a[href*="/Lead/InboxDetail?LeadId="]');
+  const count = await linkLoc.count();
+  const hrefs = [];
+  for (let i = 0; i < count; i += 1) {
+    const href = await linkLoc.nth(i).getAttribute('href');
+    if (href) hrefs.push(href);
+  }
+  return hrefs;
+}
+
+/** Get the currently selected page number from the paginator. */
+async function readCurrentPageNumber(page) {
+  const curr = page.locator('a.paginate_button.current, li.active a');
+  if (!(await curr.count())) return null;
+  const txt = (await curr.first().textContent())?.trim();
+  const n = Number(txt);
+  return Number.isFinite(n) ? n : (txt || null);
+}
+
+/** Click “Next” if possible and wait for the table to redraw. Returns true if advanced. */
+async function gotoNextPageIfAny(page) {
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+  const next = page.locator('a.paginate_button.next, li.next a, a:has-text("Next")');
+  if (!(await next.count())) return false;
+
+  const disabled = await next.first().evaluate(el =>
+    el.classList?.contains('disabled') || el.closest('.disabled')
+  ).catch(() => false);
+  if (disabled) return false;
+
+  const before = await readCurrentPageNumber(page);
+  await Promise.allSettled([
+    next.first().click({ timeout: 5000 }),
+    page.waitForFunction(prev => {
+      const el = document.querySelector('a.paginate_button.current, li.active a');
+      return el && el.textContent && el.textContent.trim() !== String(prev ?? '');
+    }, before, { timeout: 8000 }),
+  ]);
+
+  const after = await readCurrentPageNumber(page);
+  if (before != null && after != null && String(after) !== String(before)) {
+    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 8000 }).catch(() => {});
+    return true;
+  }
+  await page.waitForLoadState('networkidle').catch(() => {});
+  return false;
+}
+
+/** Iterate pages to collect LeadId links until last page or maxLeads reached. */
+async function collectPaginated(page, maxLeads, emit) {
+  const all = [];
+  await setInboxPageSize(page, emit);
+
+  const infoBox = page.locator('div.dataTables_info, .dataTables_info');
+  if (await infoBox.count()) {
+    const txt = (await infoBox.first().textContent())?.trim() || '';
+    const m = txt.match(/of\s+(\d+)\s+entries/i);
+    if (m) emit?.('info', { msg: `pack: total reported ${m[1]} entries` });
+  }
+
+  let pageIndex = 0;
+  for (;;) {
+    pageIndex += 1;
+    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 8000 }).catch(() => {});
+    const links = await collectLinksOnThisPage(page);
+    all.push(...links);
+    emit?.('info', { msg: `pack: page ${pageIndex} collected ${links.length}, total ${all.length}` });
+
+    if (maxLeads && all.length >= maxLeads) break;
+    const advanced = await gotoNextPageIfAny(page);
+    if (!advanced) break;
+  }
+
+  const unique = [...new Set(all)];
+  emit?.('info', { msg: `pack: collected ${unique.length} link(s) total` });
+  return unique;
+}
+
+/** ===================== end Lead Inbox pagination helpers ===================== */
+
 // ---------- main scraper ----------
 async function scrapePlanet({ username, password, maxLeads = 5 }){
   const startTime = Date.now();
@@ -685,18 +664,19 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await goToAllLeads(page);
     info('nav: inbox loaded');
 
-    // Collect links with pagination until we have enough
-    const packLinks = await collectPaginated(page, maxLeads, info);
-    info(`pack: collected ${packLinks.length} link(s) total`);
-    dlog(`Pack: collected ${packLinks.length} lead link(s)`);
-    if (packLinks.length === 0) {
+    // Collect all lead links across all inbox pages
+    const packlinks = await collectPaginated(page, maxLeads, emit);
+    // Optionally cap to maxLeads strictly
+    const toVisit = maxLeads ? packlinks.slice(0, maxLeads) : packlinks;
+    dlog(`Pack: collected ${packlinks.length} lead link(s)`);
+    if (toVisit.length === 0) {
       info('No leads found in inbox.');
       return { ok:false, error: "No leads found in inbox." };
     }
 
-    const total = Math.min(packLinks.length, maxLeads);
+    const total = toVisit.length;
     for (let i = 0; i < total; i++) {
-      const href = packLinks[i];
+      const href = toVisit[i];
       dlog(`Lead ${i+1}/${total}: opening ${href}`);
       info(`lead ${i+1}/${total}: opening`);
       await page.goto(href, { waitUntil: "domcontentloaded" });
