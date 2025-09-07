@@ -1,70 +1,90 @@
-#!/usr/bin/env node
-/* E2E: POST /scrape and verify we get a Google Sheet URL + spreadsheetId */
+/* scripts/test-e2e.js
+ * E2E hits /scrape via SSE, waits for {type:"done"}, asserts we saw a sheet URL,
+ * and exits. Designed to finish in a few minutes.
+ */
+import { setTimeout as delay } from 'node:timers/promises';
 
-const { setTimeout: sleep } = require('timers/promises');
-require('dotenv').config();
+const BASE = process.env.BASE_URL || 'http://localhost:8080';
+const MAX  = Number(process.env.E2E_MAX || 10);                 // keep E2E fast
+const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 15*60*1000); // 15m ceiling
 
-function arg(name, fallback) {
-  const i = process.argv.indexOf(name);
-  return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+function parseSSE(chunk) {
+  // Very small, line-based SSE parser
+  const events = [];
+  const blocks = chunk.split('\n\n');
+  for (const b of blocks) {
+    if (!b.trim()) continue;
+    let type = 'message';
+    let data = '';
+    for (const line of b.split('\n')) {
+      if (line.startsWith('event:')) type = line.slice(6).trim();
+      if (line.startsWith('data:'))  data += (data ? '\n' : '') + line.slice(5).trim();
+    }
+    events.push({ type, data });
+  }
+  return events;
 }
 
-const HOST       = process.env.HOST || arg('--host', 'http://localhost:8080');
-const username   = process.env.PLANET_USERNAME || arg('--user');
-const password   = process.env.PLANET_PASSWORD || arg('--pass');
-const email      = process.env.REPORT_EMAIL     || arg('--email');
-const maxLeads   = Number(arg('--max', process.env.MAX_LEADS_DEFAULT || 5)) || 5;
-const timeoutMs  = Number(arg('--timeout', 180000)) || 180000; // 3 min
+const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-if (!username || !password || !email) {
-  console.error('Usage: node scripts/test-e2e.js --user <u> --pass <p> --email <you@host> [--max 5] [--host http://localhost:8080]');
-  console.error('Or set PLANET_USERNAME, PLANET_PASSWORD, REPORT_EMAIL in .env');
-  process.exit(2);
-}
+let sawSheet = false;
+let sheetUrl  = null;
+let processed = 0;
 
-async function main() {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  const started = Date.now();
-
-  const payload = { username, password, email, maxLeads };
-  const res = await fetch(`${HOST}/scrape`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: ctrl.signal,
-  }).catch(err => {
-    clearTimeout(t);
-    throw err;
+try {
+  const url = `${BASE}/scrape?maxLeads=${encodeURIComponent(MAX)}`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'text/event-stream' },
+    signal: controller.signal
   });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  clearTimeout(t);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status} from /scrape: ${text.slice(0, 400)}`);
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = parseSSE(buffer);
+    // keep only the last partial block (if any)
+    buffer = buffer.endsWith('\n\n') ? '' : buffer.slice(buffer.lastIndexOf('\n\n') + 2);
+
+    for (const ev of events) {
+      if (ev.type === 'error') {
+        const e = (() => { try { return JSON.parse(ev.data); } catch { return { msg: ev.data }; } })();
+        throw new Error(`/scrape reported error: ${e.msg || ev.data}`);
+      }
+      if (ev.type === 'sheet') {
+        try {
+          const d = JSON.parse(ev.data);
+          sheetUrl = d.url || d.sheetUrl || null;
+          if (sheetUrl && /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(sheetUrl)) {
+            sawSheet = true;
+          }
+        } catch {}
+      }
+      if (ev.type === 'done') {
+        try {
+          const d = JSON.parse(ev.data);
+          processed = Number(d.processed || 0);
+        } catch {}
+        // success criteria
+        if (!sawSheet) throw new Error('did not receive sheet url');
+        if (processed <= 0) throw new Error('processed count is 0');
+        console.log(`E2E PASS: sheet=${sheetUrl} processed=${processed}`);
+        process.exit(0);
+      }
+    }
   }
 
-  const data = await res.json().catch(() => ({}));
-  // Accept either {ok:true, url, spreadsheetId} or {ok:true, sheet:{url, spreadsheetId}}
-  const sheet = data.sheet || data;
-  const url = sheet.url || sheet.link || sheet.webViewLink;
-  const spreadsheetId = sheet.spreadsheetId;
-
-  if (data.ok === false) {
-    throw new Error(`/scrape reported error: ${data.error || JSON.stringify(data).slice(0,400)}`);
-  }
-  if (!url || !spreadsheetId) {
-    throw new Error(`Missing sheet url or spreadsheetId in response: ${JSON.stringify(data).slice(0, 500)}`);
-  }
-
-  const took = ((Date.now() - started) / 1000).toFixed(1);
-  console.log('E2E OK:', { url, spreadsheetId, took: `${took}s` });
-  process.exit(0);
-}
-
-main().catch(err => {
-  console.error('E2E FAIL:', String(err && err.stack || err));
+  throw new Error('stream ended unexpectedly without "done"');
+} catch (err) {
+  console.error('E2E FAIL:', err?.stack || err);
   process.exit(1);
-});
+} finally {
+  clearTimeout(timeout);
+}
 

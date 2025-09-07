@@ -148,6 +148,70 @@ app.post('/scrape', async (req, res) => {
   }
 });
 
+// SSE scrape endpoint for automation and streaming progress
+app.get('/scrape', async (req, res) => {
+  const username = process.env.PLANET_USERNAME;
+  const password = process.env.PLANET_PASSWORD;
+  const email    = process.env.REPORT_EMAIL;
+  if (!username || !password || !email) {
+    return res.status(500).json({ ok: false, error: 'missing PLANET_USERNAME/PASSWORD/REPORT_EMAIL env vars' });
+  }
+
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  res.flushHeaders();
+
+  const emit = (obj) => {
+    try { res.write(`event: ${obj.type}\n`); } catch {}
+    try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch {}
+  };
+  const end = () => {
+    try { res.write('event: end\ndata: {}\n\n'); } catch {}
+    try { res.end(); } catch {}
+  };
+
+  const maxLeads = Number(req.query.maxLeads || MAX_LEADS_DEFAULT) || MAX_LEADS_DEFAULT;
+  const startTime = Date.now();
+
+  let doneStats = { processed: 0, ms: 0 };
+  const forward = (evt) => {
+    if (evt.type === 'done') {
+      doneStats = { processed: evt.processed, ms: evt.ms };
+      return; // delay final done until after sheet creation
+    }
+    try {
+      res.write(`event: ${evt.type}\n`);
+      res.write(`data: ${JSON.stringify(evt)}\n\n`);
+    } catch {}
+  };
+
+  bus.on('evt', forward);
+
+  try {
+    const result = await scrapePlanet({ username, password, maxLeads });
+
+    let sheet;
+    try {
+      sheet = await createSheetAndShare({ email, result });
+    } catch (err) {
+      emit({ type: 'error', msg: String(err?.message || err) });
+      return end();
+    }
+
+    if (sheet?.url) emit({ type: 'sheet', url: sheet.url });
+    emit({ type: 'done', processed: doneStats.processed || result?.meta?.leadCount || 0, ms: doneStats.ms || (Date.now() - startTime) });
+    end();
+  } catch (err) {
+    emit({ type: 'error', msg: String(err?.message || err) });
+    end();
+  } finally {
+    bus.off('evt', forward);
+  }
+});
+
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server listening on ${PORT}`);
