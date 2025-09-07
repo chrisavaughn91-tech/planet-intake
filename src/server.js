@@ -33,48 +33,54 @@ const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
-async function verifyScript() {
-  const url = process.env.GSCRIPT_WEBAPP_URL;
-  if (!url) throw new Error('GSCRIPT_WEBAPP_URL is not set');
+// === helpers for Apps Script verification ===
+const parseMaybeJson = (text) => { try { return JSON.parse(text); } catch { return null; } };
 
-  const tryFetchJson = async (params, label) => {
-    const u = new URL(url);
-    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
-    const res = await fetch(u.toString(), { redirect: 'follow', headers: { 'Accept': 'application/json' } });
-    const text = await res.text();
-    try {
-      return { ok: true, json: JSON.parse(text), status: res.status };
-    } catch {
-      return { ok: false, status: res.status, head: text.slice(0, 180), label };
-    }
-  };
+async function tryEndpoint(baseUrl, params, label) {
+  const u = new URL(baseUrl);
+  Object.entries(params || {}).forEach(([k, v]) => u.searchParams.set(k, v));
 
-  // v4 canonical: action=health
-  const health = await tryFetchJson({ action: 'health' }, 'action=health');
-  if (health.ok && health.json && health.json.ok === true) {
-    emit('server', { msg: `Apps Script OK v${health.json.version}`, tag: health.json.tag, deployedAt: health.json.deployedAt });
-    return true;
-  }
+  // Node 18+: global fetch available
+  const res = await fetch(u.toString(), {
+    redirect: 'follow', // follow "Moved Temporarily"
+    headers: { 'Accept': 'application/json' }
+  });
 
-  // Legacy fallback: fn=hashes
-  const hashes = await tryFetchJson({ fn: 'hashes' }, 'fn=hashes');
-  if (hashes.ok && hashes.json && hashes.json.ok === true) {
-    emit('server', { msg: 'Apps Script legacy OK (fn=hashes)' });
-    return true;
-  }
-
-  // Neither endpoint gave JSON
-  const det = [
-    `health(${health.label}) status=${health.status} head="${health.head || ''}"`,
-    `hashes(${hashes.label}) status=${hashes.status} head="${hashes.head || ''}"`
-  ].join(' | ');
-  throw new Error(`Apps Script JSON endpoint not available: ${det}`);
+  const text = await res.text();
+  const json = parseMaybeJson(text);
+  return { label, url: res.url, status: res.status, json, text };
 }
 
-verifyScript().catch((e) => {
-  console.error('[SERVER] Startup verifyScript failed:', e);
-  process.exit(1);
-});
+async function verifyScript() {
+  const base = process.env.GSCRIPT_WEBAPP_URL;
+  if (!base) throw new Error('GSCRIPT_WEBAPP_URL is not set');
+
+  // 1) v4 canonical: ?action=health (hashes)
+  const health = await tryEndpoint(base, { action: 'health' }, 'action=health');
+  if (health.json && (health.json.ok === true || health.json.ok === 'ok')) {
+    emit('server', {
+      msg: `Apps Script OK v${health.json.version}`,
+      tag: health.json.tag,
+      deployedAt: health.json.deployedAt,
+      url: health.url
+    });
+    return true;
+  }
+
+  // 2) legacy fallback: ?fn=hashes
+  const hashes = await tryEndpoint(base, { fn: 'hashes' }, 'fn=hashes');
+  if (hashes.json && (hashes.json.ok === true || hashes.json.ok === 'ok')) {
+    emit('server', { msg: 'Apps Script legacy OK (fn=hashes)', url: hashes.url });
+    return true;
+  }
+
+  // 3) neither endpoint returned JSON
+  const details = [
+    `health(${health.label}) status=${health.status} url=${health.url} head="${(health.text || '').slice(0, 140)}"`,
+    `hashes(${hashes.label}) status=${hashes.status} url=${hashes.url} head="${(hashes.text || '').slice(0, 140)}"`
+  ].join(' | ');
+  throw new Error(`Apps Script JSON endpoint not available: ${details}`);
+}
 
 const clients = new Set();
 export function broadcast(obj) {
@@ -299,4 +305,12 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server listening on ${PORT}`);
   verifyGScript().catch(() => {});
+
+  (async () => {
+    try {
+      await verifyScript();
+    } catch (err) {
+      emit('server', { msg: 'Startup verifyScript failed', err: String(err) });
+    }
+  })();
 });
