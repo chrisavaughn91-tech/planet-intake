@@ -8,10 +8,6 @@ const DASH_URL  = `${BASE_URL}/`;
 const PACK_URL  = `${BASE_URL}/Lead/Inbox`; // "All Leads" ends here
 const PACK_ANCHOR = '/Lead/InboxDetail?LeadId=';
 const LEAD_TABLE = '#LeadTable';
-const PAGE_SIZE_SELECT = '#LeadTable_length select';
-const DATA_INFO = 'div.dataTables_info';
-const NEXT_CONTAINER = '#LeadTable_next';               // may be <li> or <a>
-const NEXT_ANCHOR_IN_CONTAINER = '#LeadTable_next a';   // anchor inside <li>
 const PACK_LINKS_SEL = `${LEAD_TABLE} a[href^="/Lead/InboxDetail?LeadId="]`;
 
 // ---------- small utils ----------
@@ -131,23 +127,44 @@ async function firstVisible(locator){
   return null;
 }
 
-async function readInfoText(page) {
-  await page.waitForSelector(DATA_INFO, { state: 'visible' });
-  return page.$eval(DATA_INFO, el => (el.textContent || '').trim());
+// --- Inbox stability helpers ---
+async function ensureInboxStable(page) {
+  // Wait for any bootstrap modal/backdrop to be gone
+  const backdrop = page.locator('.modal-backdrop');
+  if (await backdrop.count()) {
+    await backdrop.first().waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+  }
+
+  // DataTables sometimes shows a processing overlay
+  const processing = page.locator('div.dataTables_processing');
+  if (await processing.count()) {
+    // Hidden or detached both OK
+    try {
+      await processing.first().waitFor({ state: 'hidden', timeout: 10000 });
+    } catch {
+      await processing.first().waitFor({ state: 'detached', timeout: 10000 }).catch(() => {});
+    }
+  }
+
+  // tiny settle
+  await page.waitForTimeout(50);
 }
-async function waitInfoTextChanged(page, previousText, timeout = 5000) {
+
+async function getInboxInfoText(page) {
+  const t = await page.locator('#LeadTable_info').innerText().catch(() => '');
+  return (t || '').replace(/\s+/g, ' ').trim();
+}
+
+async function waitInboxInfoChange(page, prev, timeout = 10000) {
   await page.waitForFunction(
-    (sel, prev) => {
-      const el = document.querySelector(sel);
-      return el && el.textContent.trim() !== prev;
+    (oldText) => {
+      const el = document.querySelector('#LeadTable_info');
+      const txt = (el?.textContent || '').replace(/\s+/g, ' ').trim();
+      return !!txt && txt !== oldText;
     },
-    { timeout },
-    DATA_INFO,
-    previousText
+    prev,
+    { timeout }
   );
-}
-async function rowCount(page) {
-  return page.$$eval(`${LEAD_TABLE} tbody tr`, trs => trs.length);
 }
 
 // ---------- browser helpers ----------
@@ -563,28 +580,36 @@ async function goToNextLead(page){
 
 /** ======================= Lead Inbox pagination helpers ======================= */
 
-/** Prefer 100 rows/page if the DataTables page-length select is present. */
+// Set DataTables page length to 100 using select and wait until info says "to 100"
 async function setInboxPageSize(page, emit) {
-  await page.waitForSelector(PAGE_SIZE_SELECT, { state: 'visible' });
-  const infoBefore = await readInfoText(page);
-  const rowsBefore = await rowCount(page);
+  // DataTables renders: <div id="LeadTable_length"><select>...</select></div>
+  const lengthSelect = page.locator('#LeadTable_length select');
 
-  try { await page.selectOption(PAGE_SIZE_SELECT, '100'); } catch (_) {}
+  await ensureInboxStable(page);
 
+  // If the select exists, drive it directly
+  if (await lengthSelect.count()) {
+    const current = await lengthSelect.inputValue().catch(() => null);
+    if (current !== '100') {
+      await lengthSelect.selectOption('100'); // triggers redraw
+    }
+  }
+
+  await ensureInboxStable(page);
+
+  // Wait until the info text shows "... to 100 ..."
   try {
-    await Promise.race([
-      waitInfoTextChanged(page, infoBefore, 6000),
-      page.waitForFunction(
-        (sel, prev) => document.querySelectorAll(sel).length > prev,
-        { timeout: 6000 },
-        `${LEAD_TABLE} tbody tr`,
-        rowsBefore
-      ),
-    ]);
-  } catch (_) {}
+    await page.waitForFunction(
+      () => /to\s+100\b/i.test(document.querySelector('#LeadTable_info')?.textContent || ''),
+      null,
+      { timeout: 10000 }
+    );
+  } catch {
+    // fallback: small pause—info sometimes updates just after the redraw completes
+    await page.waitForTimeout(250);
+  }
 
-  const current = await page.$eval(PAGE_SIZE_SELECT, el => el.value).catch(() => 'unknown');
-  emit('info', { msg: `pack: per page set to ${current}` });
+  emit?.('info', { msg: 'pack: per page set to 100' });
 }
 
 async function getPackLinksFromPage(page) {
@@ -596,29 +621,39 @@ async function getPackLinksFromPage(page) {
 }
 
 async function clickNextInboxPage(page, emit) {
-  const pager = page.locator('div.dataTables_paginate');
-  await pager.first().scrollIntoViewIfNeeded().catch(() => {});
+  // Make sure we’re at the bottom (Paginator lives there)
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
 
-  let anchor = page.locator(NEXT_ANCHOR_IN_CONTAINER).first();
-  if (await anchor.count() === 0) anchor = page.locator(NEXT_CONTAINER).first();
+  await ensureInboxStable(page);
 
-  const disabled = await anchor.evaluate(el => {
-    const hasDis = n => n && n.classList && n.classList.contains('disabled');
-    return hasDis(el) || hasDis(el.parentElement);
-  }).catch(() => true);
-  if (disabled) { emit('info', { msg: 'pack: next disabled (last page)' }); return false; }
+  const nextLi = page.locator('#LeadTable_next');
+  if (await nextLi.count()) {
+    const cls = (await nextLi.getAttribute('class')) || '';
+    if (/\bdisabled\b/i.test(cls)) {
+      emit?.('info', { msg: 'pack: next disabled (last page)' });
+      return false; // no more pages
+    }
+  }
 
-  await anchor.scrollIntoViewIfNeeded().catch(() => {});
-  await anchor.waitFor({ state: 'visible', timeout: 3000 });
+  const prevInfo = await getInboxInfoText(page);
+  const nextA = page.locator('#LeadTable_next a');
 
-  const infoBefore = await readInfoText(page);
-  await anchor.click({ timeout: 3000 });
-  try { await waitInfoTextChanged(page, infoBefore, 6000); } catch (_) {}
+  // Try to click Next; if an overlay briefly appears, we'll wait it out below
+  await nextA.click({ timeout: 5000 }).catch(() => {});
 
+  await ensureInboxStable(page);
+  await waitInboxInfoChange(page, prevInfo).catch(() => {
+    // As a last resort, press ESC to dismiss any lingering bootstrap dropdowns/modals
+    return page.keyboard.press('Escape').then(() => waitInboxInfoChange(page, prevInfo));
+  });
+
+  emit?.('info', { msg: 'nav: next page' });
   return true;
 }
 
 async function collectPaginated(page, maxLeads, emit) {
+  await setInboxPageSize(page, emit);
+
   const all = [];
   let pageNum = 1;
 
@@ -627,12 +662,12 @@ async function collectPaginated(page, maxLeads, emit) {
     all.push(...hrefs);
     emit('info', { msg: `pack: page ${pageNum} collected ${hrefs.length}, total ${all.length}` });
 
-    if (all.length >= maxLeads) break;
+    if (maxLeads && all.length >= maxLeads) break;
     const advanced = await clickNextInboxPage(page, emit);
     if (!advanced) break;
     pageNum += 1;
   }
-  return all.slice(0, maxLeads);
+  return maxLeads ? all.slice(0, maxLeads) : all;
 }
 
 /** ===================== end Lead Inbox pagination helpers ===================== */
@@ -662,8 +697,6 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     info('nav: go to All Leads');
     await goToAllLeads(page);
     info('nav: inbox loaded');
-
-    await setInboxPageSize(page, emit);
     // Collect all lead links across all inbox pages
     const packlinks = await collectPaginated(page, maxLeads, emit);
     // Optionally cap to maxLeads strictly
