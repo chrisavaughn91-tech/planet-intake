@@ -1,5 +1,4 @@
-"use strict";
-const axios = require("axios");
+import axios from "axios";
 
 // Low-level helper used by scripts/test-push.js
 async function pushToSheets(execUrl, payload) {
@@ -208,8 +207,5 @@ async function createSheetAndShare({ email, result }) {
 
 // Export BOTH helpers in a single CommonJS export.
 // (Avoid mixing `exports.foo = ...` and `module.exports = ...`.)
-module.exports = {
-  pushToSheets,
-  createSheetAndShare,
-};
+export { pushToSheets, createSheetAndShare };
 

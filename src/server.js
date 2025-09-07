@@ -1,12 +1,17 @@
 /* START:DOTENV */
-try { require('dotenv').config(); } catch {}
+import 'dotenv/config';
 /* END:DOTENV */
-const express = require('express');
-const bodyParser = require('body-parser');
-const path = require('path');
-const { scrapePlanet } = require('./scraper');
-const { createSheetAndShare } = require('./sheets');
-const { emit, bus } = require('./events');
+import express from 'express';
+import bodyParser from 'body-parser';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { scrapePlanet } from './scraper.js';
+import { createSheetAndShare } from './sheets.js';
+import { emit, bus } from './events.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // === dev-time env sanity ===
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -29,15 +34,48 @@ const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
 const clients = new Set();
-function broadcast(obj) {
+export function broadcast(obj) {
   const line = `data: ${JSON.stringify(obj)}\n\n`;
   for (const res of clients) {
     try { res.write(line); } catch {}
   }
 }
-module.exports.broadcast = broadcast;
-
 bus.on('evt', broadcast);
+
+const GS_EXPECTED_VERSION = 4;           // must match CANONICAL_VERSION in Code.gs
+const GS_EXPECTED_TAG = 'v4-planet-intake-canonical'; // must match CANONICAL_TAG in Code.gs
+
+let GS_STATUS = { ok:false, reason:'not verified' };
+
+async function verifyGScript() {
+  const url = process.env.GSCRIPT_WEBAPP_URL;
+  if (!url) {
+    GS_STATUS = { ok:false, reason:'GSCRIPT_WEBAPP_URL missing in .env' };
+    console.warn('[SERVER] GS verify skipped:', GS_STATUS.reason);
+    return;
+  }
+  try {
+    const res = await fetch(`${url}?action=health`, { method:'GET' });
+    const j = await res.json();
+    const localSrc = fs.readFileSync(path.join(process.cwd(), 'apps-script', 'Code.gs'), 'utf8');
+    const localSha = crypto.createHash('sha256').update(localSrc, 'utf8').digest('hex');
+
+    GS_STATUS = {
+      ok: (j.version === GS_EXPECTED_VERSION && j.tag === GS_EXPECTED_TAG),
+      expected: { version: GS_EXPECTED_VERSION, tag: GS_EXPECTED_TAG },
+      remote: j,
+      local: { sha256: localSha }
+    };
+
+    const msg = GS_STATUS.ok
+      ? `[SERVER] Apps Script OK v${j.version} ${j.tag}`
+      : `[SERVER] Apps Script MISMATCH: expected v${GS_EXPECTED_VERSION}/${GS_EXPECTED_TAG} but got v${j.version}/${j.tag}`;
+    console.log(msg);
+  } catch (err) {
+    GS_STATUS = { ok:false, reason:String(err) };
+    console.error('[SERVER] GS verify error:', err);
+  }
+}
 
 app.get('/events', (req, res) => {
   res.set({
@@ -102,6 +140,8 @@ const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
 
 // Health endpoint (used by Cloud Run)
 app.get('/health', (_req, res) => res.status(200).send('ok'));
+
+app.get('/gs-health', (_req, res) => res.json(GS_STATUS));
 
 // Main scrape endpoint
 app.post('/scrape', async (req, res) => {
@@ -215,4 +255,5 @@ app.get('/scrape', async (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server listening on ${PORT}`);
+  verifyGScript().catch(() => {});
 });
