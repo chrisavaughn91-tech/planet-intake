@@ -33,6 +33,42 @@ const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
+async function verifyScript(scriptUrl) {
+  // Ensure we hit the JSON endpoint and follow redirects
+  const u = new URL(scriptUrl);
+  u.searchParams.set('fn', 'hashes');
+  let res, text;
+  try {
+    res = await fetch(u.toString(), { redirect: 'follow' });
+    text = await res.text();
+  } catch (err) {
+    console.error('[SERVER] GS verify fetch error:', u.toString(), err);
+    throw err;
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    console.error('[SERVER] GS verify error: failed to parse JSON', {
+      url: u.toString(),
+      status: res && res.status,
+      preview: (text || '').slice(0, 200)
+    });
+    throw err;
+  }
+  app.locals.appsScriptHashes = data;
+  console.log('[SERVER] Apps Script hashes loaded OK:', data.commit || '(no commit field)');
+}
+
+const scriptUrl = process.env.GSCRIPT_WEBAPP_URL;
+if (!scriptUrl) {
+  throw new Error('GSCRIPT_WEBAPP_URL env is required');
+}
+verifyScript(scriptUrl).catch((e) => {
+  console.error('[SERVER] Startup verifyScript failed:', e);
+  process.exit(1);
+});
+
 const clients = new Set();
 export function broadcast(obj) {
   const line = `data: ${JSON.stringify(obj)}\n\n`;
