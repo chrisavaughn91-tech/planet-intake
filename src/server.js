@@ -33,45 +33,45 @@ const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
-async function fetchHashesJson(baseUrl) {
-  const variants = [];
-  const u1 = new URL(baseUrl); u1.searchParams.set('fn', 'hashes'); variants.push(u1);
-  const u2 = new URL(baseUrl); u2.searchParams.set('Fn', 'hashes'); variants.push(u2);
-  for (const u of variants) {
+async function verifyScript() {
+  const url = process.env.GSCRIPT_WEBAPP_URL;
+  if (!url) throw new Error('GSCRIPT_WEBAPP_URL is not set');
+
+  const tryFetchJson = async (params, label) => {
+    const u = new URL(url);
+    for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v);
+    const res = await fetch(u.toString(), { redirect: 'follow', headers: { 'Accept': 'application/json' } });
+    const text = await res.text();
     try {
-      const res = await fetch(u.toString(), { redirect: 'follow', headers: { accept: 'application/json' } });
-      const text = await res.text();
-      try {
-        const data = JSON.parse(text);
-        return { data, url: u.toString(), status: res.status };
-      } catch (_parseErr) {
-        // If the Apps Script replied with plain "ok", try next variant.
-        if ((text || '').trim().toLowerCase() === 'ok') continue;
-        console.warn('[SERVER] Non-JSON response from Apps Script', {
-          url: u.toString(),
-          status: res && res.status,
-          preview: (text || '').slice(0, 200),
-        });
-        // Try next variant before failing.
-      }
-    } catch (err) {
-      console.warn('[SERVER] Fetch failed for', u.toString(), err);
+      return { ok: true, json: JSON.parse(text), status: res.status };
+    } catch {
+      return { ok: false, status: res.status, head: text.slice(0, 180), label };
     }
+  };
+
+  // v4 canonical: action=health
+  const health = await tryFetchJson({ action: 'health' }, 'action=health');
+  if (health.ok && health.json && health.json.ok === true) {
+    emit('server', { msg: `Apps Script OK v${health.json.version}`, tag: health.json.tag, deployedAt: health.json.deployedAt });
+    return true;
   }
-  throw new Error('Apps Script JSON endpoint not available (tried ?fn=hashes and ?Fn=hashes)');
+
+  // Legacy fallback: fn=hashes
+  const hashes = await tryFetchJson({ fn: 'hashes' }, 'fn=hashes');
+  if (hashes.ok && hashes.json && hashes.json.ok === true) {
+    emit('server', { msg: 'Apps Script legacy OK (fn=hashes)' });
+    return true;
+  }
+
+  // Neither endpoint gave JSON
+  const det = [
+    `health(${health.label}) status=${health.status} head="${health.head || ''}"`,
+    `hashes(${hashes.label}) status=${hashes.status} head="${hashes.head || ''}"`
+  ].join(' | ');
+  throw new Error(`Apps Script JSON endpoint not available: ${det}`);
 }
 
-async function verifyScript(scriptUrl) {
-  const { data, url, status } = await fetchHashesJson(scriptUrl);
-  app.locals.appsScriptHashes = data;
-  console.log('[SERVER] Apps Script hashes loaded from', url, 'status', status, 'commit', data.commit || '(none)');
-}
-
-const scriptUrl = process.env.GSCRIPT_WEBAPP_URL;
-if (!scriptUrl) {
-  throw new Error('GSCRIPT_WEBAPP_URL env is required');
-}
-verifyScript(scriptUrl).catch((e) => {
+verifyScript().catch((e) => {
   console.error('[SERVER] Startup verifyScript failed:', e);
   process.exit(1);
 });
