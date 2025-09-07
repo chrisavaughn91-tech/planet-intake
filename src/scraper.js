@@ -7,8 +7,12 @@ const LOGIN_URL = `${BASE_URL}/Account/Login`;
 const DASH_URL  = `${BASE_URL}/`;
 const PACK_URL  = `${BASE_URL}/Lead/Inbox`; // "All Leads" ends here
 const PACK_ANCHOR = '/Lead/InboxDetail?LeadId=';
-const PACK_SELECTOR = 'table a[href*="/Lead/InboxDetail?LeadId="]';
-const NEXT_LI = 'li.paginate_button.next';
+const LEAD_TABLE = '#LeadTable';
+const PAGE_SIZE_SELECT = '#LeadTable_length select';
+const DATA_INFO = 'div.dataTables_info';
+const NEXT_CONTAINER = '#LeadTable_next';               // may be <li> or <a>
+const NEXT_ANCHOR_IN_CONTAINER = '#LeadTable_next a';   // anchor inside <li>
+const PACK_LINKS_SEL = `${LEAD_TABLE} a[href^="/Lead/InboxDetail?LeadId="]`;
 
 // ---------- small utils ----------
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -125,6 +129,25 @@ async function firstVisible(locator){
     if(await el.isVisible()) return el;
   }
   return null;
+}
+
+async function readInfoText(page) {
+  await page.waitForSelector(DATA_INFO, { state: 'visible' });
+  return page.$eval(DATA_INFO, el => (el.textContent || '').trim());
+}
+async function waitInfoTextChanged(page, previousText, timeout = 5000) {
+  await page.waitForFunction(
+    (sel, prev) => {
+      const el = document.querySelector(sel);
+      return el && el.textContent.trim() !== prev;
+    },
+    { timeout },
+    DATA_INFO,
+    previousText
+  );
+}
+async function rowCount(page) {
+  return page.$$eval(`${LEAD_TABLE} tbody tr`, trs => trs.length);
 }
 
 // ---------- browser helpers ----------
@@ -542,77 +565,74 @@ async function goToNextLead(page){
 
 /** Prefer 100 rows/page if the DataTables page-length select is present. */
 async function setInboxPageSize(page, emit) {
-  const lengthSel = page.locator('select[name$="_length"]');
-  if (await lengthSel.count()) {
-    try {
-      await lengthSel.selectOption('100');
-      emit?.('info', { msg: 'pack: per page set to 100' });
-    } catch {
-      await lengthSel.selectOption({ label: /100/ }).catch(() => {});
-      emit?.('info', { msg: 'pack: per page set to 100 (label)' });
-    }
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 8000 }).catch(() => {});
-  } else {
-    emit?.('info', { msg: 'pack: page-size select not found; using site default' });
-  }
+  await page.waitForSelector(PAGE_SIZE_SELECT, { state: 'visible' });
+  const infoBefore = await readInfoText(page);
+  const rowsBefore = await rowCount(page);
+
+  try { await page.selectOption(PAGE_SIZE_SELECT, '100'); } catch (_) {}
+
+  try {
+    await Promise.race([
+      waitInfoTextChanged(page, infoBefore, 6000),
+      page.waitForFunction(
+        (sel, prev) => document.querySelectorAll(sel).length > prev,
+        { timeout: 6000 },
+        `${LEAD_TABLE} tbody tr`,
+        rowsBefore
+      ),
+    ]);
+  } catch (_) {}
+
+  const current = await page.$eval(PAGE_SIZE_SELECT, el => el.value).catch(() => 'unknown');
+  emit('info', { msg: `pack: per page set to ${current}` });
 }
 
-/** Collect all lead links on the current table page as absolute URLs. */
-async function getPackLinksFromPage(page, emit) {
-  // Ensure the table is in view (DataTables sometimes defers draw)
-  await page.locator('tbody').scrollIntoViewIfNeeded().catch(() => {});
-  const hrefs = await page.$$eval(PACK_SELECTOR, as =>
-    Array.from(as).map(a => new URL(a.getAttribute('href'), location.origin).href)
+async function getPackLinksFromPage(page) {
+  await page.waitForSelector(`${LEAD_TABLE} tbody tr`, { state: 'visible' });
+  const hrefs = await page.$$eval(PACK_LINKS_SEL, els =>
+    els.map(a => a.getAttribute('href')).filter(Boolean)
   );
-  emit && emit('info', `pack: collected ${hrefs.length} link(s)`);
   return hrefs;
 }
 
-/** Iterate pages to collect LeadId links until last page or maxLeads reached. */
+async function clickNextInboxPage(page, emit) {
+  const pager = page.locator('div.dataTables_paginate');
+  await pager.first().scrollIntoViewIfNeeded().catch(() => {});
+
+  let anchor = page.locator(NEXT_ANCHOR_IN_CONTAINER).first();
+  if (await anchor.count() === 0) anchor = page.locator(NEXT_CONTAINER).first();
+
+  const disabled = await anchor.evaluate(el => {
+    const hasDis = n => n && n.classList && n.classList.contains('disabled');
+    return hasDis(el) || hasDis(el.parentElement);
+  }).catch(() => true);
+  if (disabled) { emit('info', { msg: 'pack: next disabled (last page)' }); return false; }
+
+  await anchor.scrollIntoViewIfNeeded().catch(() => {});
+  await anchor.waitFor({ state: 'visible', timeout: 3000 });
+
+  const infoBefore = await readInfoText(page);
+  await anchor.click({ timeout: 3000 });
+  try { await waitInfoTextChanged(page, infoBefore, 6000); } catch (_) {}
+
+  return true;
+}
+
 async function collectPaginated(page, maxLeads, emit) {
   const all = [];
-  let pageNo = 1;
-
-  await setInboxPageSize(page, emit);
+  let pageNum = 1;
 
   for (;;) {
-    const links = await getPackLinksFromPage(page, emit);
-
-    // Deduplicate and enforce maxLeads
-    for (const href of links) {
-      if (all.length >= maxLeads) break;
-      if (!all.includes(href)) all.push(href);
-    }
-    emit && emit('info', `pack: page ${pageNo} collected ${links.length}, total ${all.length}`);
+    const hrefs = await getPackLinksFromPage(page);
+    all.push(...hrefs);
+    emit('info', { msg: `pack: page ${pageNum} collected ${hrefs.length}, total ${all.length}` });
 
     if (all.length >= maxLeads) break;
-
-    // If "Next" is disabled we're done
-    const nextEnabled = page.locator(`${NEXT_LI}:not(.disabled)`).first();
-    if (await nextEnabled.count() === 0) {
-      emit && emit('info', 'pack: reached last page');
-      break;
-    }
-
-    // Remember the first link to detect redraw after clicking Next
-    const firstBefore = await page.locator(PACK_SELECTOR).first().getAttribute('href').catch(() => null);
-
-    await Promise.all([
-      nextEnabled.click(),
-      page.waitForLoadState('domcontentloaded')
-    ]);
-
-    // Wait for the first row anchor href to change (table redraw)
-    await page.waitForFunction(prev => {
-      const a = document.querySelector('table a[href*="/Lead/InboxDetail?LeadId="]');
-      return a && a.getAttribute('href') !== prev;
-    }, firstBefore).catch(() => {});
-
-    pageNo++;
+    const advanced = await clickNextInboxPage(page, emit);
+    if (!advanced) break;
+    pageNum += 1;
   }
-
-  return all;
+  return all.slice(0, maxLeads);
 }
 
 /** ===================== end Lead Inbox pagination helpers ===================== */
@@ -643,6 +663,7 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await goToAllLeads(page);
     info('nav: inbox loaded');
 
+    await setInboxPageSize(page, emit);
     // Collect all lead links across all inbox pages
     const packlinks = await collectPaginated(page, maxLeads, emit);
     // Optionally cap to maxLeads strictly
@@ -656,9 +677,10 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     const total = toVisit.length;
     for (let i = 0; i < total; i++) {
       const href = toVisit[i];
-      dlog(`Lead ${i+1}/${total}: opening ${href}`);
-      info(`lead ${i+1}/${total}: opening`);
-      await page.goto(href, { waitUntil: "domcontentloaded" });
+      const absUrl = new URL(href, page.url()).toString();
+      dlog(`Lead ${i+1}/${total}: opening ${absUrl}`);
+      emit('info', { msg: 'lead: opening', href: absUrl });
+      await page.goto(absUrl, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
       // primary name comes from header
