@@ -33,31 +33,38 @@ const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
 const app = express();
 app.use(bodyParser.json({ limit: '2mb' }));
 
+async function fetchHashesJson(baseUrl) {
+  const variants = [];
+  const u1 = new URL(baseUrl); u1.searchParams.set('fn', 'hashes'); variants.push(u1);
+  const u2 = new URL(baseUrl); u2.searchParams.set('Fn', 'hashes'); variants.push(u2);
+  for (const u of variants) {
+    try {
+      const res = await fetch(u.toString(), { redirect: 'follow', headers: { accept: 'application/json' } });
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        return { data, url: u.toString(), status: res.status };
+      } catch (_parseErr) {
+        // If the Apps Script replied with plain "ok", try next variant.
+        if ((text || '').trim().toLowerCase() === 'ok') continue;
+        console.warn('[SERVER] Non-JSON response from Apps Script', {
+          url: u.toString(),
+          status: res && res.status,
+          preview: (text || '').slice(0, 200),
+        });
+        // Try next variant before failing.
+      }
+    } catch (err) {
+      console.warn('[SERVER] Fetch failed for', u.toString(), err);
+    }
+  }
+  throw new Error('Apps Script JSON endpoint not available (tried ?fn=hashes and ?Fn=hashes)');
+}
+
 async function verifyScript(scriptUrl) {
-  // Ensure we hit the JSON endpoint and follow redirects
-  const u = new URL(scriptUrl);
-  u.searchParams.set('fn', 'hashes');
-  let res, text;
-  try {
-    res = await fetch(u.toString(), { redirect: 'follow' });
-    text = await res.text();
-  } catch (err) {
-    console.error('[SERVER] GS verify fetch error:', u.toString(), err);
-    throw err;
-  }
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (err) {
-    console.error('[SERVER] GS verify error: failed to parse JSON', {
-      url: u.toString(),
-      status: res && res.status,
-      preview: (text || '').slice(0, 200)
-    });
-    throw err;
-  }
+  const { data, url, status } = await fetchHashesJson(scriptUrl);
   app.locals.appsScriptHashes = data;
-  console.log('[SERVER] Apps Script hashes loaded OK:', data.commit || '(no commit field)');
+  console.log('[SERVER] Apps Script hashes loaded from', url, 'status', status, 'commit', data.commit || '(none)');
 }
 
 const scriptUrl = process.env.GSCRIPT_WEBAPP_URL;
