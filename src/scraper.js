@@ -1,5 +1,5 @@
-const { chromium } = require("playwright");
-const { emit } = require('./events');
+import { chromium } from "playwright";
+import { emit } from './events.js';
 
 // ---- URLs ----
 const BASE_URL = 'https://m.planetaltig.com';
@@ -673,7 +673,7 @@ async function collectPaginated(page, maxLeads, emit) {
 /** ===================== end Lead Inbox pagination helpers ===================== */
 
 // ---------- main scraper ----------
-async function scrapePlanet({ username, password, maxLeads = 5 }){
+export async function scrapePlanet({ username, password, maxLeads = 5 }){
   const startTime = Date.now();
   /* START:EMIT_START */
   emit('start', { username, maxLeads: maxLeads || process.env.MAX_LEADS_DEFAULT || 5 });
@@ -831,5 +831,3 @@ async function scrapePlanet({ username, password, maxLeads = 5 }){
     await browser.close().catch(()=>{});
   }
 }
-
-module.exports = { scrapePlanet };

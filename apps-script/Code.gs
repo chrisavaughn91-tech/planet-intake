@@ -11,11 +11,31 @@
  * - Returns JSON with ok + url (+ spreadsheetId)
  */
 
+/** Canonical metadata for this Apps Script web app */
+const CANONICAL_VERSION = 4;
+/** Human tag for deployed canonical version (update when you redeploy) */
+const CANONICAL_TAG = 'v4-planet-intake-canonical';
+/** Health: returns version/tag so the Node server can verify deployment */
+function health_() {
+  const payload = {
+    ok: true,
+    version: CANONICAL_VERSION,
+    tag: CANONICAL_TAG,
+    deployedAt: new Date().toISOString()
+  };
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 const VERSION_TAG = 'sheet-polish-v4';
 
 /** ========== Web entry points ========== */
-function doGet() {
-  return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+function doGet(e) {
+  const p = e && e.parameter || {};
+  if (p.action === 'health') return health_();
+  // ... keep existing routes/behavior below ...
+  return ContentService.createTextOutput('ok');
 }
 
 /**

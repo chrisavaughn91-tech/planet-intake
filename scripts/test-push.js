@@ -1,6 +1,6 @@
 // scripts/test-push.js — Apps Script smoke test using the *production* path
-try { require('dotenv').config(); } catch {}
-const { createSheetAndShare } = require("../src/sheets");
+import 'dotenv/config';
+import { createSheetAndShare } from "../src/sheets.js";
 
 const EXEC_URL = process.env.GSCRIPT_WEBAPP_URL; // required by createSheetAndShare internally
 const EMAIL    = process.env.REPORT_EMAIL || process.env.TEST_EMAIL;

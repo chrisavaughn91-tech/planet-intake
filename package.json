@@ -2,7 +2,7 @@
   "name": "planet-intake-scraper",
   "version": "1.0.0",
   "private": true,
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node src/server.js",
     "test:push": "node scripts/test-push.js",
