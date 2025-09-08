@@ -209,6 +209,32 @@
       }
     }
 
+    // === badge emoji helpers ===
+    function extractTotalPremium(msg) {
+      // look for "totalPremium=185.75" pattern
+      const m = /totalPremium\s*=\s*([0-9]+(?:\.[0-9]+)?)/i.exec(msg || '');
+      return m ? Number(m[1]) : null;
+    }
+
+    function pickBadgeEmojiFromPremium(p) {
+      if (p == null || Number.isNaN(p)) return null;        // no change if missing
+      if (p === 0) return '🔴';                               // exactly zero
+      if (p < 50) return '🟣';                                // 0.01–49.99
+      if (p < 100) return '⚪';                               // 50.00–99.99
+      return '⭐';                                            // 100.00+
+    }
+
+    // Remove any existing leading emoji/symbol then prefix the chosen one
+    function applyBadgeEmoji(msg) {
+      const prem = extractTotalPremium(msg);
+      const emoji = pickBadgeEmojiFromPremium(prem);
+      if (!emoji) return msg;
+
+      // strip an existing leading symbol + optional space (e.g., "⭐ ", "• ", etc.)
+      const stripped = (msg || '').replace(/^[^\w\s]?\s*/, '');
+      return `${emoji} ${stripped}`;
+    }
+
     function stopOldPulses() {
       const pulses = Array.from(document.querySelectorAll('.pill.pulse .typing'));
       pulses.slice(0, -1).forEach(el => el.classList.add('stopped'));
@@ -310,6 +336,10 @@
       // For message/info lines: ensure final prettify
       if ((type==='message' || type==='info') && msg) {
         msg = prettifyMessage(msg);
+      }
+
+      if (type === 'badge') {
+        msg = applyBadgeEmoji(msg);
       }
 
       addRow(ts, type, msg);
