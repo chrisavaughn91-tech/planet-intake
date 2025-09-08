@@ -19,15 +19,6 @@ if (!scrapePlanet) {
 import { createSheetAndShare } from './sheets.js';
 import { emit, bus } from './events.js';
 
-const argv = process.argv.slice(2);
-const has = (flag) => argv.includes(flag);
-const getFlagValue = (name) => {
-  const pref = `--${name}=`;
-  const raw = argv.find(a => a.startsWith(pref));
-  return raw ? raw.slice(pref.length) : undefined;
-};
-const cliMax = getFlagValue('max');
-
 function resolveLimit(req) {
   const q = Number(req?.query?.limit ?? req?.body?.limit ?? NaN);
   if (Number.isFinite(q) && q > 0) return q;
@@ -36,6 +27,13 @@ function resolveLimit(req) {
   if (Number.isFinite(e) && e > 0) return e;
 
   return 200;
+}
+
+function resolveMax(req) {
+  const q = Number(req?.query?.max);
+  const b = Number(req?.body?.max);
+  const envMax = Number(process.env.MAX_LEADS_DEFAULT ?? 200);
+  return Number.isFinite(b) ? b : Number.isFinite(q) ? q : envMax;
 }
 
 /** Health helpers for Apps Script */
@@ -247,6 +245,42 @@ app.get("/health", async (_req, res) => {
 
 app.get('/gs-health', (_req, res) => res.json(GS_STATUS));
 
+['/run','/run/'].forEach(path => {
+  app.post(path, (req, res) => {
+    const max = resolveMax(req);
+    res.status(202).json({ ok: true, max });
+
+    setImmediate(async () => {
+      try {
+        emit('info', { message: `run: starting, max=${max}` });
+        const fn = pickScrapeExport(Scraper);
+        await fn({ max, emit });
+        emit('done', { processed: true });
+      } catch (err) {
+        emit('error', { message: String(err) });
+      }
+    });
+  });
+});
+
+['/run/full','/run/full/'].forEach(path => {
+  app.get(path, (req, res) => {
+    const max = resolveMax(req);
+    res.status(202).type('text/plain').send('accepted\n');
+
+    setImmediate(async () => {
+      try {
+        emit('info', { message: `full: starting, max=${max}` });
+        const fn = pickScrapeExport(Scraper);
+        await fn({ max, emit });
+        emit('done', { processed: true });
+      } catch (err) {
+        emit('error', { message: String(err) });
+      }
+    });
+  });
+});
+
 // Main scrape endpoint
 app.post('/scrape', async (req, res) => {
   const { username, password, email } = req.body || {};
@@ -359,9 +393,10 @@ app.get('/scrape', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`Server listening on ${PORT}`);
+const RUN_FULL = process.argv.includes('--run-full');
+const port = Number(process.env.PORT ?? 8080);
+const server = app.listen(port, () => {
+  emit('info', { message: `server: listening on ${port}` });
   verifyGScript().catch(() => {});
 
   (async () => {
@@ -371,24 +406,18 @@ app.listen(PORT, () => {
       emit('server', { msg: 'Startup verifyScript failed', err: String(err) });
     }
   })();
-});
 
-if (has('--run-full')) {
-  (async () => {
-    try {
-      const n = Number(cliMax);
-      const limit = Number.isFinite(n) && n > 0
-        ? n
-        : (Number(process.env.MAX_LEADS_DEFAULT ?? 200) || 200);
-      process.env.MAX_LEADS = String(limit);
-      console.log('[SERVER] full-run requested, limit=', limit);
-      const opts = { limit };
-      await (typeof scrapePlanet === 'function'
-        ? scrapePlanet(opts)
-        : (run ? run(opts) : (globalThis.scrapePlanet ? globalThis.scrapePlanet(opts) : null)));
-      console.log('[SERVER] full run complete');
-    } catch (err) {
-      console.error('[SERVER] full run failed:', err);
-    }
-  })();
-}
+  if (RUN_FULL) {
+    const max = Number(process.env.MAX_LEADS_DEFAULT ?? 200);
+    setImmediate(async () => {
+      try {
+        emit('info', { message: `full: starting, max=${max}` });
+        const fn = pickScrapeExport(Scraper);
+        await fn({ max, emit });
+        emit('done', { processed: true });
+      } catch (err) {
+        emit('error', { message: String(err) });
+      }
+    });
+  }
+});

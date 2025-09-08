@@ -2,18 +2,13 @@
 
 ## Running the scraper
 
-### Smoke run (10 leads)
-Defaults to 10 for fast verification. Override with `--max` or `E2E_MAX_LEADS`:
-```bash
-npm run test:e2e
-# or
-npm run test:e2e -- --max=15
-E2E_MAX_LEADS=15 npm run test:e2e
-```
+### Running: smoke vs full
 
-### Full run (honors .env)
-Uses `MAX_LEADS_DEFAULT` from your `.env` (fallback 200). Override with `--max`:
-```bash
-npm run start:full
-npm run start:full -- --max=50
-```
+- Smoke (fast, 10 leads):  
+  `npm run test:e2e`
+
+- Full run (honors `.env` MAX_LEADS_DEFAULT, override with `max`):  
+  - Start + auto-run: `npm run start:full`  
+  - Or server only: `npm run start`, then trigger:
+    - `curl -sS -X POST http://localhost:8080/run -H 'content-type: application/json' -d '{"max":200}'`
+    - or `curl -sS 'http://localhost:8080/run/full?max=200'`
