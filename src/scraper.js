@@ -1,6 +1,11 @@
 import { chromium } from "playwright";
 import { emit } from './events.js';
 
+const toNumber = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
 // ---- URLs ----
 const BASE_URL = 'https://m.planetaltig.com';
 const LOGIN_URL = `${BASE_URL}/Account/Login`;
@@ -673,10 +678,17 @@ async function collectPaginated(page, maxLeads, emit) {
 /** ===================== end Lead Inbox pagination helpers ===================== */
 
 // ---------- main scraper ----------
-export async function scrapePlanet({ username, password, maxLeads = 5 }){
+export async function scrapePlanet({ username, password, maxLeads } = {}){
+  // Resolve max: explicit opts.max, else .env default, else 200
+  const resolvedMax = (toNumber(maxLeads))
+    ?? toNumber(process.env.MAX_LEADS_DEFAULT)
+    ?? 200;
+  const max = resolvedMax;
+  console.log('[SCRAPER] starting: max=' + max);
+
   const startTime = Date.now();
   /* START:EMIT_START */
-  emit('start', { username, maxLeads: maxLeads || process.env.MAX_LEADS_DEFAULT || 5 });
+  emit('start', { username, maxLeads: max });
   /* END:EMIT_START */
   const { browser, context, page } = await launch();
   info('browser: ready');
@@ -698,9 +710,9 @@ export async function scrapePlanet({ username, password, maxLeads = 5 }){
     await goToAllLeads(page);
     info('nav: inbox loaded');
     // Collect all lead links across all inbox pages
-    const packlinks = await collectPaginated(page, maxLeads, emit);
-    // Optionally cap to maxLeads strictly
-    const toVisit = maxLeads ? packlinks.slice(0, maxLeads) : packlinks;
+    const packlinks = await collectPaginated(page, max, emit);
+    // Optionally cap to max strictly
+    const toVisit = max ? packlinks.slice(0, max) : packlinks;
     dlog(`Pack: collected ${packlinks.length} lead link(s)`);
     if (toVisit.length === 0) {
       info('No leads found in inbox.');
@@ -804,7 +816,7 @@ export async function scrapePlanet({ username, password, maxLeads = 5 }){
       sumAllLeadsMonthly += leadMonthly;
       leadCount++;
 
-      if (leadCount >= maxLeads) break;
+      if (leadCount >= max) break;
     }
 
     /* START:EMIT_DONE */

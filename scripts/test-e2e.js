@@ -1,13 +1,25 @@
+/* eslint-disable */
 // scripts/test-e2e.js  (CommonJS)
 // E2E hits /scrape via SSE, waits for {type:"done"}, asserts we saw a sheet URL,
 // and exits. Designed to finish quickly with smaller lead count.
 
 const BASE = process.env.BASE_URL || 'http://localhost:8080';
-// Resolve run cap from env, with solid defaults.
-// Uses MAX_LEADS first, then MAX_LEADS_DEFAULT, else 200.
-const ENV_LIMIT =
-  Number(process.env.MAX_LEADS ?? process.env.MAX_LEADS_DEFAULT ?? NaN);
-const limit = Number.isFinite(ENV_LIMIT) && ENV_LIMIT > 0 ? ENV_LIMIT : 200;
+
+// Resolve a smoke-test cap: CLI --max > E2E_MAX_LEADS > 10
+const argv = process.argv.slice(2);
+const getFlag = (name) => {
+  const p = `--${name}=`;
+  const hit = argv.find(a => a.startsWith(p));
+  return hit ? hit.slice(p.length) : undefined;
+};
+const cliMax = getFlag('max');
+const envMax = process.env.E2E_MAX_LEADS;
+const SMOKE_LIMIT = Number.isFinite(Number(cliMax)) ? Number(cliMax)
+                 : Number.isFinite(Number(envMax))  ? Number(envMax)
+                 : 10; // default smoke size
+
+console.log('[E2E] using smoke limit =', SMOKE_LIMIT);
+
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 15 * 60 * 1000);
 
 function parseBlocks(buffer) {
@@ -38,7 +50,7 @@ function parseBlocks(buffer) {
   let processed = 0;
 
   try {
-    const url = `${BASE}/scrape?limit=${encodeURIComponent(limit)}`;
+    const url = `${BASE}/scrape?limit=${encodeURIComponent(SMOKE_LIMIT)}`;
     const res = await fetch(url, {
       headers: { 'Accept': 'text/event-stream' },
       signal: controller.signal

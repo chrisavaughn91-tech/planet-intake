@@ -19,16 +19,22 @@ if (!scrapePlanet) {
 import { createSheetAndShare } from './sheets.js';
 import { emit, bus } from './events.js';
 
+const argv = process.argv.slice(2);
+const has = (flag) => argv.includes(flag);
+const getFlagValue = (name) => {
+  const pref = `--${name}=`;
+  const raw = argv.find(a => a.startsWith(pref));
+  return raw ? raw.slice(pref.length) : undefined;
+};
+const cliMax = getFlagValue('max');
+
 function resolveLimit(req) {
-  // 1) from request (query or body)
   const q = Number(req?.query?.limit ?? req?.body?.limit ?? NaN);
   if (Number.isFinite(q) && q > 0) return q;
 
-  // 2) from env (MAX_LEADS or MAX_LEADS_DEFAULT)
   const e = Number(process.env.MAX_LEADS ?? process.env.MAX_LEADS_DEFAULT ?? NaN);
   if (Number.isFinite(e) && e > 0) return e;
 
-  // 3) fallback
   return 200;
 }
 
@@ -366,3 +372,23 @@ app.listen(PORT, () => {
     }
   })();
 });
+
+if (has('--run-full')) {
+  (async () => {
+    try {
+      const n = Number(cliMax);
+      const limit = Number.isFinite(n) && n > 0
+        ? n
+        : (Number(process.env.MAX_LEADS_DEFAULT ?? 200) || 200);
+      process.env.MAX_LEADS = String(limit);
+      console.log('[SERVER] full-run requested, limit=', limit);
+      const opts = { limit };
+      await (typeof scrapePlanet === 'function'
+        ? scrapePlanet(opts)
+        : (run ? run(opts) : (globalThis.scrapePlanet ? globalThis.scrapePlanet(opts) : null)));
+      console.log('[SERVER] full run complete');
+    } catch (err) {
+      console.error('[SERVER] full run failed:', err);
+    }
+  })();
+}
