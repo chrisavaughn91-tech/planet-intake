@@ -143,36 +143,37 @@
       return name;
     }
 
-    /* Clean & prettify "Message" text:
-       - strip leading dots/bullets/ellipsis
-       - specific remaps
-       - otherwise Title Case words */
+    // REPLACE the entire prettifyMessage function with this:
     function prettifyMessage(raw){
       if (!raw) return '';
       let s = String(raw).trim();
-      s = s.replace(/^[\s.·•…]+/,''); // remove ".. ", "…", bullets
+
+      // Remove any leading dots / ellipsis / bullets + following spaces
+      // handles: ".", "..", "...", "…", "•", "·", "‧", "⋯", "∙"
+      s = s.replace(/^\s*(?:\.(?:\s|$))+/u, '');     // one-or-more ". " at start
+      s = s.replace(/^\s*[•·‧⋯∙…]+(?:\s|$)*/u, '');  // bullets/ellipsis variants
 
       const sl = s.toLowerCase();
 
-      // specific remaps you requested
-      if (sl === 'start') return 'Start';
-      if (sl === 'browser: ready') return 'Browser: Ready';
-      if (sl === 'login: starting') return 'Logging In';
-      if (sl === 'login: ok') return 'Login: ✅';
-      if (sl === 'nav: go to all leads') return 'Nav: Go To All Leads';
-      if (sl === 'nav: inbox loaded') return 'Nav: Inbox Loaded';
-      if (sl === 'pack: per page set to 100') return 'Pack: Per Page Set To 100';
+      // Specific remaps (sentence-case: only first word capitalized)
+      if (sl === 'start')                     return 'Start';
+      if (sl === 'browser: ready')            return 'Browser: ready';
+      if (sl === 'login: starting')           return 'Logging in';
+      if (sl === 'login: ok')                 return 'Login: ✅';
+      // Nav -> right arrow (no space after emoji)
+      if (sl === 'nav: go to all leads')      return '➡️Go to all leads';
+      if (sl === 'nav: inbox loaded')         return '➡️Inbox loaded';
+      if (sl === 'pack: per page set to 100') return 'Pack: per page set to 100';
 
-      // generic Title Case (keeps numbers/symbols)
-      s = s.replace(/\b([a-zA-Z])([a-zA-Z]*)/g, (_,a,b) => a.toUpperCase()+b.toLowerCase());
-      return s;
+      // Generic fallback: sentence-case (capitalize first letter only)
+      return s.replace(/^(\s*[a-zA-Z])/, m => m.toUpperCase());
     }
 
     function friendlyMessage(ev){
       if (ev.msg) {
         const m = String(ev.msg).trim();
         if (m.toLowerCase() === 'hello') return ''; // hidden by caller anyway
-        return prettifyMessage(m);
+        return m;
       }
 
       switch (ev.type) {
@@ -306,7 +307,7 @@
 
       let msg = friendlyMessage({ type, ...clean });
 
-      // For Message-type lines: ensure final prettify & strip leading dots
+      // For message/info lines: ensure final prettify
       if ((type==='message' || type==='info') && msg) {
         msg = prettifyMessage(msg);
       }
@@ -329,8 +330,9 @@
         addRow(now(),'message','Live'); // first row
       };
 
-      es.onmessage = routeEvent;
-      ['message','info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
+      es.onmessage = routeEvent; // default (no event name) messages ONLY
+      // Named events (NO 'message' here)
+      ['info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
         es.addEventListener(t, routeEvent);
       });
 
