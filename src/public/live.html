@@ -36,7 +36,7 @@
     .circle{ width:10px; height:10px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,.45); }
     .card{ background:var(--panel); border:1px solid #222a36; border-radius:14px; padding:10px; }
     .legend{ display:flex; gap:8px; margin-left:auto; }
-    .pill{ display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; border:1px solid var(--chip-br); background:var(--chip-bg); color:var(--muted); font-size:12px; line-height:18px; }
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; border:1px solid var(--chip-br); background:var(--chip-bg); color:var(--muted); font-size:12px; line-height:18px; text-transform:capitalize; }
     .pill .dot{ width:6px; height:6px; border-radius:50%; }
 
     /* Per-type coloring */
@@ -89,9 +89,7 @@
         <span class="pill done"><span class="dot" style="background:var(--done)"></span>done</span>
         <span class="pill numbers"><span class="dot" style="background:var(--number)"></span>numbers</span>
         <span class="pill badge"><span class="dot" style="background:var(--badge)"></span>badge</span>
-        <span class="pill pulse" title="keepalive">
-          <span class="typing"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></span>
-        </span>
+        <!-- pulse pill intentionally removed from legend -->
       </div>
     </div>
 
@@ -133,9 +131,10 @@
 
     function trimPayload(ev){
       const out = {...ev};
+      // normalize msg/message so filters work reliably
+      if (!out.msg && out.message) out.msg = out.message;
       delete out.__raw;
       delete out.execUrlPrefix;
-      if (!out.msg && out.message) out.msg = out.message;
       return out;
     }
 
@@ -156,10 +155,11 @@
           return formatLead(ev);
 
         case 'numbers': {
+          // show just the name (no "lead=") + counts
           const p=[];
-          if (ev.leadName) p.push(`lead=${ev.leadName}`);
-          if ('listedCount' in ev) p.push(`listed=${ev.listedCount}`);
-          if ('extraCount' in ev) p.push(`extras=${ev.extraCount}`);
+          if (ev.leadName) p.push(ev.leadName);
+          if ('listedCount' in ev)  p.push(`listed=${ev.listedCount}`);
+          if ('extraCount' in ev)   p.push(`extras=${ev.extraCount}`);
           if ('flaggedCount' in ev) p.push(`flagged=${ev.flaggedCount}`);
           return p.join(', ') || 'numbers';
         }
@@ -184,6 +184,7 @@
         }
       }
     }
+
     function addRow(tsMs,type,msg){
       emptyEl.style.display='none';
 
@@ -215,6 +216,7 @@
         t.innerHTML='<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>';
         pill.appendChild(t);
       }else{
+        // capitalized via CSS text-transform, but keep a string here
         pill.appendChild(document.createTextNode(type));
       }
       cType.appendChild(pill);
@@ -223,7 +225,6 @@
       cMsg.className='cell msg';
       cMsg.textContent=msg||'';
 
-      // row (display:contents)
       rowsEl.appendChild(cTime);
       rowsEl.appendChild(cType);
       rowsEl.appendChild(cMsg);
@@ -232,10 +233,11 @@
     }
 
     function shouldHideInfo(payload){
-      if (!payload || typeof payload.msg!=='string') return false;
-      const m = payload.msg.trim();
+      if (!payload) return false;
+      const m = (payload.msg || payload.message || '').trim();
+      if (!m) return false;
       if (m === 'lead: opening') return true;
-      if (/^lead\\s+\\d+:\\s+monthly=/i.test(m)) return true;
+      if (/^lead\s+\d+:\s+monthly=/i.test(m)) return true;
       return false;
     }
 
@@ -253,14 +255,13 @@
         return;
       }
 
-      // Prefer known payload types
       const known=new Set(['info','lead','sheet','error','done','numbers','badge']);
       if (payload.type && known.has(payload.type)) type = payload.type;
 
-      // Hide specific noisy info lines
-      if (type==='info' && shouldHideInfo(payload)) return;
-
+      // normalize first, then filter
       const clean = trimPayload(payload);
+      if (type==='info' && shouldHideInfo(clean)) return;
+
       const msg = friendlyMessage({ type, ...clean });
       addRow(clean.ts || ts, type, msg);
     }
