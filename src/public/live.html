@@ -2,10 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Live Intake</title>
   <style>
     :root{
@@ -20,7 +17,7 @@
       --done:#a78bfa;       /* done */
       --number:#5ac8fa;     /* numbers */
       --badge:#f6c177;      /* badge */
-      --pulse:#8b95a7;      /* pulse (muted) */
+      --pulse:#8b95a7;      /* typing bubble dots */
       --chip-bg:#0f141a;
       --chip-br:#223040;
       --ok-bg:#0a2642;
@@ -64,6 +61,19 @@
     .status .state{ font-weight:600; color:var(--text); }
 
     .empty{ color:var(--muted); text-align:center; padding:16px 0; font-size:13px; }
+
+    /* typing bubble (3 animated dots) */
+    .typing { display:inline-flex; align-items:center; gap:4px; padding:0 2px; }
+    .typing .tdot{
+      width:4px; height:4px; border-radius:50%; background:var(--pulse); opacity:.35;
+      animation: tblink 1.2s infinite ease-in-out;
+    }
+    .typing .tdot:nth-child(2){ animation-delay: .15s; }
+    .typing .tdot:nth-child(3){ animation-delay: .30s; }
+    @keyframes tblink {
+      0%, 60%, 100% { opacity:.35; transform: translateY(0); }
+      30% { opacity:1; transform: translateY(-2px); }
+    }
   </style>
 </head>
 <body>
@@ -79,7 +89,9 @@
         <span class="pill done"><span class="dot" style="background:var(--done)"></span>done</span>
         <span class="pill numbers"><span class="dot" style="background:var(--number)"></span>numbers</span>
         <span class="pill badge"><span class="dot" style="background:var(--badge)"></span>badge</span>
-        <span class="pill pulse"><span class="dot" style="background:var(--pulse)"></span>● pulse</span>
+        <span class="pill pulse" title="keepalive">
+          <span class="typing"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></span>
+        </span>
       </div>
     </div>
 
@@ -95,163 +107,158 @@
   </div>
 
   <script>
-    // ===== Config
     const ENDPOINT = '/events';
     const MAX_BACKOFF = 15_000;
 
-    // ===== State
     let es = null;
     let backoff = 500;
     let lastPulseMs = 0;
 
-    const qs  = (s,el=document)=>el.querySelector(s);
+    const qs=(s,el=document)=>el.querySelector(s);
     const rowsEl = qs('#rows');
     const stateEl = qs('#state');
     const emptyEl = qs('#empty');
     const lampEl  = qs('#lamp');
 
-    // ===== Utils
-    const pad2 = n => (n<10 ? '0'+n : ''+n);
-    function mmss(tsMs) {
-      const d = new Date(tsMs);
-      return pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
-    }
-    function now() { return Date.now(); }
+    const pad2 = n => (n<10?'0'+n:''+n);
+    const mmss = ts => { const d=new Date(ts); return pad2(d.getMinutes())+':'+pad2(d.getSeconds()); };
+    const now = ()=>Date.now();
 
-    function setState(kind, msg){
+    function setState(kind,msg){
       stateEl.textContent = msg || kind;
-      if (kind === 'ok') {
-        lampEl.style.background = '#22c55e';
-        lampEl.style.boxShadow = '0 0 12px rgba(34,197,94,.45)';
-      } else if (kind === 'wait') {
-        lampEl.style.background = '#f59e0b';
-        lampEl.style.boxShadow = '0 0 10px rgba(245,158,11,.35)';
-      } else {
-        lampEl.style.background = '#ef4444';
-        lampEl.style.boxShadow = '0 0 10px rgba(239,68,68,.35)';
-      }
+      if (kind==='ok') { lampEl.style.background='#22c55e'; lampEl.style.boxShadow='0 0 12px rgba(34,197,94,.45)'; }
+      else if (kind==='wait'){ lampEl.style.background='#f59e0b'; lampEl.style.boxShadow='0 0 10px rgba(245,158,11,.35)'; }
+      else { lampEl.style.background='#ef4444'; lampEl.style.boxShadow='0 0 10px rgba(239,68,68,.35)'; }
     }
 
     function trimPayload(ev){
-      // Make a friendly clone without noisy keys
       const out = {...ev};
       delete out.__raw;
       delete out.execUrlPrefix;
-      // If server includes 'message' and 'msg', prefer 'msg'
       if (!out.msg && out.message) out.msg = out.message;
       return out;
     }
 
+    function formatLead(ev){
+      // Want: "NAME (index of total)"
+      const name = ev.leadName || ev.lead || 'Lead';
+      const idx = (typeof ev.index==='number' ? ev.index : (ev.index?String(ev.index):null));
+      const tot = (typeof ev.total==='number' ? ev.total : (ev.total?String(ev.total):null));
+      if (idx!=null && tot!=null) return `${name} (${idx} of ${tot})`;
+      return name;
+    }
+
     function friendlyMessage(ev){
-      // Prefer msg if present
       if (ev.msg) return ev.msg;
 
-      // Type-specific fallbacks
       switch (ev.type) {
-        case 'lead': {
-          const p = [];
-          if ('index' in ev && 'total' in ev) p.push(`index=${ev.index}, total=${ev.total}`);
-          if (ev.leadName) p.push(`lead=${ev.leadName}`);
-          return p.join(', ') || 'lead';
-        }
+        case 'lead':
+          return formatLead(ev);
+
         case 'numbers': {
-          const p = [];
+          const p=[];
           if (ev.leadName) p.push(`lead=${ev.leadName}`);
           if ('listedCount' in ev) p.push(`listed=${ev.listedCount}`);
           if ('extraCount' in ev) p.push(`extras=${ev.extraCount}`);
           if ('flaggedCount' in ev) p.push(`flagged=${ev.flaggedCount}`);
           return p.join(', ') || 'numbers';
         }
-        case 'badge': {
-          if ('totalPremium' in ev) return `⭐ totalPremium=${ev.totalPremium}`;
-          return 'badge';
-        }
-        case 'sheet': {
-          if (ev.url) return ev.url;
-          return 'sheet';
-        }
-        case 'done': {
-          if ('processed' in ev) return `processed=${ev.processed}`;
-          return 'done';
-        }
-        case 'error': {
+
+        case 'badge':
+          return ('totalPremium' in ev) ? `⭐ totalPremium=${ev.totalPremium}` : 'badge';
+
+        case 'sheet':
+          return ev.url || 'sheet';
+
+        case 'done':
+          return ('processed' in ev) ? `processed=${ev.processed}` : 'done';
+
+        case 'error':
           return ev.error || ev.message || 'error';
-        }
-        default:
-          // As a last resort, pick a couple safe fields
-          const allow = ['leadName','index','total','processed','url','href'];
-          const picked = [];
+
+        default: {
+          const allow=['leadName','index','total','processed','url','href'];
+          const picked=[];
           for (const k of allow) if (k in ev) picked.push(`${k}=${ev[k]}`);
           return picked.join(', ') || (ev.type || 'info');
+        }
       }
     }
+    function addRow(tsMs,type,msg){
+      emptyEl.style.display='none';
 
-    function addRow(tsMs, type, msg){
-      emptyEl.style.display = 'none';
-      const row = document.createElement('div');
-      row.className = 'row';
+      const cTime=document.createElement('div');
+      cTime.className='cell clock';
+      cTime.textContent=mmss(tsMs);
 
-      const cTime = document.createElement('div');
-      cTime.className = 'cell clock';
-      cTime.textContent = mmss(tsMs);
-
-      const cType = document.createElement('div');
-      cType.className = 'cell type';
-      const pill = document.createElement('span');
-      pill.className = `pill ${type}`;
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.style.background =
-        type==='info'    ? getComputedStyle(document.documentElement).getPropertyValue('--ok') :
-        type==='lead'    ? getComputedStyle(document.documentElement).getPropertyValue('--lead') :
-        type==='sheet'   ? getComputedStyle(document.documentElement).getPropertyValue('--sheet') :
-        type==='error'   ? getComputedStyle(document.documentElement).getPropertyValue('--err') :
-        type==='done'    ? getComputedStyle(document.documentElement).getPropertyValue('--done') :
-        type==='numbers' ? getComputedStyle(document.documentElement).getPropertyValue('--number') :
-        type==='badge'   ? getComputedStyle(document.documentElement).getPropertyValue('--badge') :
-                           getComputedStyle(document.documentElement).getPropertyValue('--pulse');
+      const cType=document.createElement('div');
+      cType.className='cell type';
+      const pill=document.createElement('span');
+      pill.className=`pill ${type}`;
+      pill.title=type;
+      const dot=document.createElement('span');
+      dot.className='dot';
+      dot.style.background=getComputedStyle(document.documentElement).getPropertyValue(
+        type==='info'?'--ok':
+        type==='lead'?'--lead':
+        type==='sheet'?'--sheet':
+        type==='error'?'--err':
+        type==='done'?'--done':
+        type==='numbers'?'--number':
+        type==='badge'?'--badge':'--pulse'
+      );
       pill.appendChild(dot);
-      const label = document.createTextNode(type === 'pulse' ? '● pulse' : type);
-      pill.appendChild(label);
+
+      if (type==='pulse'){
+        const t=document.createElement('span');
+        t.className='typing';
+        t.innerHTML='<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>';
+        pill.appendChild(t);
+      }else{
+        pill.appendChild(document.createTextNode(type));
+      }
       cType.appendChild(pill);
 
-      const cMsg = document.createElement('div');
-      cMsg.className = 'cell msg';
-      cMsg.textContent = msg || '';
+      const cMsg=document.createElement('div');
+      cMsg.className='cell msg';
+      cMsg.textContent=msg||'';
 
+      // row (display:contents)
       rowsEl.appendChild(cTime);
       rowsEl.appendChild(cType);
       rowsEl.appendChild(cMsg);
 
-      // Scroll to bottom
-      rowsEl.parentElement.scrollTop = rowsEl.parentElement.scrollHeight;
+      rowsEl.parentElement.scrollTop=rowsEl.parentElement.scrollHeight;
+    }
+
+    function shouldHideInfo(payload){
+      if (!payload || typeof payload.msg!=='string') return false;
+      const m = payload.msg.trim();
+      if (m === 'lead: opening') return true;
+      if (/^lead\\s+\\d+:\\s+monthly=/i.test(m)) return true;
+      return false;
     }
 
     function routeEvent(e){
-      // e is an EventSource event; e.type may be '', or a named event
       const ts = now();
       let type = e.type || 'info';
       let payload = {};
-      try {
-        payload = e.data ? JSON.parse(e.data) : {};
-      } catch { payload = {}; }
+      try { payload = e.data ? JSON.parse(e.data) : {}; } catch { payload = {}; }
 
-      // Normalize heartbeat -> pulse
-      if (type === 'heartbeat' || payload.type === 'heartbeat') {
-        type = 'pulse';
-      }
-
-      // Throttle pulse to at most once every 10s
-      if (type === 'pulse') {
+      // heartbeat -> pulse (throttled)
+      if (type==='heartbeat' || payload.type==='heartbeat'){
         if (ts - lastPulseMs < 10_000) return;
         lastPulseMs = ts;
-        addRow(ts, 'pulse', '');
+        addRow(ts,'pulse','');
         return;
       }
 
-      // Prefer payload.type if it’s one of our known types
-      const known = new Set(['info','lead','sheet','error','done','numbers','badge']);
+      // Prefer known payload types
+      const known=new Set(['info','lead','sheet','error','done','numbers','badge']);
       if (payload.type && known.has(payload.type)) type = payload.type;
+
+      // Hide specific noisy info lines
+      if (type==='info' && shouldHideInfo(payload)) return;
 
       const clean = trimPayload(payload);
       const msg = friendlyMessage({ type, ...clean });
@@ -260,40 +267,33 @@
 
     function connect(){
       try { if (es) es.close(); } catch {}
-      setState('wait', 'connecting…');
+      setState('wait','connecting…');
 
-      es = new EventSource(ENDPOINT, { withCredentials:false });
+      es = new EventSource(ENDPOINT,{ withCredentials:false });
 
       es.onopen = () => {
-        setState('ok', 'connected to /events');
+        setState('ok','connected to /events');
         backoff = 1000;
-        addRow(now(), 'info', 'connected to /events');
+        addRow(now(),'info','connected to /events');
       };
 
-      // Default message
       es.onmessage = routeEvent;
-
-      // Named events we care about
       ['info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
         es.addEventListener(t, routeEvent);
       });
 
       es.onerror = () => {
-        setState('wait', `retry in ~${Math.round(backoff/1000)}s`);
+        setState('wait',`retry in ~${Math.round(backoff/1000)}s`);
         try { es.close(); } catch {}
         setTimeout(connect, backoff + Math.floor(Math.random()*400));
-        backoff = Math.min(MAX_BACKOFF, backoff * 2);
+        backoff = Math.min(MAX_BACKOFF, backoff*2);
       };
     }
 
-    // Kick it off
     connect();
 
-    // If tab was hidden a while and the stream closed, reconnect quickly on focus
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && es && es.readyState === EventSource.CLOSED) {
-        connect();
-      }
+      if (document.visibilityState==='visible' && es && es.readyState===EventSource.CLOSED) connect();
     });
   </script>
 </body>
