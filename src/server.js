@@ -7,7 +7,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { scrapePlanet } from './scraper.js';
+import * as Scraper from './scraper.js';
+
+const pickScrapeExport = (mod) =>
+  mod.scrapePlanet || mod.default || mod.scrape || mod.run || null;
+
+const scrapePlanet = pickScrapeExport(Scraper);
+if (!scrapePlanet) {
+  throw new Error("[SERVER] Could not find scraper export (expected one of: scrapePlanet, default, scrape, run)");
+}
 import { createSheetAndShare } from './sheets.js';
 import { emit, bus } from './events.js';
 
