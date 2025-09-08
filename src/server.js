@@ -2,7 +2,6 @@
 import 'dotenv/config';
 /* END:DOTENV */
 import express from 'express';
-import bodyParser from 'body-parser';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -34,6 +33,26 @@ function resolveMax(req) {
   const b = Number(req?.body?.max);
   const envMax = Number(process.env.MAX_LEADS_DEFAULT ?? 200);
   return Number.isFinite(b) ? b : Number.isFinite(q) ? q : envMax;
+}
+
+async function runWithEnv(max) {
+  try {
+    const username = process.env.PLANET_USERNAME;
+    const password = process.env.PLANET_PASSWORD;
+    const email = process.env.REPORT_EMAIL;
+    if (!username || !password || !email) {
+      emit('error', { message: 'missing PLANET_USERNAME/PASSWORD/REPORT_EMAIL env vars' });
+      return;
+    }
+    process.env.MAX_LEADS = String(max);
+    emit('info', { message: `run: starting, max=${max}` });
+    const fn = pickScrapeExport(Scraper);
+    const result = await fn({ username, password, max });
+    const sheet = await createSheetAndShare({ email, result });
+    if (sheet?.url) emit('sheet', { url: sheet.url });
+  } catch (err) {
+    emit('error', { message: String(err) });
+  }
 }
 
 /** Health helpers for Apps Script */
@@ -80,7 +99,7 @@ const REQUIRED_ENV = ['GSCRIPT_WEBAPP_URL'];
 })();
 
 const app = express();
-app.use(bodyParser.json({ limit: '2mb' }));
+app.use(express.json({ limit: '2mb' }));
 
 // === helpers for Apps Script verification ===
 const parseMaybeJson = (text) => { try { return JSON.parse(text); } catch { return null; } };
@@ -245,39 +264,19 @@ app.get("/health", async (_req, res) => {
 
 app.get('/gs-health', (_req, res) => res.json(GS_STATUS));
 
-['/run','/run/'].forEach(path => {
+['/run', '/run/'].forEach(path => {
   app.post(path, (req, res) => {
     const max = resolveMax(req);
-    res.status(202).json({ ok: true, max });
-
-    setImmediate(async () => {
-      try {
-        emit('info', { message: `run: starting, max=${max}` });
-        const fn = pickScrapeExport(Scraper);
-        await fn({ max, emit });
-        emit('done', { processed: true });
-      } catch (err) {
-        emit('error', { message: String(err) });
-      }
-    });
+    res.status(202).json({ ok: true, started: { max } });
+    setImmediate(() => runWithEnv(max));
   });
 });
 
-['/run/full','/run/full/'].forEach(path => {
+['/run/full', '/run/full/'].forEach(path => {
   app.get(path, (req, res) => {
     const max = resolveMax(req);
-    res.status(202).type('text/plain').send('accepted\n');
-
-    setImmediate(async () => {
-      try {
-        emit('info', { message: `full: starting, max=${max}` });
-        const fn = pickScrapeExport(Scraper);
-        await fn({ max, emit });
-        emit('done', { processed: true });
-      } catch (err) {
-        emit('error', { message: String(err) });
-      }
-    });
+    res.status(202).json({ ok: true, started: { max } });
+    setImmediate(() => runWithEnv(max));
   });
 });
 
@@ -301,7 +300,7 @@ app.post('/scrape', async (req, res) => {
     process.env.MAX_LEADS = String(limit);
 
     // Run the scraper
-    const result = await scrapePlanet({ username, password, maxLeads: limit });
+    const result = await scrapePlanet({ username, password, max: limit });
 
     if (!result?.ok) {
       return res.status(200).json(result || { ok: false, error: 'Unknown scrape error' });
@@ -372,7 +371,7 @@ app.get('/scrape', async (req, res) => {
   bus.on('evt', forward);
 
   try {
-    const result = await scrapePlanet({ username, password, maxLeads: limit });
+    const result = await scrapePlanet({ username, password, max: limit });
 
     let sheet;
     try {
@@ -410,14 +409,8 @@ const server = app.listen(port, () => {
   if (RUN_FULL) {
     const max = Number(process.env.MAX_LEADS_DEFAULT ?? 200);
     setImmediate(async () => {
-      try {
-        emit('info', { message: `full: starting, max=${max}` });
-        const fn = pickScrapeExport(Scraper);
-        await fn({ max, emit });
-        emit('done', { processed: true });
-      } catch (err) {
-        emit('error', { message: String(err) });
-      }
+      await runWithEnv(max);
+      console.log('[SERVER] full run complete');
     });
   }
 });

@@ -656,7 +656,7 @@ async function clickNextInboxPage(page, emit) {
   return true;
 }
 
-async function collectPaginated(page, maxLeads, emit) {
+async function collectPaginated(page, max, emit) {
   await setInboxPageSize(page, emit);
 
   const all = [];
@@ -667,23 +667,20 @@ async function collectPaginated(page, maxLeads, emit) {
     all.push(...hrefs);
     emit('info', { msg: `pack: page ${pageNum} collected ${hrefs.length}, total ${all.length}` });
 
-    if (maxLeads && all.length >= maxLeads) break;
+    if (max && all.length >= max) break;
     const advanced = await clickNextInboxPage(page, emit);
     if (!advanced) break;
     pageNum += 1;
   }
-  return maxLeads ? all.slice(0, maxLeads) : all;
+  return max ? all.slice(0, max) : all;
 }
 
 /** ===================== end Lead Inbox pagination helpers ===================== */
 
 // ---------- main scraper ----------
-export async function scrapePlanet({ username, password, maxLeads } = {}){
-  // Resolve max: explicit opts.max, else .env default, else 200
-  const resolvedMax = (toNumber(maxLeads))
-    ?? toNumber(process.env.MAX_LEADS_DEFAULT)
-    ?? 200;
-  const max = resolvedMax;
+export async function scrapePlanet(opts = {}) {
+  const { username, password } = opts;
+  const max = opts?.max ?? Number(process.env.MAX_LEADS_DEFAULT ?? 200);
   console.log('[SCRAPER] starting: max=' + max);
 
   const startTime = Date.now();

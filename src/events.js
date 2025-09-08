@@ -6,3 +6,5 @@ export const bus = new EventEmitter();
 export function emit(type, payload = {}) {
   bus.emit('evt', { type, ts: Date.now(), ...payload });
 }
+
+// bus is imported by server.js to broadcast events over SSE
