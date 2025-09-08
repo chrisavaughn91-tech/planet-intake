@@ -69,6 +69,15 @@
       background: #00000030; padding: 0 4px; border-radius: 4px;
     }
 
+    /* START:COMPACT-MSG-CSS */
+    .col-msg {
+      max-width: calc(100% - 280px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* END:COMPACT-MSG-CSS */
+
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
   </style>
@@ -100,7 +109,38 @@
     const fmtTime = (d=new Date()) =>
       d.toLocaleTimeString([], { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
-    function appendRow(type, payload) {
+    // ---- compact message rendering helpers ----
+    function tryParseJSON(s) {
+      try { return JSON.parse(s); } catch { return { msg: String(s ?? '') }; }
+    }
+    const nf = new Intl.NumberFormat();
+    const fmt = (n) => (typeof n === 'number' ? nf.format(n) : n);
+
+    // Turn the event payload into a short, readable sentence
+    function formatEventText(obj) {
+      if (!obj || typeof obj !== 'object') return String(obj ?? '');
+      if (obj.msg) return obj.msg;                                 // prefer explicit message
+      if (obj.type === 'numbers') {                                // summarize the counters
+        const parts = [];
+        if (obj.index != null && obj.total != null) parts.push(`lead ${obj.index}/${obj.total}`);
+        if (obj.monthly != null) parts.push(`monthly=${fmt(obj.monthly)}`);
+        if (obj.listedCount != null) parts.push(`listed=${fmt(obj.listedCount)}`);
+        if (obj.extraCount != null) parts.push(`extras=${fmt(obj.extraCount)}`);
+        if (obj.flaggedCount != null) parts.push(`flagged=${fmt(obj.flaggedCount)}`);
+        return parts.join(' · ') || 'numbers';
+      }
+      if (obj.type === 'badge' && obj.badge) {
+        const extra = obj.totalPremium != null ? ` • totalPremium:${fmt(obj.totalPremium)}` : '';
+        return `badge: ${obj.badge}${extra}`;
+      }
+      if (obj.type === 'sheet' && obj.url) return obj.url;
+      if (obj.href) return obj.href;
+      if (obj.error) return obj.error.message || String(obj.error);
+      // last resort: short JSON
+      try { return JSON.stringify(obj); } catch { return String(obj); }
+    }
+
+    function appendRow(type, obj) {
       const row = document.createElement('div');
       row.className = 'row ' + (type || 'info');
 
@@ -113,24 +153,11 @@
       ev.textContent = type || 'info';
 
       const msg = document.createElement('div');
-      msg.className = 'msg';
-
-      // Render nice strings; stringify objects
-      if (payload && typeof payload === 'object') {
-        // hyperlink common fields if present
-        if (payload.url) {
-          const a = document.createElement('a');
-          a.href = payload.url; a.target = '_blank'; a.rel = 'noopener';
-          a.textContent = payload.url;
-          msg.appendChild(a);
-        } else if (payload.message) {
-          msg.textContent = payload.message;
-        } else {
-          msg.textContent = JSON.stringify(payload);
-        }
-      } else {
-        msg.textContent = String(payload ?? '');
-      }
+      msg.className = 'msg col-msg';
+      // START:COMPACT-MSG-ASSIGN
+      msg.textContent = formatEventText(obj);
+      msg.title = obj.__raw || '';   // hover to see full raw payload
+      // END:COMPACT-MSG-ASSIGN
 
       row.append(ts, ev, msg);
       logEl.appendChild(row);
@@ -155,18 +182,15 @@
       attemptEl.textContent = detail;
     }
 
-    function routeEvent(evt) {
-      // Support named events (evt.type set by EventSource) and default "message" with JSON data.
-      let type = evt.type && evt.type !== 'message' ? evt.type : null;
-      let data = evt.data;
-
-      try { data = data ? JSON.parse(data) : null; } catch { /* keep as string */ }
-
-      if (!type && data && typeof data === 'object' && data.type) {
-        type = data.type;
-      }
-      appendRow(type || 'info', data && data.payload !== undefined ? data.payload : data);
+    // START:ROUTE-EVENT-COMPACT
+    function routeEvent(e) {
+      const kind = (e.type && e.type !== 'message') ? e.type : 'info';
+      const obj = (typeof e.data === 'string') ? tryParseJSON(e.data) : (e.data || {});
+      obj.__raw = typeof e.data === 'string' ? e.data : JSON.stringify(e.data || {});
+      obj.type = obj.type || kind;
+      appendRow(kind, obj);
     }
+    // END:ROUTE-EVENT-COMPACT
 
     function connect() {
       if (es) try { es.close(); } catch {}
