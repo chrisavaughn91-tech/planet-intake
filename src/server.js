@@ -11,6 +11,30 @@ import { scrapePlanet } from './scraper.js';
 import { createSheetAndShare } from './sheets.js';
 import { emit, bus } from './events.js';
 
+/** Health helpers for Apps Script */
+const pickPrefix = (s, n = 60) => (s || "").slice(0, n);
+
+async function fetchRemoteHealth() {
+  const base = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL || "";
+  if (!base) return { ok: false, error: "missing GSCRIPT_WEBAPP_URL" };
+  try {
+    const { default: axios } = await import("axios");
+    const { data } = await axios.get(base, {
+      params: { action: "health" },
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: (s) => s >= 200 && s < 400, // accept 30x
+    });
+    return data;
+  } catch (err) {
+    return {
+      ok: false,
+      status: err?.response?.status || 0,
+      error: err?.response?.statusText || err?.message || String(err),
+    };
+  }
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // === dev-time env sanity ===
@@ -186,9 +210,17 @@ app.get('/status', (_req, res) => {
 // You can change it at deploy time with:
 //   --set-env-vars MAX_LEADS_DEFAULT=200
 const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
-
-// Health endpoint (used by Cloud Run)
-app.get('/health', (_req, res) => res.status(200).send('ok'));
+app.get("/health", async (_req, res) => {
+  const execUrl = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL || "";
+  const remote = await fetchRemoteHealth();
+  res.json({
+    ok: true,
+    server: "up",
+    execUrlPrefix: execUrl ? pickPrefix(execUrl) + "…" : "",
+    remote, // includes { ok, version, tag, deployedAt } from Apps Script if healthy
+    now: new Date().toISOString(),
+  });
+});
 
 app.get('/gs-health', (_req, res) => res.json(GS_STATUS));
 
