@@ -3,7 +3,11 @@
 // and exits. Designed to finish quickly with smaller lead count.
 
 const BASE = process.env.BASE_URL || 'http://localhost:8080';
-const MAX  = Number(process.env.E2E_MAX || 10);
+// Resolve run cap from env, with solid defaults.
+// Uses MAX_LEADS first, then MAX_LEADS_DEFAULT, else 200.
+const ENV_LIMIT =
+  Number(process.env.MAX_LEADS ?? process.env.MAX_LEADS_DEFAULT ?? NaN);
+const limit = Number.isFinite(ENV_LIMIT) && ENV_LIMIT > 0 ? ENV_LIMIT : 200;
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 15 * 60 * 1000);
 
 function parseBlocks(buffer) {
@@ -34,7 +38,7 @@ function parseBlocks(buffer) {
   let processed = 0;
 
   try {
-    const url = `${BASE}/scrape?maxLeads=${encodeURIComponent(MAX)}`;
+    const url = `${BASE}/scrape?limit=${encodeURIComponent(limit)}`;
     const res = await fetch(url, {
       headers: { 'Accept': 'text/event-stream' },
       signal: controller.signal
