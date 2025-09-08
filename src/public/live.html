@@ -1,27 +1,210 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>Planet Intake — Live</title>
-<style>
-  body{font:14px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px 20px;}
-  h1{margin:0 0 12px;}
-  #log{white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;border:1px solid #ddd;border-radius:10px;padding:12px;height:72vh;overflow:auto;background:#fafafa}
-  .row{margin:0 0 4px}
-</style>
-<h1>Planet Intake — Live</h1>
-<div id="log"></div>
-<script>
-  const log = document.getElementById('log');
-  const es = new EventSource('/events');
-  const append = (o) => {
-    const line = document.createElement('div');
-    line.className = 'row';
-    const t = new Date().toLocaleTimeString();
-    line.textContent = `[${t}] ${JSON.stringify(o)}`;
-    log.appendChild(line);
-    log.scrollTop = log.scrollHeight;
-  };
-  es.onmessage = (e) => {
-    try { append(JSON.parse(e.data)); } catch { append({raw:e.data}); }
-  };
-  es.onerror   = () => append({type:'error', ts: Date.now()});
-</script>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planet Intake — Live</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --card: #111926;
+      --muted: #8aa0b4;
+      --fg: #e7eef7;
+      --accent: #86b7ff;
+
+      --info:  #8aa0b4;   /* slate */
+      --lead:  #ffd166;   /* amber */
+      --sheet: #33d17a;   /* green */
+      --error: #ff6b6b;   /* red */
+      --done:  #cdb4ff;   /* purple */
+    }
+    html,body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .bar {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--error); box-shadow: 0 0 0 2px #0003; }
+    .dot.ok    { background: #2ecc71; }
+    .dot.wait  { background: #f1c40f; }
+    .bar small { color: var(--muted); }
+    .legend { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 2px 8px; border-radius: 999px; background: #ffffff10; color: var(--fg);
+      border: 1px solid #ffffff12; font-size: 12px;
+    }
+    .sw { width: 10px; height: 10px; border-radius: 2px; background: var(--muted); }
+    .sw.info  { background: var(--info); }
+    .sw.lead  { background: var(--lead); }
+    .sw.sheet { background: var(--sheet); }
+    .sw.error { background: var(--error); }
+    .sw.done  { background: var(--done); }
+
+    .log {
+      background: var(--card); border-radius: 12px; padding: 4px 0; overflow: auto; max-height: calc(100vh - 140px);
+      border: 1px solid #ffffff0f;
+    }
+    .row {
+      display: grid; grid-template-columns: 140px 100px 1fr; gap: 14px;
+      padding: 8px 12px; border-bottom: 1px solid #ffffff08;
+    }
+    .row:last-child { border-bottom: none; }
+    .ts { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ev { color: var(--muted); }
+
+    /* colorize by type */
+    .row.info  .ev { color: var(--info); }
+    .row.lead  .ev { color: var(--lead); }
+    .row.sheet .ev { color: var(--sheet); }
+    .row.error .ev { color: var(--error); }
+    .row.done  .ev { color: var(--done); }
+
+    .msg code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      background: #00000030; padding: 0 4px; border-radius: 4px;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <div id="dot" class="dot"></div>
+      <div id="status">Connecting…</div>
+      <small id="attempt"></small>
+      <div class="legend" aria-label="Legend">
+        <span class="pill"><span class="sw info"></span>info</span>
+        <span class="pill"><span class="sw lead"></span>lead</span>
+        <span class="pill"><span class="sw sheet"></span>sheet</span>
+        <span class="pill"><span class="sw error"></span>error</span>
+        <span class="pill"><span class="sw done"></span>done</span>
+      </div>
+    </div>
+    <div id="log" class="log" role="log" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // ========= util =========
+    const logEl = document.getElementById('log');
+    const dot = document.getElementById('dot');
+    const statusEl = document.getElementById('status');
+    const attemptEl = document.getElementById('attempt');
+
+    const fmtTime = (d=new Date()) =>
+      d.toLocaleTimeString([], { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+
+    function appendRow(type, payload) {
+      const row = document.createElement('div');
+      row.className = 'row ' + (type || 'info');
+
+      const ts = document.createElement('div');
+      ts.className = 'ts';
+      ts.textContent = fmtTime();
+
+      const ev = document.createElement('div');
+      ev.className = 'ev';
+      ev.textContent = type || 'info';
+
+      const msg = document.createElement('div');
+      msg.className = 'msg';
+
+      // Render nice strings; stringify objects
+      if (payload && typeof payload === 'object') {
+        // hyperlink common fields if present
+        if (payload.url) {
+          const a = document.createElement('a');
+          a.href = payload.url; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = payload.url;
+          msg.appendChild(a);
+        } else if (payload.message) {
+          msg.textContent = payload.message;
+        } else {
+          msg.textContent = JSON.stringify(payload);
+        }
+      } else {
+        msg.textContent = String(payload ?? '');
+      }
+
+      row.append(ts, ev, msg);
+      logEl.appendChild(row);
+      // keep view pinned to bottom if user is near bottom
+      if (Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 80) {
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    }
+
+    // ========= SSE with auto-reconnect =========
+    const ENDPOINT = (window.__EVENTS_URL__ || '/events');
+
+    let es = null;
+    let backoff = 1000;         // 1s -> 2s -> 4s -> … -> 10s
+    const MAX_BACKOFF = 10000;
+
+    function setState(kind, detail='') {
+      dot.classList.remove('ok','wait');
+      if (kind === 'ok') dot.classList.add('ok');
+      if (kind === 'wait') dot.classList.add('wait');
+      statusEl.textContent = (kind === 'ok') ? 'Connected' : (kind === 'wait') ? 'Reconnecting…' : 'Disconnected';
+      attemptEl.textContent = detail;
+    }
+
+    function routeEvent(evt) {
+      // Support named events (evt.type set by EventSource) and default "message" with JSON data.
+      let type = evt.type && evt.type !== 'message' ? evt.type : null;
+      let data = evt.data;
+
+      try { data = data ? JSON.parse(data) : null; } catch { /* keep as string */ }
+
+      if (!type && data && typeof data === 'object' && data.type) {
+        type = data.type;
+      }
+      appendRow(type || 'info', data && data.payload !== undefined ? data.payload : data);
+    }
+
+    function connect() {
+      if (es) try { es.close(); } catch {}
+      es = new EventSource(ENDPOINT, { withCredentials: false });
+
+      es.onopen = () => {
+        setState('ok');
+        backoff = 1000; // reset backoff on healthy connect
+        appendRow('info', { message: 'connected to ' + ENDPOINT });
+      };
+
+      // default messages
+      es.onmessage = (e) => routeEvent(e);
+
+      // named event handlers we care about (no-ops if server doesn’t emit them)
+      ['info','lead','sheet','error','done'].forEach((t) => {
+        es.addEventListener(t, routeEvent);
+      });
+
+      es.onerror = () => {
+        setState('wait', `retry in ${Math.round(backoff/1000)}s`);
+        appendRow('error', { message: 'event stream error; reconnecting…' });
+        try { es.close(); } catch {}
+        setTimeout(connect, backoff + Math.floor(Math.random()*400)); // jitter
+        backoff = Math.min(MAX_BACKOFF, backoff * 2);
+      };
+    }
+
+    // kick it off
+    connect();
+
+    // Optional: when tab is hidden for a long period and the connection drops,
+    // try a quick reconnect on visibilitychange.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && es && es.readyState === EventSource.CLOSED) {
+        connect();
+      }
+    });
+  </script>
+</body>
+</html>
