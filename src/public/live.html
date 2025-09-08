@@ -11,11 +11,11 @@
       --text:#d8dee9;
       --muted:#8b95a7;
 
-      /* NEW palette */
-      --ok:#a78bfa;        /* Info = purple */
+      /* Palette */
+      --ok:#a78bfa;        /* Message (formerly Info) = purple */
       --lead:#3b82f6;      /* Lead = blue */
       --sheet:#6366f1;     /* Sheet = indigo */
-      --err:#ff7b72;       /* Error = red (unchanged) */
+      --err:#ff7b72;       /* Error = red */
       --done:#22c55e;      /* Done = green */
       --number:#14b8a6;    /* Numbers = teal */
       --badge:#f59e0b;     /* Badge = gold */
@@ -44,7 +44,7 @@
     .pill .dot{ width:6px; height:6px; border-radius:50%; }
 
     /* Per-type coloring */
-    .pill.info   { color:var(--ok);    background:var(--ok-bg);    border-color:rgba(167,139,250,.25) }
+    .pill.message{ color:var(--ok);    background:var(--ok-bg);    border-color:rgba(167,139,250,.25) } /* replaces Info */
     .pill.lead   { color:var(--lead);  background:var(--lead-bg);  border-color:rgba(59,130,246,.25) }
     .pill.sheet  { color:var(--sheet); background:var(--sheet-bg); border-color:rgba(99,102,241,.25) }
     .pill.error  { color:var(--err);   background:var(--err-bg);   border-color:rgba(255,123,114,.25) }
@@ -58,7 +58,7 @@
     .cell{ padding:8px 10px; border-top:1px solid #1f2633; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .cell.type{ white-space:unset; }
     .cell.msg { white-space:unset; }
-    .header .cell{ border-top:none; color:var(--muted); font-size:12px; letter-spacing:.02em; }
+    .header .cell{ border-top:none; color:var(--text); font-size:12px; letter-spacing:.02em; text-transform:capitalize; font-weight:600; } /* stylized headers */
     .clock{ font-variant-numeric: tabular-nums; color:#a7b3c6; }
 
     .status{ display:flex; align-items:center; gap:8px; margin-bottom:8px; color:var(--muted); font-size:12px; }
@@ -74,6 +74,9 @@
     }
     .typing .tdot:nth-child(2){ animation-delay: .15s; }
     .typing .tdot:nth-child(3){ animation-delay: .30s; }
+    /* stopped pulses (older rows) */
+    .typing.stopped .tdot{ animation: none !important; opacity:.35; transform:none; }
+
     @keyframes tblink {
       0%, 60%, 100% { opacity:.35; transform: translateY(0); }
       30% { opacity:1; transform: translateY(-2px); }
@@ -85,14 +88,13 @@
     <div class="bar">
       <div class="circle" id="lamp" title="Connected"></div>
       <div class="status">Connected <span class="state" id="state">Live</span></div>
-      <!-- Legend removed by request -->
     </div>
 
     <div class="card">
       <div class="rows header">
-        <div class="cell clock">time</div>
-        <div class="cell type">type</div>
-        <div class="cell msg">message</div>
+        <div class="cell clock">Time</div>
+        <div class="cell type">Type</div>
+        <div class="cell msg">Message</div>
       </div>
       <div class="rows" id="rows"></div>
       <div id="empty" class="empty">Waiting for events…</div>
@@ -106,6 +108,7 @@
     let es = null;
     let backoff = 500;
     let lastPulseMs = 0;
+    let t0 = Date.now(); // will reset on connect()
 
     const qs=(s,el=document)=>el.querySelector(s);
     const rowsEl = qs('#rows');
@@ -114,7 +117,12 @@
     const lampEl  = qs('#lamp');
 
     const pad2 = n => (n<10?'0'+n:''+n);
-    const mmss = ts => { const d=new Date(ts); return pad2(d.getMinutes())+':'+pad2(d.getSeconds()); };
+    // relative mm:ss since t0
+    const mmss = (tsMs) => {
+      const delta = Math.max(0, tsMs - t0);
+      const s = Math.floor(delta / 1000);
+      return pad2(Math.floor(s/60)) + ':' + pad2(s%60);
+    };
     const now = ()=>Date.now();
 
     function setState(kind,msg){
@@ -141,9 +149,18 @@
     }
 
     function friendlyMessage(ev){
-      if (ev.msg) return ev.msg;
+      if (ev.msg) {
+        const m = String(ev.msg).trim();
+        if (m.toLowerCase() === 'start') return 'Start';
+        if (m.toLowerCase() === 'hello') return ''; // hidden by caller anyway
+        return m;
+      }
 
       switch (ev.type) {
+        case 'message':
+          if (ev.typeInner && String(ev.typeInner).toLowerCase()==='start') return 'Start';
+          return 'Message';
+
         case 'lead':
           return formatLead(ev);
 
@@ -172,13 +189,22 @@
           const allow=['leadName','index','total','processed','url','href'];
           const picked=[];
           for (const k of allow) if (k in ev) picked.push(`${k}=${ev[k]}`);
-          return picked.join(', ') || (ev.type || 'info');
+          return picked.join(', ') || (ev.type || 'Message');
         }
       }
     }
 
+    function stopOldPulses() {
+      // mark all but the last pulse typing bubbles as stopped (static)
+      const pulses = Array.from(document.querySelectorAll('.pill.pulse .typing'));
+      pulses.slice(0, -1).forEach(el => el.classList.add('stopped'));
+    }
+
     function addRow(tsMs,type,msg){
       emptyEl.style.display='none';
+
+      // Map info → message for display (label/color)
+      let displayType = (type === 'info') ? 'message' : type;
 
       const cTime=document.createElement('div');
       cTime.className='cell clock';
@@ -187,28 +213,28 @@
       const cType=document.createElement('div');
       cType.className='cell type';
       const pill=document.createElement('span');
-      pill.className=`pill ${type}`;
-      pill.title=type;
+      pill.className=`pill ${displayType}`;
+      pill.title=displayType;
       const dot=document.createElement('span');
       dot.className='dot';
       dot.style.background=getComputedStyle(document.documentElement).getPropertyValue(
-        type==='info'?'--ok':
-        type==='lead'?'--lead':
-        type==='sheet'?'--sheet':
-        type==='error'?'--err':
-        type==='done'?'--done':
-        type==='numbers'?'--number':
-        type==='badge'?'--badge':'--pulse'
+        displayType==='message'?'--ok':
+        displayType==='lead'   ?'--lead':
+        displayType==='sheet'  ?'--sheet':
+        displayType==='error'  ?'--err':
+        displayType==='done'   ?'--done':
+        displayType==='numbers'?'--number':
+        displayType==='badge'  ?'--badge':'--pulse'
       );
       pill.appendChild(dot);
 
-      if (type==='pulse'){
+      if (displayType==='pulse'){
         const t=document.createElement('span');
         t.className='typing';
         t.innerHTML='<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>';
         pill.appendChild(t);
       }else{
-        pill.appendChild(document.createTextNode(type));
+        pill.appendChild(document.createTextNode(displayType));
       }
       cType.appendChild(pill);
 
@@ -220,26 +246,36 @@
       rowsEl.appendChild(cType);
       rowsEl.appendChild(cMsg);
 
+      if (displayType==='pulse') stopOldPulses();
+
       rowsEl.parentElement.scrollTop=rowsEl.parentElement.scrollHeight;
     }
 
-    function shouldHideInfo(payload){
-      if (!payload) return false;
-      const m = (payload.msg || payload.message || '').trim();
-      if (!m) return false;
-      if (m === 'Lead: opening' || m === 'lead: opening') return true;
+    function shouldHideInfo(payload, type){
+      const m = String(payload.msg || payload.message || '').trim();
+
+      // hide explicit hello
+      if (m && /^hello$/i.test(m)) return true;
+      // sometimes "hello" comes as event type
+      if (String(payload.type||'').toLowerCase()==='hello') return true;
+
+      // hide “lead: opening” and verbose monthly lines
+      if (/^lead\s*:\s*opening$/i.test(m)) return true;
       if (/^lead\s+\d+:\s+monthly=/i.test(m)) return true;
-      if (/^hello$/i.test(m)) return true; // hide "hello"
+
+      // also hide raw default EventSource "message" hello
+      if (type==='message' && m.toLowerCase()==='hello') return true;
+
       return false;
     }
 
     function routeEvent(e){
       const ts = now();
-      let type = e.type || 'info';
+      let type = e.type || 'message';
       let payload = {};
       try { payload = e.data ? JSON.parse(e.data) : {}; } catch { payload = {}; }
 
-      // heartbeat -> pulse (throttled)
+      // heartbeat → pulse (throttled)
       if (type==='heartbeat' || payload.type==='heartbeat'){
         if (ts - lastPulseMs < 10_000) return;
         lastPulseMs = ts;
@@ -247,30 +283,39 @@
         return;
       }
 
-      const known=new Set(['info','lead','sheet','error','done','numbers','badge']);
+      // prefer explicit payload types we know
+      const known=new Set(['info','lead','sheet','error','done','numbers','badge','message']);
       if (payload.type && known.has(payload.type)) type = payload.type;
 
       const clean = trimPayload(payload);
-      if ( (type==='info' || type==='message') && shouldHideInfo(clean)) return;
+
+      // hide noise including "hello"
+      if ( (type==='info' || type==='message') && shouldHideInfo(clean, type)) return;
+
+      // capture inner type for message transform
+      if (type==='message' && clean.type && clean.type!=='message') clean.typeInner = clean.type;
 
       const msg = friendlyMessage({ type, ...clean });
-      addRow(clean.ts || ts, type, msg);
+      addRow(ts, type, msg);
     }
 
     function connect(){
       try { if (es) es.close(); } catch {}
       setState('wait','connecting…');
 
+      // reset relative clock
+      t0 = Date.now();
+
       es = new EventSource(ENDPOINT,{ withCredentials:false });
 
       es.onopen = () => {
-        setState('ok','Live');           // status text
+        setState('ok','Live');
         backoff = 1000;
-        addRow(now(),'info','Live');     // initial row text
+        addRow(now(),'message','Live'); // first row uses Message pill
       };
 
       es.onmessage = routeEvent;
-      ['info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
+      ['message','info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
         es.addEventListener(t, routeEvent);
       });
 
