@@ -96,75 +96,76 @@
         <span class="pill"><span class="sw done"></span>done</span>
       </div>
     </div>
-    <div id="log" class="log" role="log" aria-live="polite"></div>
+    <table id="log" class="log" role="log" aria-live="polite"><tbody></tbody></table>
   </div>
 
   <script>
     // ========= util =========
-    const logEl = document.getElementById('log');
     const dot = document.getElementById('dot');
     const statusEl = document.getElementById('status');
     const attemptEl = document.getElementById('attempt');
 
-    const fmtTime = (d=new Date()) =>
-      d.toLocaleTimeString([], { hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    /* === COMPACT-MSG-HELPERS === */
+    const HIDE_KEYS = new Set(['ts','_raw','execUrlPrefix','href']);
 
-    // ---- compact message rendering helpers ----
-    function tryParseJSON(s) {
-      try { return JSON.parse(s); } catch { return { msg: String(s ?? '') }; }
+    function compactMsg(obj) {
+      try {
+        if (obj == null) return '';
+        if (typeof obj === 'string') return obj;
+
+        // Friendly shortcuts
+        if (obj.message) return String(obj.message);
+        if (obj.type === 'hello') return 'hello';
+        if (obj.type === 'heartbeat') return 'heartbeat';
+
+        // Lead-style summaries
+        if (obj.lead) {
+          if (typeof obj.lead === 'string') return obj.lead;
+          if (obj.leadName) return String(obj.leadName);
+        }
+        if (obj.badge && typeof obj.badge === 'string' && obj.totalPremium != null) {
+          return `badge: ${obj.badge}, totalPremium=${obj.totalPremium}`;
+        }
+        if (obj.numbers && typeof obj.index === 'number') {
+          return `lead ${obj.index}: monthly=${obj.monthly ?? '?'} listed=${obj.listed ?? '?'} extras=${obj.extraCount ?? 0}`;
+        }
+
+        // Generic: pick simple fields, drop noisy/internal
+        const flat = [];
+        for (const [k,v] of Object.entries(obj)) {
+          if (HIDE_KEYS.has(k) || k.startsWith('_')) continue;
+          if (typeof v === 'object') continue;
+          flat.push(`${k}=${v}`);
+        }
+        if (flat.length) return flat.join(', ');
+
+        // Last resort
+        return JSON.stringify(obj);
+      } catch {
+        try { return JSON.stringify(obj); } catch { return String(obj); }
+      }
     }
-    const nf = new Intl.NumberFormat();
-    const fmt = (n) => (typeof n === 'number' ? nf.format(n) : n);
+    /* === END COMPACT-MSG-HELPERS === */
 
-    // Turn the event payload into a short, readable sentence
-    function formatEventText(obj) {
-      if (!obj || typeof obj !== 'object') return String(obj ?? '');
-      if (obj.msg) return obj.msg;                                 // prefer explicit message
-      if (obj.type === 'numbers') {                                // summarize the counters
-        const parts = [];
-        if (obj.index != null && obj.total != null) parts.push(`lead ${obj.index}/${obj.total}`);
-        if (obj.monthly != null) parts.push(`monthly=${fmt(obj.monthly)}`);
-        if (obj.listedCount != null) parts.push(`listed=${fmt(obj.listedCount)}`);
-        if (obj.extraCount != null) parts.push(`extras=${fmt(obj.extraCount)}`);
-        if (obj.flaggedCount != null) parts.push(`flagged=${fmt(obj.flaggedCount)}`);
-        return parts.join(' · ') || 'numbers';
-      }
-      if (obj.type === 'badge' && obj.badge) {
-        const extra = obj.totalPremium != null ? ` • totalPremium:${fmt(obj.totalPremium)}` : '';
-        return `badge: ${obj.badge}${extra}`;
-      }
-      if (obj.type === 'sheet' && obj.url) return obj.url;
-      if (obj.href) return obj.href;
-      if (obj.error) return obj.error.message || String(obj.error);
-      // last resort: short JSON
-      try { return JSON.stringify(obj); } catch { return String(obj); }
-    }
+    function appendRow(kind, data) {
+      // ensure table exists
+      const tbody = document.querySelector('#log tbody');
+      const tr = document.createElement('tr');
+      tr.className = kind;
 
-    function appendRow(type, obj) {
-      const row = document.createElement('div');
-      row.className = 'row ' + (type || 'info');
+      const tds = [document.createElement('td'), document.createElement('td'), document.createElement('td')];
+      const now = new Date();
+      tds[0].textContent = now.toLocaleTimeString('en-US', { hour12:false });
+      tds[1].textContent = kind;
 
-      const ts = document.createElement('div');
-      ts.className = 'ts';
-      ts.textContent = fmtTime();
+      const visible = compactMsg(data);
+      tds[2].textContent = visible;
 
-      const ev = document.createElement('div');
-      ev.className = 'ev';
-      ev.textContent = type || 'info';
+      // Keep full JSON in tooltip
+      try { tds[2].title = JSON.stringify(data); } catch { /* ignore */ }
 
-      const msg = document.createElement('div');
-      msg.className = 'msg col-msg';
-      // START:COMPACT-MSG-ASSIGN
-      msg.textContent = formatEventText(obj);
-      msg.title = obj.__raw || '';   // hover to see full raw payload
-      // END:COMPACT-MSG-ASSIGN
-
-      row.append(ts, ev, msg);
-      logEl.appendChild(row);
-      // keep view pinned to bottom if user is near bottom
-      if (Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 80) {
-        logEl.scrollTop = logEl.scrollHeight;
-      }
+      tds.forEach(td => tr.appendChild(td));
+      tbody.appendChild(tr);
     }
 
     // ========= SSE with auto-reconnect =========
@@ -184,11 +185,8 @@
 
     // START:ROUTE-EVENT-COMPACT
     function routeEvent(e) {
-      const kind = (e.type && e.type !== 'message') ? e.type : 'info';
-      const obj = (typeof e.data === 'string') ? tryParseJSON(e.data) : (e.data || {});
-      obj.__raw = typeof e.data === 'string' ? e.data : JSON.stringify(e.data || {});
-      obj.type = obj.type || kind;
-      appendRow(kind, obj);
+      const obj = JSON.parse(e.data);
+      appendRow(e.type || 'info', obj);
     }
     // END:ROUTE-EVENT-COMPACT
 
