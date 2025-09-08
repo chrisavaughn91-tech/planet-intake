@@ -2,226 +2,294 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Planet Intake — Live</title>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1"
+  />
+  <title>Live Intake</title>
   <style>
-    :root {
-      --bg: #0b0f14;
-      --card: #111926;
-      --muted: #8aa0b4;
-      --fg: #e7eef7;
-      --accent: #86b7ff;
+    :root{
+      --bg:#0e1217;
+      --panel:#161b22;
+      --text:#d8dee9;
+      --muted:#8b95a7;
+      --ok:#58a6ff;         /* info */
+      --lead:#7ee787;       /* lead */
+      --sheet:#f2cc60;      /* sheet */
+      --err:#ff7b72;        /* error */
+      --done:#a78bfa;       /* done */
+      --number:#5ac8fa;     /* numbers */
+      --badge:#f6c177;      /* badge */
+      --pulse:#8b95a7;      /* pulse (muted) */
+      --chip-bg:#0f141a;
+      --chip-br:#223040;
+      --ok-bg:#0a2642;
+      --lead-bg:#0f2414;
+      --sheet-bg:#2a2310;
+      --err-bg:#2a1210;
+      --done-bg:#1f1630;
+      --number-bg:#0b2230;
+      --badge-bg:#2a2212;
+      --pulse-bg:#12161c;
+    }
+    *{ box-sizing:border-box; }
+    html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji"; }
+    .wrap{ max-width: 1100px; margin:32px auto; padding:0 16px; }
+    .bar{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+    .circle{ width:10px; height:10px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,.45); }
+    .card{ background:var(--panel); border:1px solid #222a36; border-radius:14px; padding:10px; }
+    .legend{ display:flex; gap:8px; margin-left:auto; }
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; border:1px solid var(--chip-br); background:var(--chip-bg); color:var(--muted); font-size:12px; line-height:18px; }
+    .pill .dot{ width:6px; height:6px; border-radius:50%; }
 
-      --info:  #8aa0b4;   /* slate */
-      --lead:  #ffd166;   /* amber */
-      --sheet: #33d17a;   /* green */
-      --error: #ff6b6b;   /* red */
-      --done:  #cdb4ff;   /* purple */
-    }
-    html,body { height: 100%; }
-    body {
-      margin: 0; background: var(--bg); color: var(--fg);
-      font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
-    }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-    .bar {
-      display: flex; align-items: center; gap: 12px;
-      background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px;
-    }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--error); box-shadow: 0 0 0 2px #0003; }
-    .dot.ok    { background: #2ecc71; }
-    .dot.wait  { background: #f1c40f; }
-    .bar small { color: var(--muted); }
-    .legend { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
-    .pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 2px 8px; border-radius: 999px; background: #ffffff10; color: var(--fg);
-      border: 1px solid #ffffff12; font-size: 12px;
-    }
-    .sw { width: 10px; height: 10px; border-radius: 2px; background: var(--muted); }
-    .sw.info  { background: var(--info); }
-    .sw.lead  { background: var(--lead); }
-    .sw.sheet { background: var(--sheet); }
-    .sw.error { background: var(--error); }
-    .sw.done  { background: var(--done); }
+    /* Per-type coloring */
+    .pill.info   { color:var(--ok);    background:var(--ok-bg);    border-color:rgba(88,166,255,.25) }
+    .pill.lead   { color:var(--lead);  background:var(--lead-bg);  border-color:rgba(126,231,135,.20) }
+    .pill.sheet  { color:var(--sheet); background:var(--sheet-bg); border-color:rgba(242,204,96,.20) }
+    .pill.error  { color:var(--err);   background:var(--err-bg);   border-color:rgba(255,123,114,.20) }
+    .pill.done   { color:var(--done);  background:var(--done-bg);  border-color:rgba(167,139,250,.20) }
+    .pill.numbers{ color:var(--number);background:var(--number-bg);border-color:rgba(90,200,250,.20) }
+    .pill.badge  { color:var(--badge); background:var(--badge-bg); border-color:rgba(246,193,119,.20) }
+    .pill.pulse  { color:var(--pulse); background:var(--pulse-bg); border-color:rgba(139,149,167,.20) }
 
-    .log {
-      background: var(--card); border-radius: 12px; padding: 4px 0; overflow: auto; max-height: calc(100vh - 140px);
-      border: 1px solid #ffffff0f;
-    }
-    .row {
-      display: grid; grid-template-columns: 140px 100px 1fr; gap: 14px;
-      padding: 8px 12px; border-bottom: 1px solid #ffffff08;
-    }
-    .row:last-child { border-bottom: none; }
-    .ts { color: var(--muted); font-variant-numeric: tabular-nums; }
-    .ev { color: var(--muted); }
+    .rows{ display:grid; grid-template-columns: 96px 96px 1fr; gap:0; }
+    .row{ display:contents; }
+    .cell{ padding:8px 10px; border-top:1px solid #1f2633; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .cell.type{ white-space:unset; }
+    .cell.msg { white-space:unset; }
+    .header .cell{ border-top:none; color:var(--muted); font-size:12px; letter-spacing:.02em; }
+    .clock{ font-variant-numeric: tabular-nums; color:#a7b3c6; }
 
-    /* colorize by type */
-    .row.info  .ev { color: var(--info); }
-    .row.lead  .ev { color: var(--lead); }
-    .row.sheet .ev { color: var(--sheet); }
-    .row.error .ev { color: var(--error); }
-    .row.done  .ev { color: var(--done); }
+    .status{ display:flex; align-items:center; gap:8px; margin-bottom:8px; color:var(--muted); font-size:12px; }
+    .status .state{ font-weight:600; color:var(--text); }
 
-    .msg code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      background: #00000030; padding: 0 4px; border-radius: 4px;
-    }
-
-    /* START:COMPACT-MSG-CSS */
-    .col-msg {
-      max-width: calc(100% - 280px);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    /* END:COMPACT-MSG-CSS */
-
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
+    .empty{ color:var(--muted); text-align:center; padding:16px 0; font-size:13px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="bar">
-      <div id="dot" class="dot"></div>
-      <div id="status">Connecting…</div>
-      <small id="attempt"></small>
-      <div class="legend" aria-label="Legend">
-        <span class="pill"><span class="sw info"></span>info</span>
-        <span class="pill"><span class="sw lead"></span>lead</span>
-        <span class="pill"><span class="sw sheet"></span>sheet</span>
-        <span class="pill"><span class="sw error"></span>error</span>
-        <span class="pill"><span class="sw done"></span>done</span>
+      <div class="circle" id="lamp" title="Connected"></div>
+      <div class="status">Connected <span class="state" id="state">connecting…</span></div>
+      <div class="legend">
+        <span class="pill info"><span class="dot" style="background:var(--ok)"></span>info</span>
+        <span class="pill lead"><span class="dot" style="background:var(--lead)"></span>lead</span>
+        <span class="pill sheet"><span class="dot" style="background:var(--sheet)"></span>sheet</span>
+        <span class="pill error"><span class="dot" style="background:var(--err)"></span>error</span>
+        <span class="pill done"><span class="dot" style="background:var(--done)"></span>done</span>
+        <span class="pill numbers"><span class="dot" style="background:var(--number)"></span>numbers</span>
+        <span class="pill badge"><span class="dot" style="background:var(--badge)"></span>badge</span>
+        <span class="pill pulse"><span class="dot" style="background:var(--pulse)"></span>● pulse</span>
       </div>
     </div>
-    <table id="log" class="log" role="log" aria-live="polite"><tbody></tbody></table>
+
+    <div class="card">
+      <div class="rows header">
+        <div class="cell clock">time</div>
+        <div class="cell type">type</div>
+        <div class="cell msg">message</div>
+      </div>
+      <div class="rows" id="rows"></div>
+      <div id="empty" class="empty">Waiting for events…</div>
+    </div>
   </div>
 
   <script>
-    // ========= util =========
-    const dot = document.getElementById('dot');
-    const statusEl = document.getElementById('status');
-    const attemptEl = document.getElementById('attempt');
+    // ===== Config
+    const ENDPOINT = '/events';
+    const MAX_BACKOFF = 15_000;
 
-    /* === COMPACT-MSG-HELPERS === */
-    const HIDE_KEYS = new Set(['ts','_raw','execUrlPrefix','href']);
+    // ===== State
+    let es = null;
+    let backoff = 500;
+    let lastPulseMs = 0;
 
-    function compactMsg(obj) {
-      try {
-        if (obj == null) return '';
-        if (typeof obj === 'string') return obj;
+    const qs  = (s,el=document)=>el.querySelector(s);
+    const rowsEl = qs('#rows');
+    const stateEl = qs('#state');
+    const emptyEl = qs('#empty');
+    const lampEl  = qs('#lamp');
 
-        // Friendly shortcuts
-        if (obj.message) return String(obj.message);
-        if (obj.type === 'hello') return 'hello';
-        if (obj.type === 'heartbeat') return 'heartbeat';
+    // ===== Utils
+    const pad2 = n => (n<10 ? '0'+n : ''+n);
+    function mmss(tsMs) {
+      const d = new Date(tsMs);
+      return pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+    }
+    function now() { return Date.now(); }
 
-        // Lead-style summaries
-        if (obj.lead) {
-          if (typeof obj.lead === 'string') return obj.lead;
-          if (obj.leadName) return String(obj.leadName);
-        }
-        if (obj.badge && typeof obj.badge === 'string' && obj.totalPremium != null) {
-          return `badge: ${obj.badge}, totalPremium=${obj.totalPremium}`;
-        }
-        if (obj.numbers && typeof obj.index === 'number') {
-          return `lead ${obj.index}: monthly=${obj.monthly ?? '?'} listed=${obj.listed ?? '?'} extras=${obj.extraCount ?? 0}`;
-        }
-
-        // Generic: pick simple fields, drop noisy/internal
-        const flat = [];
-        for (const [k,v] of Object.entries(obj)) {
-          if (HIDE_KEYS.has(k) || k.startsWith('_')) continue;
-          if (typeof v === 'object') continue;
-          flat.push(`${k}=${v}`);
-        }
-        if (flat.length) return flat.join(', ');
-
-        // Last resort
-        return JSON.stringify(obj);
-      } catch {
-        try { return JSON.stringify(obj); } catch { return String(obj); }
+    function setState(kind, msg){
+      stateEl.textContent = msg || kind;
+      if (kind === 'ok') {
+        lampEl.style.background = '#22c55e';
+        lampEl.style.boxShadow = '0 0 12px rgba(34,197,94,.45)';
+      } else if (kind === 'wait') {
+        lampEl.style.background = '#f59e0b';
+        lampEl.style.boxShadow = '0 0 10px rgba(245,158,11,.35)';
+      } else {
+        lampEl.style.background = '#ef4444';
+        lampEl.style.boxShadow = '0 0 10px rgba(239,68,68,.35)';
       }
     }
-    /* === END COMPACT-MSG-HELPERS === */
 
-    function appendRow(kind, data) {
-      // ensure table exists
-      const tbody = document.querySelector('#log tbody');
-      const tr = document.createElement('tr');
-      tr.className = kind;
-
-      const tds = [document.createElement('td'), document.createElement('td'), document.createElement('td')];
-      const now = new Date();
-      tds[0].textContent = now.toLocaleTimeString('en-US', { hour12:false });
-      tds[1].textContent = kind;
-
-      const visible = compactMsg(data);
-      tds[2].textContent = visible;
-
-      // Keep full JSON in tooltip
-      try { tds[2].title = JSON.stringify(data); } catch { /* ignore */ }
-
-      tds.forEach(td => tr.appendChild(td));
-      tbody.appendChild(tr);
+    function trimPayload(ev){
+      // Make a friendly clone without noisy keys
+      const out = {...ev};
+      delete out.__raw;
+      delete out.execUrlPrefix;
+      // If server includes 'message' and 'msg', prefer 'msg'
+      if (!out.msg && out.message) out.msg = out.message;
+      return out;
     }
 
-    // ========= SSE with auto-reconnect =========
-    const ENDPOINT = (window.__EVENTS_URL__ || '/events');
+    function friendlyMessage(ev){
+      // Prefer msg if present
+      if (ev.msg) return ev.msg;
 
-    let es = null;
-    let backoff = 1000;         // 1s -> 2s -> 4s -> … -> 10s
-    const MAX_BACKOFF = 10000;
-
-    function setState(kind, detail='') {
-      dot.classList.remove('ok','wait');
-      if (kind === 'ok') dot.classList.add('ok');
-      if (kind === 'wait') dot.classList.add('wait');
-      statusEl.textContent = (kind === 'ok') ? 'Connected' : (kind === 'wait') ? 'Reconnecting…' : 'Disconnected';
-      attemptEl.textContent = detail;
+      // Type-specific fallbacks
+      switch (ev.type) {
+        case 'lead': {
+          const p = [];
+          if ('index' in ev && 'total' in ev) p.push(`index=${ev.index}, total=${ev.total}`);
+          if (ev.leadName) p.push(`lead=${ev.leadName}`);
+          return p.join(', ') || 'lead';
+        }
+        case 'numbers': {
+          const p = [];
+          if (ev.leadName) p.push(`lead=${ev.leadName}`);
+          if ('listedCount' in ev) p.push(`listed=${ev.listedCount}`);
+          if ('extraCount' in ev) p.push(`extras=${ev.extraCount}`);
+          if ('flaggedCount' in ev) p.push(`flagged=${ev.flaggedCount}`);
+          return p.join(', ') || 'numbers';
+        }
+        case 'badge': {
+          if ('totalPremium' in ev) return `⭐ totalPremium=${ev.totalPremium}`;
+          return 'badge';
+        }
+        case 'sheet': {
+          if (ev.url) return ev.url;
+          return 'sheet';
+        }
+        case 'done': {
+          if ('processed' in ev) return `processed=${ev.processed}`;
+          return 'done';
+        }
+        case 'error': {
+          return ev.error || ev.message || 'error';
+        }
+        default:
+          // As a last resort, pick a couple safe fields
+          const allow = ['leadName','index','total','processed','url','href'];
+          const picked = [];
+          for (const k of allow) if (k in ev) picked.push(`${k}=${ev[k]}`);
+          return picked.join(', ') || (ev.type || 'info');
+      }
     }
 
-    // START:ROUTE-EVENT-COMPACT
-    function routeEvent(e) {
-      const obj = JSON.parse(e.data);
-      appendRow(e.type || 'info', obj);
-    }
-    // END:ROUTE-EVENT-COMPACT
+    function addRow(tsMs, type, msg){
+      emptyEl.style.display = 'none';
+      const row = document.createElement('div');
+      row.className = 'row';
 
-    function connect() {
-      if (es) try { es.close(); } catch {}
-      es = new EventSource(ENDPOINT, { withCredentials: false });
+      const cTime = document.createElement('div');
+      cTime.className = 'cell clock';
+      cTime.textContent = mmss(tsMs);
+
+      const cType = document.createElement('div');
+      cType.className = 'cell type';
+      const pill = document.createElement('span');
+      pill.className = `pill ${type}`;
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background =
+        type==='info'    ? getComputedStyle(document.documentElement).getPropertyValue('--ok') :
+        type==='lead'    ? getComputedStyle(document.documentElement).getPropertyValue('--lead') :
+        type==='sheet'   ? getComputedStyle(document.documentElement).getPropertyValue('--sheet') :
+        type==='error'   ? getComputedStyle(document.documentElement).getPropertyValue('--err') :
+        type==='done'    ? getComputedStyle(document.documentElement).getPropertyValue('--done') :
+        type==='numbers' ? getComputedStyle(document.documentElement).getPropertyValue('--number') :
+        type==='badge'   ? getComputedStyle(document.documentElement).getPropertyValue('--badge') :
+                           getComputedStyle(document.documentElement).getPropertyValue('--pulse');
+      pill.appendChild(dot);
+      const label = document.createTextNode(type === 'pulse' ? '● pulse' : type);
+      pill.appendChild(label);
+      cType.appendChild(pill);
+
+      const cMsg = document.createElement('div');
+      cMsg.className = 'cell msg';
+      cMsg.textContent = msg || '';
+
+      rowsEl.appendChild(cTime);
+      rowsEl.appendChild(cType);
+      rowsEl.appendChild(cMsg);
+
+      // Scroll to bottom
+      rowsEl.parentElement.scrollTop = rowsEl.parentElement.scrollHeight;
+    }
+
+    function routeEvent(e){
+      // e is an EventSource event; e.type may be '', or a named event
+      const ts = now();
+      let type = e.type || 'info';
+      let payload = {};
+      try {
+        payload = e.data ? JSON.parse(e.data) : {};
+      } catch { payload = {}; }
+
+      // Normalize heartbeat -> pulse
+      if (type === 'heartbeat' || payload.type === 'heartbeat') {
+        type = 'pulse';
+      }
+
+      // Throttle pulse to at most once every 10s
+      if (type === 'pulse') {
+        if (ts - lastPulseMs < 10_000) return;
+        lastPulseMs = ts;
+        addRow(ts, 'pulse', '');
+        return;
+      }
+
+      // Prefer payload.type if it’s one of our known types
+      const known = new Set(['info','lead','sheet','error','done','numbers','badge']);
+      if (payload.type && known.has(payload.type)) type = payload.type;
+
+      const clean = trimPayload(payload);
+      const msg = friendlyMessage({ type, ...clean });
+      addRow(clean.ts || ts, type, msg);
+    }
+
+    function connect(){
+      try { if (es) es.close(); } catch {}
+      setState('wait', 'connecting…');
+
+      es = new EventSource(ENDPOINT, { withCredentials:false });
 
       es.onopen = () => {
-        setState('ok');
-        backoff = 1000; // reset backoff on healthy connect
-        appendRow('info', { message: 'connected to ' + ENDPOINT });
+        setState('ok', 'connected to /events');
+        backoff = 1000;
+        addRow(now(), 'info', 'connected to /events');
       };
 
-      // default messages
-      es.onmessage = (e) => routeEvent(e);
+      // Default message
+      es.onmessage = routeEvent;
 
-      // named event handlers we care about (no-ops if server doesn’t emit them)
-      ['info','lead','sheet','error','done'].forEach((t) => {
+      // Named events we care about
+      ['info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
         es.addEventListener(t, routeEvent);
       });
 
       es.onerror = () => {
-        setState('wait', `retry in ${Math.round(backoff/1000)}s`);
-        appendRow('error', { message: 'event stream error; reconnecting…' });
+        setState('wait', `retry in ~${Math.round(backoff/1000)}s`);
         try { es.close(); } catch {}
-        setTimeout(connect, backoff + Math.floor(Math.random()*400)); // jitter
+        setTimeout(connect, backoff + Math.floor(Math.random()*400));
         backoff = Math.min(MAX_BACKOFF, backoff * 2);
       };
     }
 
-    // kick it off
+    // Kick it off
     connect();
 
-    // Optional: when tab is hidden for a long period and the connection drops,
-    // try a quick reconnect on visibilitychange.
+    // If tab was hidden a while and the stream closed, reconnect quickly on focus
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && es && es.readyState === EventSource.CLOSED) {
         connect();
