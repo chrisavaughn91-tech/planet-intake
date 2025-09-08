@@ -148,10 +148,15 @@ async function createSheetAndShare({ email, result }) {
   // Prefer a pre-resolved echo URL if you set one; else use the /exec URL
   const webappUrl = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL;
   const sharedKey = process.env.GSCRIPT_SHARED_SECRET || ""; // optional
+  if (!webappUrl) throw new Error("Missing GSCRIPT_WEBAPP_URL (or GSCRIPT_REAL_URL) env var");
 
-  if (!webappUrl) {
-    throw new Error("Missing GSCRIPT_WEBAPP_URL (or GSCRIPT_REAL_URL) env var");
-  }
+  // tiny helpers for retry
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const isTransient = (err) => {
+    const code = err?.code || "";
+    const status = err?.response?.status || 0;
+    return status >= 500 || ["ECONNRESET", "ETIMEDOUT", "ECONNABORTED"].includes(code);
+  };
 
   const { goodNumbers, flaggedNumbers } = buildGoodAndFlagged(result.leads);
 
@@ -165,7 +170,7 @@ async function createSheetAndShare({ email, result }) {
     ...(sharedKey ? { expectedKey: sharedKey, key: sharedKey } : {}),
   };
 
-  // Post without following redirects; if 30x, extract Location or parse the HTML and re-post.
+  // Post without following redirects; if 30x, extract Location or parse the HTML and re-GET.
   const baseOpts = {
     timeout: 120000,
     headers: { "Content-Type": "application/json" },
@@ -173,8 +178,7 @@ async function createSheetAndShare({ email, result }) {
     validateStatus: (s) => s >= 200 && s < 400, // accept 30x
   };
 
-  let data;
-  try {
+  async function singleAttempt() {
     const r1 = await axios.post(webappUrl, payload, baseOpts);
 
     if (r1.status >= 300 && r1.status < 400) {
@@ -186,16 +190,27 @@ async function createSheetAndShare({ email, result }) {
       }
       if (!loc) throw new Error("Apps Script redirected but no Location found");
 
-      // The echo URL must be fetched with GET (POST will 405)
+      // The echo URL must be fetched with GET (POST would 405)
       const r2 = await axios.get(loc, { timeout: 120000 });
-      data = r2.data;
-    } else {
-      data = r1.data;
+      return r2.data;
     }
-  } catch (err) {
-    const status = err?.response?.status;
-    const msg = err?.response?.statusText || err?.message || String(err);
-    throw new Error(`Apps Script call failed${status ? ` (${status})` : ""}: ${msg}`);
+    return r1.data;
+  }
+
+  let data;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      data = await singleAttempt();
+      break;
+    } catch (err) {
+      if (attempt === 0 && isTransient(err)) {
+        await sleep(600); // brief backoff, then exactly one retry
+        continue;
+      }
+      const status = err?.response?.status;
+      const msg = err?.response?.statusText || err?.message || String(err);
+      throw new Error(`Apps Script call failed${status ? ` (${status})` : ""}: ${msg}`);
+    }
   }
 
   if (!data || !data.ok) {
