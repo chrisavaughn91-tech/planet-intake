@@ -19,6 +19,19 @@ if (!scrapePlanet) {
 import { createSheetAndShare } from './sheets.js';
 import { emit, bus } from './events.js';
 
+function resolveLimit(req) {
+  // 1) from request (query or body)
+  const q = Number(req?.query?.limit ?? req?.body?.limit ?? NaN);
+  if (Number.isFinite(q) && q > 0) return q;
+
+  // 2) from env (MAX_LEADS or MAX_LEADS_DEFAULT)
+  const e = Number(process.env.MAX_LEADS ?? process.env.MAX_LEADS_DEFAULT ?? NaN);
+  if (Number.isFinite(e) && e > 0) return e;
+
+  // 3) fallback
+  return 200;
+}
+
 /** Health helpers for Apps Script */
 const pickPrefix = (s, n = 60) => (s || "").slice(0, n);
 
@@ -214,10 +227,6 @@ app.get('/status', (_req, res) => {
 });
 /* END:STATUS */
 
-// Backend-only max leads (default 200). Users never set this.
-// You can change it at deploy time with:
-//   --set-env-vars MAX_LEADS_DEFAULT=200
-const MAX_LEADS_DEFAULT = Number(process.env.MAX_LEADS_DEFAULT || 200);
 app.get("/health", async (_req, res) => {
   const execUrl = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL || "";
   const remote = await fetchRemoteHealth();
@@ -247,11 +256,12 @@ app.post('/scrape', async (req, res) => {
   }
 
   try {
-    // Users don’t choose maxLeads; enforce backend default.
-    const maxLeads = MAX_LEADS_DEFAULT;
+    const limit = resolveLimit(req);
+    // Ensure deeper code can see it even if it reads from process.env:
+    process.env.MAX_LEADS = String(limit);
 
     // Run the scraper
-    const result = await scrapePlanet({ username, password, maxLeads });
+    const result = await scrapePlanet({ username, password, maxLeads: limit });
 
     if (!result?.ok) {
       return res.status(200).json(result || { ok: false, error: 'Unknown scrape error' });
@@ -302,7 +312,9 @@ app.get('/scrape', async (req, res) => {
     try { res.end(); } catch {}
   };
 
-  const maxLeads = Number(req.query.maxLeads || MAX_LEADS_DEFAULT) || MAX_LEADS_DEFAULT;
+  const limit = resolveLimit(req);
+  // Ensure deeper code can see it even if it reads from process.env:
+  process.env.MAX_LEADS = String(limit);
   const startTime = Date.now();
 
   let doneStats = { processed: 0, ms: 0 };
@@ -320,7 +332,7 @@ app.get('/scrape', async (req, res) => {
   bus.on('evt', forward);
 
   try {
-    const result = await scrapePlanet({ username, password, maxLeads });
+    const result = await scrapePlanet({ username, password, maxLeads: limit });
 
     let sheet;
     try {
