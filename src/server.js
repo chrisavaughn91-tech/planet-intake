@@ -51,10 +51,10 @@ app.get("/status", (_req, res) => {
 /* =========================
    Helpers
    ========================= */
-// Accept BOTH new and legacy env names so .env doesn’t have to change.
-function envUser()   { return process.env.PLANET_USER   || process.env.PLANET_USERNAME || ""; }
-function envPass()   { return process.env.PLANET_PASS   || process.env.PLANET_PASSWORD || ""; }
-function envEmail()  { return process.env.NOTIFY_EMAIL  || process.env.REPORT_EMAIL    || ""; }
+function envUser()  { return process.env.PLANET_USER  || process.env.PLANET_USERNAME || ""; }
+function envPass()  { return process.env.PLANET_PASS  || process.env.PLANET_PASSWORD || ""; }
+function envEmail() { return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL    || ""; }
+
 function pickCreds(body) {
   return {
     username: body?.username || envUser(),
@@ -63,7 +63,10 @@ function pickCreds(body) {
     max: body?.max ? Number(body.max) : undefined,
   };
 }
-function mkJobId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+
+function mkJobId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
   const result = await scrapePlanet({ username, password, max, jobId });
@@ -72,15 +75,17 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
     return;
   }
 
-  // --- Sheet step: support BOTH signatures safely ---
+  // === Sheets step ===
   try {
     let sheet;
-    let used = "object";
+    let sig = "object:{email,result}";
 
     try {
-      sheet = await createSheetAndShare({ leads: result.leads, email });
-    } catch (eObj) {
-      used = "positional";
+      // ✅ matches src/sheets.js (expects { email, result })
+      sheet = await createSheetAndShare({ email, result });
+    } catch (e1) {
+      // Optional back-compat if an older sheets.js is ever used
+      sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
 
@@ -88,7 +93,7 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
       emit("sheet", { url: sheet.url, jobId });
       emit("info", { msg: `sheet:url ${sheet.url}`, jobId });
     } else {
-      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"}) [sig=${used}]`, jobId });
+      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"}) [sig=${sig}]`, jobId });
     }
   } catch (e) {
     emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
@@ -98,17 +103,12 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
 /* =========================
    Run endpoints
    ========================= */
-/**
- * Back-compat: /scrape as SSE if client requests event-stream.
- *  - If Accept: text/event-stream -> keep connection open and mirror hub events to this response
- *  - Else -> JSON fire-and-forget kickoff (legacy non-SSE usage)
- */
 app.get("/scrape", async (req, res) => {
   const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");
 
   const max = req.query.max
     ? Number(req.query.max)
-    : (req.query.limit ? Number(req.query.limit) : undefined); // test may use ?limit
+    : (req.query.limit ? Number(req.query.limit) : undefined);
   const username = envUser();
   const password = envPass();
   const email = envEmail();
@@ -121,7 +121,7 @@ app.get("/scrape", async (req, res) => {
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null); // global; job events mirrored via events.js
+    const clientId = onClientConnect(res, null);
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
@@ -139,14 +139,12 @@ app.get("/scrape", async (req, res) => {
     return;
   }
 
-  // JSON kickoff mode (non-SSE callers)
   emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
   (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
     .catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
   res.json({ ok: true, jobId, mode: "compat:/scrape(json)" });
 });
 
-// Current: POST /run (accepts creds in body; responds immediately)
 app.post("/run", async (req, res) => {
   const { username, password, email, max } = pickCreds(req.body || {});
   const jobId = mkJobId();
@@ -159,7 +157,6 @@ app.post("/run", async (req, res) => {
   res.json({ ok: true, jobId });
 });
 
-// Convenience: GET /run/full?max=...
 app.get("/run/full", async (req, res) => {
   const max = req.query.max ? Number(req.query.max) : undefined;
   const username = envUser();
