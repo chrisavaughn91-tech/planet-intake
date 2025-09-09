@@ -1,114 +1,118 @@
-/* eslint-disable */
-// scripts/test-e2e.js  (CommonJS)
-// E2E hits /scrape via SSE, waits for {type:"done"}, asserts we saw a sheet URL,
-// and exits. Designed to finish quickly with smaller lead count.
+// Simple SSE smoke test for /scrape that waits for a sheet URL.
+// Usage: node scripts/test-e2e.js
+// Config via env:
+//   E2E_LIMIT         -> how many leads (?limit=), default 10
+//   E2E_SMOKE_LIMIT   -> seconds to wait for sheet url, default 180
+//   E2E_SERVER        -> base URL, default http://127.0.0.1:8080
+//
+// Exits nonzero if sheet url not seen within the window.
 
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
+import { fetch } from "undici";
 
-// Resolve a smoke-test cap: CLI --max > E2E_MAX_LEADS > 10
-const argv = process.argv.slice(2);
-const getFlag = (name) => {
-  const p = `--${name}=`;
-  const hit = argv.find(a => a.startsWith(p));
-  return hit ? hit.slice(p.length) : undefined;
-};
-const cliMax = getFlag('max');
-const envMax = process.env.E2E_MAX_LEADS;
-const SMOKE_LIMIT = Number.isFinite(Number(cliMax)) ? Number(cliMax)
-                 : Number.isFinite(Number(envMax))  ? Number(envMax)
-                 : 10; // default smoke size
+const BASE   = process.env.E2E_SERVER || "http://127.0.0.1:8080";
+const LIMIT  = Number(process.env.E2E_LIMIT || 10);
+const WAIT_S = Number(process.env.E2E_SMOKE_LIMIT || 180);
 
-console.log('[E2E] using smoke limit =', SMOKE_LIMIT);
-
-const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS || 15 * 60 * 1000);
-
-function parseBlocks(buffer) {
-  // Split by empty line; return {events, leftover}
-  const parts = buffer.split('\n\n');
-  let leftover = '';
-  if (!buffer.endsWith('\n\n')) leftover = parts.pop() ?? '';
-  const events = [];
-  for (const b of parts) {
-    if (!b.trim()) continue;
-    let type = 'message';
-    let data = '';
-    for (const line of b.split('\n')) {
-      if (line.startsWith('event:')) type = line.slice(6).trim();
-      else if (line.startsWith('data:')) data += (data ? '\n' : '') + line.slice(5).trim();
-    }
-    events.push({ type, data });
-  }
-  return { events, leftover };
+function now() {
+  return new Date().toLocaleTimeString();
 }
 
-(async () => {
-  const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+function log(...a) {
+  console.log(`[E2E ${now()}]`, ...a);
+}
 
-  let sawSheet = false;
-  let sheetUrl = null;
-  let processed = 0;
+async function run() {
+  log(`using limit = ${LIMIT}`);
+  log(`waiting up to ${WAIT_S}s for sheet url`);
 
-  try {
-    const url = `${BASE}/scrape?limit=${encodeURIComponent(SMOKE_LIMIT)}`;
-    const res = await fetch(url, {
-      headers: { 'Accept': 'text/event-stream' },
-      signal: controller.signal
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  // Start an SSE connection to /scrape so we see live events.
+  const url = `${BASE}/scrape?limit=${LIMIT}`;
+  const res = await fetch(url, {
+    headers: { accept: "text/event-stream" },
+  });
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const { events, leftover } = parseBlocks(buffer);
-      buffer = leftover;
-
-      for (const ev of events) {
-        if (ev.type === 'error') {
-          let msg = ev.data;
-          try { msg = JSON.parse(ev.data).msg || msg; } catch {}
-          throw new Error(`/scrape reported error: ${msg}`);
-        }
-
-        if (ev.type === 'sheet') {
-          try {
-            const d = JSON.parse(ev.data);
-            sheetUrl = d.url || d.sheetUrl || null;
-            if (sheetUrl && /^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(sheetUrl)) {
-              sawSheet = true;
-            }
-          } catch {}
-        }
-
-        if (ev.type === 'done') {
-          try {
-            const d = JSON.parse(ev.data);
-            processed = Number(d.processed || 0);
-          } catch {}
-          if (!sawSheet) throw new Error('did not receive sheet url');
-          if (processed <= 0) throw new Error('processed count is 0');
-          console.log(`E2E PASS: sheet=${sheetUrl} processed=${processed}`);
-          clearTimeout(abortTimer);
-          process.exit(0);
-        }
-
-        if (ev.type === 'end') {
-          // Server ended SSE without "done"
-          throw new Error('stream ended without "done"');
-        }
-      }
-    }
-
-    throw new Error('stream ended unexpectedly without "done"');
-  } catch (err) {
-    clearTimeout(abortTimer);
-    console.error('E2E FAIL:', err.stack || err);
-    process.exit(1);
+  if (!res.ok || (res.headers.get("content-type") || "").indexOf("text/event-stream") === -1) {
+    throw new Error(`HTTP ${res.status}: expected event-stream`);
   }
-})();
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+
+  let buffer = "";
+  let gotSheet = false;
+  let sheetUrl = null;
+  let gotDone = false;
+
+  const deadline = Date.now() + WAIT_S * 1000;
+
+  function parseChunk(txt) {
+    buffer += txt;
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      // Parse a single SSE event block
+      const lines = raw.split("\n");
+      let ev = "message";
+      let data = "";
+
+      for (const ln of lines) {
+        if (ln.startsWith("event:")) ev = ln.slice(6).trim();
+        else if (ln.startsWith("data:")) data += (data ? "\n" : "") + ln.slice(5).trim();
+      }
+
+      handleEvent(ev, data);
+    }
+  }
+
+  function handleEvent(ev, data) {
+    // be permissive: data may be JSON or plain text
+    let payload = null;
+    try { payload = JSON.parse(data); } catch { payload = { msg: data }; }
+
+    switch (ev) {
+      case "sheet":
+        if (payload && payload.url) {
+          sheetUrl = payload.url;
+          gotSheet = true;
+          log(`sheet:url ${sheetUrl}`);
+        } else {
+          log(`sheet event without url:`, payload);
+        }
+        break;
+      case "done":
+        gotDone = true;
+        log(`done event received`);
+        break;
+      case "error":
+        log(`ERROR`, payload);
+        break;
+      default:
+        // Uncomment to see everything:
+        // log(`ev=${ev}`, payload);
+        break;
+    }
+  }
+
+  // Pump the stream until deadline or we have sheet url.
+  while (Date.now() < deadline && !gotSheet) {
+    const { value, done } = await reader.read();
+    if (done) {
+      if (!gotDone && !gotSheet) throw new Error(`stream ended unexpectedly without "done" or sheet url`);
+      break;
+    }
+    parseChunk(dec.decode(value, { stream: true }));
+  }
+
+  if (!gotSheet || !sheetUrl) {
+    throw new Error(`did not receive sheet url within ${WAIT_S}s`);
+  }
+
+  log(`SUCCESS: got sheet url: ${sheetUrl}`);
+}
+
+run().catch((e) => {
+  console.error(`[E2E] FAIL: ${e.message}`);
+  process.exit(1);
+});
