@@ -19,9 +19,7 @@ const PACK_LINKS_SEL = `${LEAD_TABLE} a[href^="${PACK_ANCHOR}"]`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const nowIso = () => new Date().toISOString();
-const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
-const toPretty = (d10) =>
-  d10 ? `(${d10.slice(0, 3)}) ${d10.slice(3, 6)}-${d10.slice(6)}` : null;
+const toPretty = (d10) => (d10 ? `(${d10.slice(0, 3)}) ${d10.slice(3, 6)}-${d10.slice(6)}` : null);
 const onlyDigits = (s) => String(s || "").replace(/\D/g, "");
 
 const DEBUG = String(process.env.DEBUG_SCRAPER || "") === "1";
@@ -29,23 +27,18 @@ const dlog = (...args) => {
   if (DEBUG) console.log("[SCRAPER]", ...args);
 };
 
-/* START:EMIT_INFO */
+/* EMIT HELPERS */
 function info(msg) {
   emit("info", { msg });
 }
-/* END:EMIT_INFO */
-
-/* START:EMIT_ERROR */
-function reportError(err) {
-  emit("error", { msg: String((err && err.stack) || err) });
+function reportError(err, extra = {}) {
+  emit("error", { msg: String((err && err.stack) || err), ...extra });
 }
-/* END:EMIT_ERROR */
 
+/* Validation */
 function sameDigits(s) {
   return /^([0-9])\1{9}$/.test(s);
 }
-
-// NANP validation (10 digits)
 function validUS10(d10) {
   if (!d10 || d10.length !== 10) return false;
   if (sameDigits(d10)) return false;
@@ -161,7 +154,6 @@ async function getInboxInfoText(page) {
 }
 
 function parseInfoCounts(txt) {
-  // e.g., "Showing 1 to 100 of 253 entries"
   const m = txt.match(/Showing\s+(\d+)\s+to\s+(\d+)\s+of\s+(\d+)\s+entries/i);
   if (!m) return null;
   const from = parseInt(m[1], 10);
@@ -220,11 +212,13 @@ async function login(page, creds) {
     if (!passInput)
       passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
   }
-  if (!userInput) throw new Error("LOGIN: username input not found");
-  if (!passInput) throw new Error("LOGIN: password input not found");
+  if (!userInput || !passInput) {
+    reportError("LOGIN: inputs not found");
+    throw new Error("LOGIN: inputs not found");
+  }
 
-  await userInput.fill(creds.username);
-  await passInput.fill(creds.password);
+  await userInput.fill(creds.username || "");
+  await passInput.fill(creds.password || "");
 
   const submit =
     (await firstVisible(page.getByRole("button", { name: /^login$/i }))) ||
@@ -232,13 +226,23 @@ async function login(page, creds) {
     (await firstVisible(page.locator('input[type="submit"]'))) ||
     (await firstVisible(page.locator("button")));
 
-  if (!submit) throw new Error("LOGIN: submit button not found");
+  if (!submit) {
+    reportError("LOGIN: submit button not found");
+    throw new Error("LOGIN: submit button not found");
+  }
 
   await Promise.allSettled([
     page.waitForLoadState("networkidle", { timeout: 45000 }),
     page.waitForURL(/\/(Lead\/Inbox|Dashboard|Home)\b/i, { timeout: 45000 }).catch(() => {}),
     submit.click(),
   ]);
+
+  // sanity: ensure we’re past login
+  const url = page.url();
+  if (/Account\/Login/i.test(url)) {
+    reportError("LOGIN: still on login page — check PLANET_USER/PLANET_PASS");
+    throw new Error("LOGIN: credentials rejected or flow changed");
+  }
 
   await page.goto(DASH_URL, { waitUntil: "domcontentloaded" }).catch(() => {});
   dlog("Login: completed; on dashboard/home");
@@ -295,7 +299,7 @@ async function gatherVisibleNumberTokens(page) {
         if (href && /tel:/i.test(href)) toks.add(href);
         const oc = el.getAttribute && el.getAttribute("onclick");
         if (oc && /\d{7,}/.test(oc)) toks.add(oc);
-        const dp = el.dataset && el.dataset.phone;
+        const dp = el.getAttribute && el.getAttribute("data-phone");
         if (dp && /\d{7,}/.test(dp)) toks.add(dp);
       }
     };
@@ -326,7 +330,6 @@ async function harvestClickToCall(page) {
   }
 
   const diff = Array.from(after).filter((s) => !before.has(s));
-  dlog("Click2Call: tokens before/after/diff =", before.size, after.size, diff.length);
 
   const seen = new Set();
   for (const token of diff) {
@@ -376,8 +379,7 @@ async function getPrimaryNameFromHeader(page) {
     const zoneTop = backBottom;
     const zoneBottom = backBottom + 220;
     const zoneRight = window.innerWidth * 0.55;
-    const bad =
-      /^(BACK|DETAIL|CALL|APPT\.?|COMMENTS|RESOLVE|VIEWING\s+\d+\s*\/\s*\d+)$/i;
+    const bad = /^(BACK|DETAIL|CALL|APPT\.?|COMMENTS|RESOLVE|VIEWING\s+\d+\s*\/\s*\d+)$/i;
 
     const cands = [];
     document.querySelectorAll("body *").forEach((el) => {
@@ -438,10 +440,10 @@ async function parseLeadDetail(page) {
       const s = paidM[1];
       const parts = s.includes("-") ? s.split("-").map(Number) : s.split("/").map(Number);
       if (s.includes("-")) {
-        paidTo = new Date(parts[0], parts[1] - 1, parts[2]); // YYYY-M-D
+        paidTo = new Date(parts[0], parts[1] - 1, parts[2]);
       } else {
         const Y = parts[2] < 100 ? 2000 + parts[2] : parts[2];
-        paidTo = new Date(Y, parts[0] - 1, parts[1]); // M/D/YY|YYYY
+        paidTo = new Date(Y, parts[0] - 1, parts[1]);
       }
     }
 
@@ -512,9 +514,7 @@ async function parseLeadDetail(page) {
       const span = m[2] || "";
       const tokRe = new RegExp(blockTokenReSrc, "gi");
       let t;
-      while ((t = tokRe.exec(span))) {
-        pushPolicyNumber(t[0], label, primaryNameHeader || null);
-      }
+      while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
     }
   }
 
@@ -535,7 +535,7 @@ async function parseLeadDetail(page) {
         if (href.startsWith("tel:")) strings.push(href);
         const oc = el.getAttribute("onclick") || "";
         if (/\d{7,}/.test(oc)) strings.push(oc);
-        const dp = (el.dataset && el.dataset.phone) || "";
+        const dp = el.getAttribute("data-phone") || "";
         if (/\d{7,}/.test(dp)) strings.push(dp);
         const txt = el.textContent || "";
         if (/\d{7,}/.test(txt)) strings.push(txt);
@@ -589,7 +589,7 @@ async function setInboxPageSize(page) {
     );
     const current = await lengthSelect.inputValue().catch(() => null);
     if (current !== "100") {
-      await lengthSelect.selectOption("100"); // triggers redraw
+      await lengthSelect.selectOption("100");
     }
   }
 
@@ -637,7 +637,6 @@ async function clickNextInboxPage(page) {
   try {
     await waitInboxInfoChange(page, prevInfo);
   } catch {
-    // ESC to dismiss any dropdown/modal and try to detect change again
     await page.keyboard.press("Escape").catch(() => {});
     try {
       await waitInboxInfoChange(page, prevInfo);
@@ -669,11 +668,9 @@ async function collectPaginated(page, max) {
 
     if (max && allSet.size >= max) break;
 
-    // End condition A: try to advance; if no redraw, stop.
     const { advanced, changed } = await clickNextInboxPage(page);
     if (!advanced || !changed) break;
 
-    // End condition B: footer shows Y === Z (we’ve reached the end)
     const postTxt = await getInboxInfoText(page);
     const postCounts = parseInfoCounts(postTxt);
     if (postCounts && postCounts.to >= postCounts.total) break;
@@ -690,56 +687,58 @@ async function collectPaginated(page, max) {
 export async function scrapePlanet(opts = {}) {
   const { username, password, jobId } = opts;
   const max = opts?.max ?? Number(process.env.MAX_LEADS_DEFAULT ?? 200);
-  console.log("[SCRAPER] starting: max=" + max);
-
   const startTime = Date.now();
-  /* START:EMIT_START */
+
   emit("start", { username, maxLeads: max, jobId: jobId || null });
-  /* END:EMIT_START */
-  const { browser, context, page } = await launch();
-  info("browser: ready");
-
-  const clickToCallRows = [];
-  const policyPhoneRows = [];
-
-  const leads = [];
+  let browser, context, page;
   let leadCount = 0;
-  let sumAllLeadsMonthly = 0; // INTERNAL: keep, but don’t expose via API responses
+  let sumAllLeadsMonthly = 0; // INTERNAL only
 
   try {
+    ({ browser, context, page } = await launch());
+    info("browser: ready");
+
     info("login: starting");
-    await login(page, { username, password });
+    await login(page, { username, password }).catch((e) => {
+      reportError(e);
+      throw e;
+    });
     info("login: ok");
+
     await goToAllLeads(page);
     info("📬inbox loaded");
 
     const packlinks = await collectPaginated(page, max);
     const toVisit = max ? packlinks.slice(0, max) : packlinks;
-    dlog(`Pack: collected ${packlinks.length} lead link(s)`);
-    if (toVisit.length === 0) {
+    if (!toVisit.length) {
       info("No leads found in inbox.");
-      return { ok: false, error: "No leads found in inbox." };
+      return {
+        ok: true,
+        leads: [],
+        clickToCall: [],
+        policyPhones: [],
+        meta: { ts: nowIso(), leadCount: 0 },
+      };
     }
 
+    const clickToCallRows = [];
+    const policyPhoneRows = [];
+    const leads = [];
     const total = toVisit.length;
+
     for (let i = 0; i < total; i++) {
       const href = toVisit[i];
       const absUrl = new URL(href, page.url()).toString();
-      dlog(`Lead ${i + 1}/${total}: opening ${absUrl}`);
-      emit("info", { msg: "lead: opening", href: absUrl });
+
+      emit("info", { msg: "lead: opening", href: absUrl, jobId: jobId || null });
       await page.goto(absUrl, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
       let primaryName = await getPrimaryNameFromHeader(page);
-      primaryName = primaryName || null;
-
-      /* START:EMIT_LEAD */
-      emit("lead", { index: i + 1, total: total, leadName: primaryName });
-      /* END:EMIT_LEAD */
+      emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
       const c2c = await harvestClickToCall(page);
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
-      dlog(`Lead ${i + 1}: click-to-call rows -> ${c2c.length}`);
       clickToCallRows.push(...c2c);
 
       const detail = await parseLeadDetail(page);
@@ -753,32 +752,14 @@ export async function scrapePlanet(opts = {}) {
         return k && !c2cDigits.has(k);
       });
 
-      info(
-        `lead ${i + 1}: monthly=${detail.monthlyTotalActive} listed=${c2c.length} extras=${policyPhonesExtra.length}`
-      );
-
-      policyPhoneRows.push(...policyPhonesExtra);
-
-      const flaggedNumbers = [
-        ...c2c.filter((r) => (r.flags || []).length),
-        ...policyPhonesExtra.filter((r) => (r.flags || []).length),
-      ];
-
-      /* START:EMIT_NUMBERS */
       emit("numbers", {
         leadName: primaryName,
         listedCount: c2c.length,
         extraCount: policyPhonesExtra.length,
-        flaggedCount: flaggedNumbers.length,
+        flaggedCount: [...c2c, ...policyPhonesExtra].filter((r) => (r.flags || []).length).length,
+        jobId: jobId || null,
       });
-      /* END:EMIT_NUMBERS */
 
-      // ===== BADGE RULES (per Chris spec) =====
-      // ⭐: total >= 100
-      // 🟣: 0 < total < 50
-      // 🟠: total > 0 AND no valid numbers
-      // 🔴: total = 0 AND/OR lapsed policy
-      // ⚪: otherwise (50 <= total < 100)
       const leadMonthly = Number(detail.monthlyTotalActive.toFixed(2));
       const hasAnyPolicy = detail.policyBlockCount > 0;
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
@@ -791,21 +772,13 @@ export async function scrapePlanet(opts = {}) {
       (policyPhonesExtra || []).forEach(accValid);
 
       let leadStar;
-      if (leadMonthly >= 100) {
-        leadStar = "⭐";
-      } else if (leadMonthly > 0 && leadMonthly < 50) {
-        leadStar = "🟣";
-      } else if (leadMonthly > 0 && validDigits.size === 0) {
-        leadStar = "🟠";
-      } else if (leadMonthly === 0 || allPoliciesLapsed) {
-        leadStar = "🔴";
-      } else {
-        leadStar = "⚪"; // 50 <= total < 100
-      }
+      if (leadMonthly >= 100) leadStar = "⭐";
+      else if (leadMonthly > 0 && leadMonthly < 50) leadStar = "🟣";
+      else if (leadMonthly > 0 && validDigits.size === 0) leadStar = "🟠";
+      else if (leadMonthly === 0 || allPoliciesLapsed) leadStar = "🔴";
+      else leadStar = "⚪";
 
-      /* START:EMIT_BADGE */
-      emit("badge", { leadName: primaryName, badge: leadStar, totalPremium: leadMonthly });
-      /* END:EMIT_BADGE */
+      emit("badge", { leadName: primaryName, badge: leadStar, totalPremium: leadMonthly, jobId: jobId || null });
 
       leads.push({
         primaryName: primaryName || null,
@@ -816,32 +789,27 @@ export async function scrapePlanet(opts = {}) {
         allPoliciesLapsed,
       });
 
-      sumAllLeadsMonthly += leadMonthly; // INTERNAL ONLY
+      sumAllLeadsMonthly += leadMonthly;
       leadCount++;
-
       if (leadCount >= max) break;
     }
 
-    /* START:EMIT_DONE */
-    emit("done", { processed: leadCount, ms: Date.now() - startTime });
-    /* END:EMIT_DONE */
+    emit("done", { processed: leadCount, ms: Date.now() - startTime, jobId: jobId || null });
 
     return {
       ok: true,
       leads,
       clickToCall: clickToCallRows,
       policyPhones: policyPhoneRows,
-      meta: {
-        ts: nowIso(),
-        leadCount,
-        // sumMonthlyAcrossLeads is intentionally NOT returned
-      },
+      meta: { ts: nowIso(), leadCount },
     };
   } catch (err) {
     reportError(err);
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
+    try {
+      // Always emit 'done' so tests and dashboards don't hang.
+      emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null });
+    } catch {}
   }
 }
