@@ -27,7 +27,7 @@ app.get("/", (_req, res) => {
 });
 
 /* =========================
-   SSE events
+   SSE events hub (shared)
    ========================= */
 app.get("/events", (req, res) => {
   const headers = {
@@ -97,21 +97,59 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
 /* =========================
    Run endpoints
    ========================= */
-// Back-compat: /scrape (GET) — used by your existing e2e test
+/**
+ * Back-compat: /scrape as SSE if client requests event-stream.
+ *  - If Accept: text/event-stream -> keep connection open and mirror hub events to this response
+ *  - Else -> JSON fire-and-forget kickoff (legacy non-SSE usage)
+ */
 app.get("/scrape", async (req, res) => {
-  const max = req.query.max ? Number(req.query.max) : undefined;
+  const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");
+
+  const max = req.query.max
+    ? Number(req.query.max)
+    : (req.query.limit ? Number(req.query.limit) : undefined); // test uses ?limit
   const username = envUser();
   const password = envPass();
   const email = envEmail();
   const jobId = mkJobId();
 
-  emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
+  if (wantsSSE) {
+    // SSE mode: attach this response to the hub (global listener) and run the job inline.
+    const headers = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    };
+    res.writeHead(200, headers);
+    const clientId = onClientConnect(res, null); // global listener (mirrors jobId events via Change 1e)
+    emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
+    try {
+      await runScrapeAndSheet({ username, password, email, max, jobId });
+      // Tell the client the stream is complete (test expects to see "done" earlier, then we end)
+      try {
+        res.write(`event: end\n`);
+        res.write(`data: {}\n\n`);
+      } catch {}
+    } catch (e) {
+      try {
+        res.write(`event: error\n`);
+        res.write(`data: ${JSON.stringify({ msg: String(e?.message || e) })}\n\n`);
+      } catch {}
+    } finally {
+      removeClient(clientId);
+      try { res.end(); } catch {}
+    }
+    return;
+  }
+
+  // JSON kickoff mode (non-SSE callers)
+  emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
   (async () => {
     await runScrapeAndSheet({ username, password, email, max, jobId });
   })().catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
 
-  res.json({ ok: true, jobId, mode: "compat:/scrape" });
+  res.json({ ok: true, jobId, mode: "compat:/scrape(json)" });
 });
 
 // Current: POST /run (accepts creds in body; responds immediately)
