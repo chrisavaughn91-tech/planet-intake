@@ -81,19 +81,25 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
     let sig = "object:{email,result}";
 
     try {
-      // ✅ matches src/sheets.js (expects { email, result })
+      // ✅ matches your sheets.js signature
       sheet = await createSheetAndShare({ email, result });
     } catch (e1) {
-      // Optional back-compat if an older sheets.js is ever used
+      // Optional back-compat if an older sheets.js ever appears
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
 
-    if (sheet?.ok && sheet.url) {
-      emit("sheet", { url: sheet.url, jobId });
-      emit("info", { msg: `sheet:url ${sheet.url}`, jobId });
+    // Accept BOTH shapes:
+    //   { url }  OR  { ok:true, url }
+    const url = sheet?.url || null;
+    const ok  = url ? true : (sheet?.ok === true && !!sheet?.url);
+
+    if (ok && url) {
+      emit("sheet", { url, jobId });
+      emit("info", { msg: `sheet:url ${url}`, jobId });
     } else {
-      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"}) [sig=${sig}]`, jobId });
+      const errMsg = sheet?.error || "unknown";
+      emit("error", { msg: `sheet: failed (${errMsg}) [sig=${sig}]`, jobId });
     }
   } catch (e) {
     emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
@@ -121,7 +127,7 @@ app.get("/scrape", async (req, res) => {
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null);
+    const clientId = onClientConnect(res, null); // global; job events mirrored via events.js
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
