@@ -15,11 +15,15 @@ const app = express();
 app.use(express.json());
 
 /* =========================
-   Static assets
+   Static + basic routes
    ========================= */
 app.use("/static", express.static(path.join(__dirname, "public")));
 app.get("/live", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
+});
+// UX: visiting "/" redirects to the live stream
+app.get("/", (_req, res) => {
+  res.redirect("/live");
 });
 
 /* =========================
@@ -33,10 +37,8 @@ app.get("/events", (req, res) => {
   };
   res.writeHead(200, headers);
   const clientId = onClientConnect(res, req.query.jobId || null);
-  emit("info", { msg: "client: connected", clientId });
-  req.on("close", () => {
-    removeClient(clientId);
-  });
+  emit("info", { msg: "client: connected", clientId, jobId: req.query.jobId || null });
+  req.on("close", () => removeClient(clientId));
 });
 
 /* =========================
@@ -45,13 +47,12 @@ app.get("/events", (req, res) => {
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
-
 app.get("/status", (_req, res) => {
   res.json({ ok: true, clients: global.__SSE_CLIENTS ? global.__SSE_CLIENTS.length : 0 });
 });
 
 /* =========================
-   Run endpoints
+   Helpers
    ========================= */
 function pickCreds(body) {
   return {
@@ -61,64 +62,75 @@ function pickCreds(body) {
     max: body?.max ? Number(body.max) : undefined,
   };
 }
+function mkJobId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+async function runScrapeAndSheet({ username, password, email, max, jobId }) {
+  const result = await scrapePlanet({ username, password, max, jobId });
+  if (!result?.ok) {
+    emit("error", { msg: "scrape failed: " + (result?.error || "unknown"), jobId });
+    return;
+  }
+  try {
+    const sheet = await createSheetAndShare({ leads: result.leads, email });
+    if (sheet?.ok && sheet.url) {
+      emit("sheet", { url: sheet.url, jobId });
+      emit("info", { msg: `sheet:url ${sheet.url}`, jobId });
+    } else {
+      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"})`, jobId });
+    }
+  } catch (e) {
+    emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
+  }
+}
 
+/* =========================
+   Run endpoints
+   ========================= */
+// Back-compat: /scrape (GET) — used by your existing e2e test
+app.get("/scrape", async (req, res) => {
+  const max = req.query.max ? Number(req.query.max) : undefined;
+  const username = process.env.PLANET_USER || "";
+  const password = process.env.PLANET_PASS || "";
+  const email = process.env.NOTIFY_EMAIL || "";
+  const jobId = mkJobId();
+
+  emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
+
+  (async () => {
+    await runScrapeAndSheet({ username, password, email, max, jobId });
+  })().catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
+
+  res.json({ ok: true, jobId, mode: "compat:/scrape" });
+});
+
+// Current: POST /run (accepts creds in body; responds immediately)
 app.post("/run", async (req, res) => {
   const { username, password, email, max } = pickCreds(req.body || {});
-  const jobId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const jobId = mkJobId();
 
-  emit("info", { msg: `run: start (job ${jobId})` });
+  emit("info", { msg: `run: start (job ${jobId})`, jobId });
 
-  // Fire and respond immediately; client watches /events
   (async () => {
-    const result = await scrapePlanet({ username, password, max, jobId });
-
-    if (result?.ok) {
-      try {
-        const sheet = await createSheetAndShare({ leads: result.leads, email });
-        if (sheet?.ok && sheet.url) {
-          emit("sheet", { url: sheet.url, jobId });
-          emit("info", { msg: `sheet:url ${sheet.url}` });
-        } else {
-          emit("error", { msg: `sheet: failed (${sheet && sheet.error ? sheet.error : "unknown"})` });
-        }
-      } catch (e) {
-        emit("error", { msg: "sheet: exception " + (e?.message || e) });
-      }
-    } else {
-      emit("error", { msg: "scrape failed: " + (result?.error || "unknown") });
-    }
-  })().catch((e) => emit("error", { msg: "run: exception " + (e?.message || e) }));
+    await runScrapeAndSheet({ username, password, email, max, jobId });
+  })().catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
 
   res.json({ ok: true, jobId });
 });
 
+// Convenience: GET /run/full?max=...
 app.get("/run/full", async (req, res) => {
   const max = req.query.max ? Number(req.query.max) : undefined;
-  const jobId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const username = process.env.PLANET_USER || "";
   const password = process.env.PLANET_PASS || "";
   const email = process.env.NOTIFY_EMAIL || "";
+  const jobId = mkJobId();
 
-  emit("info", { msg: `run: full (job ${jobId})` });
+  emit("info", { msg: `run: full (job ${jobId})`, jobId });
 
   (async () => {
-    const result = await scrapePlanet({ username, password, max, jobId });
-    if (result?.ok) {
-      try {
-        const sheet = await createSheetAndShare({ leads: result.leads, email });
-        if (sheet?.ok && sheet.url) {
-          emit("sheet", { url: sheet.url, jobId });
-          emit("info", { msg: `sheet:url ${sheet.url}` });
-        } else {
-          emit("error", { msg: `sheet: failed (${sheet && sheet.error ? sheet.error : "unknown"})` });
-        }
-      } catch (e) {
-        emit("error", { msg: "sheet: exception " + (e?.message || e) });
-      }
-    } else {
-      emit("error", { msg: "scrape failed: " + (result?.error || "unknown") });
-    }
-  })().catch((e) => emit("error", { msg: "run: exception " + (e?.message || e) }));
+    await runScrapeAndSheet({ username, password, email, max, jobId });
+  })().catch((e) => emit("error", { msg: "run/full: exception " + (e?.message || e), jobId }));
 
   res.json({ ok: true, jobId });
 });
