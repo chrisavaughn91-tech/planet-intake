@@ -7,32 +7,30 @@
 //
 // Exits nonzero if sheet url not seen within the window.
 
-import { fetch } from "undici";
+// Use Node 18+ global fetch (no external deps).
+if (typeof globalThis.fetch !== "function") {
+  console.error("[E2E] This test requires Node 18+ with global fetch.");
+  process.exit(1);
+}
+const fetchFn = globalThis.fetch;
 
 const BASE   = process.env.E2E_SERVER || "http://127.0.0.1:8080";
 const LIMIT  = Number(process.env.E2E_LIMIT || 10);
 const WAIT_S = Number(process.env.E2E_SMOKE_LIMIT || 180);
 
-function now() {
-  return new Date().toLocaleTimeString();
-}
-
-function log(...a) {
-  console.log(`[E2E ${now()}]`, ...a);
-}
+function now() { return new Date().toLocaleTimeString(); }
+function log(...a) { console.log(`[E2E ${now()}]`, ...a); }
 
 async function run() {
   log(`using limit = ${LIMIT}`);
   log(`waiting up to ${WAIT_S}s for sheet url`);
 
-  // Start an SSE connection to /scrape so we see live events.
   const url = `${BASE}/scrape?limit=${LIMIT}`;
-  const res = await fetch(url, {
-    headers: { accept: "text/event-stream" },
-  });
+  const res = await fetchFn(url, { headers: { accept: "text/event-stream" } });
 
-  if (!res.ok || (res.headers.get("content-type") || "").indexOf("text/event-stream") === -1) {
-    throw new Error(`HTTP ${res.status}: expected event-stream`);
+  const ctype = res.headers.get("content-type") || "";
+  if (!res.ok || !ctype.includes("text/event-stream")) {
+    throw new Error(`HTTP ${res.status}: expected event-stream (got ${ctype || "none"})`);
   }
 
   const reader = res.body.getReader();
@@ -42,7 +40,6 @@ async function run() {
   let gotSheet = false;
   let sheetUrl = null;
   let gotDone = false;
-
   const deadline = Date.now() + WAIT_S * 1000;
 
   function parseChunk(txt) {
@@ -52,22 +49,17 @@ async function run() {
       const raw = buffer.slice(0, idx);
       buffer = buffer.slice(idx + 2);
 
-      // Parse a single SSE event block
-      const lines = raw.split("\n");
       let ev = "message";
       let data = "";
-
-      for (const ln of lines) {
+      for (const ln of raw.split("\n")) {
         if (ln.startsWith("event:")) ev = ln.slice(6).trim();
         else if (ln.startsWith("data:")) data += (data ? "\n" : "") + ln.slice(5).trim();
       }
-
       handleEvent(ev, data);
     }
   }
 
   function handleEvent(ev, data) {
-    // be permissive: data may be JSON or plain text
     let payload = null;
     try { payload = JSON.parse(data); } catch { payload = { msg: data }; }
 
@@ -95,7 +87,6 @@ async function run() {
     }
   }
 
-  // Pump the stream until deadline or we have sheet url.
   while (Date.now() < deadline && !gotSheet) {
     const { value, done } = await reader.read();
     if (done) {
