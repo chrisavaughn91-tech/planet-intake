@@ -54,11 +54,21 @@ app.get("/status", (_req, res) => {
 /* =========================
    Helpers
    ========================= */
+// Accept BOTH new and legacy env names so .env doesn’t have to change.
+function envUser() {
+  return process.env.PLANET_USER || process.env.PLANET_USERNAME || "";
+}
+function envPass() {
+  return process.env.PLANET_PASS || process.env.PLANET_PASSWORD || "";
+}
+function envEmail() {
+  return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL || "";
+}
 function pickCreds(body) {
   return {
-    username: body?.username || process.env.PLANET_USER || "",
-    password: body?.password || process.env.PLANET_PASS || "",
-    email: body?.email || process.env.NOTIFY_EMAIL || "",
+    username: body?.username || envUser(),
+    password: body?.password || envPass(),
+    email: body?.email || envEmail(),
     max: body?.max ? Number(body.max) : undefined,
   };
 }
@@ -90,9 +100,9 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
 // Back-compat: /scrape (GET) — used by your existing e2e test
 app.get("/scrape", async (req, res) => {
   const max = req.query.max ? Number(req.query.max) : undefined;
-  const username = process.env.PLANET_USER || "";
-  const password = process.env.PLANET_PASS || "";
-  const email = process.env.NOTIFY_EMAIL || "";
+  const username = envUser();
+  const password = envPass();
+  const email = envEmail();
   const jobId = mkJobId();
 
   emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
@@ -121,9 +131,9 @@ app.post("/run", async (req, res) => {
 // Convenience: GET /run/full?max=...
 app.get("/run/full", async (req, res) => {
   const max = req.query.max ? Number(req.query.max) : undefined;
-  const username = process.env.PLANET_USER || "";
-  const password = process.env.PLANET_PASS || "";
-  const email = process.env.NOTIFY_EMAIL || "";
+  const username = envUser();
+  const password = envPass();
+  const email = envEmail();
   const jobId = mkJobId();
 
   emit("info", { msg: `run: full (job ${jobId})`, jobId });
