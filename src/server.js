@@ -21,10 +21,7 @@ app.use("/static", express.static(path.join(__dirname, "public")));
 app.get("/live", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
-// UX: visiting "/" redirects to the live stream
-app.get("/", (_req, res) => {
-  res.redirect("/live");
-});
+app.get("/", (_req, res) => res.redirect("/live"));
 
 /* =========================
    SSE events hub (shared)
@@ -55,39 +52,43 @@ app.get("/status", (_req, res) => {
    Helpers
    ========================= */
 // Accept BOTH new and legacy env names so .env doesn’t have to change.
-function envUser() {
-  return process.env.PLANET_USER || process.env.PLANET_USERNAME || "";
-}
-function envPass() {
-  return process.env.PLANET_PASS || process.env.PLANET_PASSWORD || "";
-}
-function envEmail() {
-  return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL || "";
-}
+function envUser()   { return process.env.PLANET_USER   || process.env.PLANET_USERNAME || ""; }
+function envPass()   { return process.env.PLANET_PASS   || process.env.PLANET_PASSWORD || ""; }
+function envEmail()  { return process.env.NOTIFY_EMAIL  || process.env.REPORT_EMAIL    || ""; }
 function pickCreds(body) {
   return {
     username: body?.username || envUser(),
     password: body?.password || envPass(),
-    email: body?.email || envEmail(),
+    email:    body?.email    || envEmail(),
     max: body?.max ? Number(body.max) : undefined,
   };
 }
-function mkJobId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
+function mkJobId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
   const result = await scrapePlanet({ username, password, max, jobId });
   if (!result?.ok) {
     emit("error", { msg: "scrape failed: " + (result?.error || "unknown"), jobId });
     return;
   }
+
+  // --- Sheet step: support BOTH signatures safely ---
   try {
-    const sheet = await createSheetAndShare({ leads: result.leads, email });
+    let sheet;
+    let used = "object";
+
+    try {
+      sheet = await createSheetAndShare({ leads: result.leads, email });
+    } catch (eObj) {
+      used = "positional";
+      sheet = await createSheetAndShare(result.leads, email);
+    }
+
     if (sheet?.ok && sheet.url) {
       emit("sheet", { url: sheet.url, jobId });
       emit("info", { msg: `sheet:url ${sheet.url}`, jobId });
     } else {
-      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"})`, jobId });
+      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"}) [sig=${used}]`, jobId });
     }
   } catch (e) {
     emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
@@ -107,30 +108,25 @@ app.get("/scrape", async (req, res) => {
 
   const max = req.query.max
     ? Number(req.query.max)
-    : (req.query.limit ? Number(req.query.limit) : undefined); // test uses ?limit
+    : (req.query.limit ? Number(req.query.limit) : undefined); // test may use ?limit
   const username = envUser();
   const password = envPass();
   const email = envEmail();
   const jobId = mkJobId();
 
   if (wantsSSE) {
-    // SSE mode: attach this response to the hub (global listener) and run the job inline.
     const headers = {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null); // global listener (mirrors jobId events via Change 1e)
+    const clientId = onClientConnect(res, null); // global; job events mirrored via events.js
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
       await runScrapeAndSheet({ username, password, email, max, jobId });
-      // Tell the client the stream is complete (test expects to see "done" earlier, then we end)
-      try {
-        res.write(`event: end\n`);
-        res.write(`data: {}\n\n`);
-      } catch {}
+      try { res.write(`event: end\n`); res.write(`data: {}\n\n`); } catch {}
     } catch (e) {
       try {
         res.write(`event: error\n`);
@@ -145,10 +141,8 @@ app.get("/scrape", async (req, res) => {
 
   // JSON kickoff mode (non-SSE callers)
   emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
-  (async () => {
-    await runScrapeAndSheet({ username, password, email, max, jobId });
-  })().catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
-
+  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
+    .catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
   res.json({ ok: true, jobId, mode: "compat:/scrape(json)" });
 });
 
@@ -159,9 +153,8 @@ app.post("/run", async (req, res) => {
 
   emit("info", { msg: `run: start (job ${jobId})`, jobId });
 
-  (async () => {
-    await runScrapeAndSheet({ username, password, email, max, jobId });
-  })().catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
+  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
+    .catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
 
   res.json({ ok: true, jobId });
 });
@@ -176,9 +169,8 @@ app.get("/run/full", async (req, res) => {
 
   emit("info", { msg: `run: full (job ${jobId})`, jobId });
 
-  (async () => {
-    await runScrapeAndSheet({ username, password, email, max, jobId });
-  })().catch((e) => emit("error", { msg: "run/full: exception " + (e?.message || e), jobId }));
+  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
+    .catch((e) => emit("error", { msg: "run/full: exception " + (e?.message || e), jobId }));
 
   res.json({ ok: true, jobId });
 });
