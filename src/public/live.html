@@ -2,382 +2,86 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Live Intake</title>
+  <title>Planet Intake — Live Stream</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{
-      --bg:#0e1217;
-      --panel:#161b22;
-      --text:#d8dee9;
-      --muted:#8b95a7;
-
-      /* Type colors (unchanged except Message) */
-      --msg:#cbd5e1;       /* Message (grey) */
-      --lead:#3b82f6;      /* Lead = blue */
-      --sheet:#6366f1;     /* Sheet = indigo */
-      --err:#ff7b72;       /* Error = red */
-      --done:#22c55e;      /* Done = green */
-      --number:#14b8a6;    /* Numbers = teal */
-      --badge:#f59e0b;     /* Badge = gold */
-      --pulse:#8b95a7;     /* typing bubble dots */
-
-      --chip-bg:#0f141a;
-      --chip-br:#223040;
-
-      /* Type bubble backgrounds */
-      --msg-bg:rgba(148,163,184,.14);  /* translucent grey */
-      --lead-bg:#0a1b3a;
-      --sheet-bg:#14173a;
-      --err-bg:#2a1210;
-      --done-bg:#0f2414;
-      --number-bg:#0c1f1d;
-      --badge-bg:#2a2212;
-      --pulse-bg:#12161c;
-    }
-    *{ box-sizing:border-box; }
-    html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Apple Color Emoji","Segoe UI Emoji"; }
-    .wrap{ max-width: 1100px; margin:32px auto; padding:0 16px; }
-    .bar{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-    .circle{ width:10px; height:10px; border-radius:50%; background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,.45); }
-    .card{ background:var(--panel); border:1px solid #222a36; border-radius:14px; padding:10px; }
-    .pill{ display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; border:1px solid var(--chip-br); background:var(--chip-bg); color:var(--muted); font-size:12px; line-height:18px; text-transform:capitalize; }
-    .pill .dot{ width:6px; height:6px; border-radius:50%; }
-
-    /* Per-type coloring (Message switched to translucent grey) */
-    .pill.message{ color:var(--msg);    background:var(--msg-bg);    border-color:rgba(148,163,184,.25) }
-    .pill.lead   { color:var(--lead);   background:var(--lead-bg);   border-color:rgba(59,130,246,.25) }
-    .pill.sheet  { color:var(--sheet);  background:var(--sheet-bg);  border-color:rgba(99,102,241,.25) }
-    .pill.error  { color:var(--err);    background:var(--err-bg);    border-color:rgba(255,123,114,.25) }
-    .pill.done   { color:var(--done);   background:var(--done-bg);   border-color:rgba(34,197,94,.22) }
-    .pill.numbers{ color:var(--number); background:var(--number-bg); border-color:rgba(20,184,166,.22) }
-    .pill.badge  { color:var(--badge);  background:var(--badge-bg);  border-color:rgba(245,158,11,.25) }
-    .pill.pulse  { color:var(--pulse);  background:var(--pulse-bg);  border-color:rgba(139,149,167,.20) }
-
-    .rows{ display:grid; grid-template-columns: 96px 96px 1fr; gap:0; }
-    .row{ display:contents; }
-    .cell{ padding:8px 10px; border-top:1px solid #1f2633; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .cell.type{ white-space:unset; }
-    .cell.msg { white-space:unset; }
-    .header .cell{ border-top:none; color:var(--text); font-size:12px; letter-spacing:.02em; text-transform:capitalize; font-weight:600; }
-    .clock{ font-variant-numeric: tabular-nums; color:#a7b3c6; }
-
-    .status{ display:flex; align-items:center; gap:8px; margin-bottom:8px; color:var(--muted); font-size:12px; }
-    .status .state{ font-weight:600; color:var(--text); }
-
-    .empty{ color:var(--muted); text-align:center; padding:16px 0; font-size:13px; }
-
-    /* typing bubble (3 animated dots) */
-    .typing { display:inline-flex; align-items:center; gap:4px; padding:0 2px; }
-    .typing .tdot{
-      width:4px; height:4px; border-radius:50%; background:var(--pulse); opacity:.35;
-      animation: tblink 1.2s infinite ease-in-out;
-    }
-    .typing .tdot:nth-child(2){ animation-delay: .15s; }
-    .typing .tdot:nth-child(3){ animation-delay: .30s; }
-    /* stopped pulses (older rows) */
-    .typing.stopped .tdot{ animation: none !important; opacity:.35; transform:none; }
-
-    @keyframes tblink {
-      0%, 60%, 100% { opacity:.35; transform: translateY(0); }
-      30% { opacity:1; transform: translateY(-2px); }
-    }
+    html, body { margin:0; padding:0; background:#0b0b0c; color:#eaeaea; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    header { padding: 12px 16px; border-bottom:1px solid #222; position: sticky; top: 0; background: rgba(11,11,12,0.9); backdrop-filter: blur(6px); }
+    .brand { font-weight:700; letter-spacing:0.5px; }
+    .container { padding: 12px 16px 24px; }
+    .row { display: grid; grid-template-columns: 160px 120px 1fr; gap: 10px; align-items: start; padding: 8px 0; border-bottom: 1px dashed #262626; }
+    .pill { display:inline-block; padding: 2px 10px; border-radius: 999px; background: rgba(120,120,255,0.12); border:1px solid rgba(140,140,255,0.28); font-size:12px; }
+    .time { color:#aaa; font-variant-numeric: tabular-nums; }
+    .type { text-transform: uppercase; letter-spacing: .02em; color:#c7c7ff; }
+    .msg { color:#e1e1e6; white-space: pre-wrap; }
+    .legend { margin-top: 12px; font-size:12px; color:#a8a8a8; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="bar">
-      <div class="circle" id="lamp" title="Connected"></div>
-      <div class="status">Connected <span class="state" id="state">Live</span></div>
-    </div>
-
-    <div class="card">
-      <div class="rows header">
-        <div class="cell clock">Time</div>
-        <div class="cell type">Type</div>
-        <div class="cell msg">Message</div>
-      </div>
-      <div class="rows" id="rows"></div>
-      <div id="empty" class="empty">Waiting for events…</div>
-    </div>
-  </div>
+  <header>
+    <div class="brand">Planet Intake — Live</div>
+    <div class="legend">No “..” prefixes. Navigation shown with ➡️, inbox with 📬, sheet links appear inline.</div>
+  </header>
+  <div class="container" id="log"></div>
 
   <script>
-    const ENDPOINT = '/events';
-    const MAX_BACKOFF = 15_000;
+    const logEl = document.getElementById('log');
 
-    let es = null;
-    let backoff = 500;
-    let lastPulseMs = 0;
-    let t0 = Date.now(); // reset each connect()
+    function add(type, msg) {
+      const row = document.createElement('div');
+      row.className = 'row';
 
-    const qs=(s,el=document)=>el.querySelector(s);
-    const rowsEl = qs('#rows');
-    const stateEl = qs('#state');
-    const emptyEl = qs('#empty');
-    const lampEl  = qs('#lamp');
+      const t = document.createElement('div');
+      t.className = 'time';
+      t.textContent = new Date().toLocaleTimeString();
 
-    const pad2 = n => (n<10?'0'+n:''+n);
-    const mmss = (tsMs) => { const d = Math.max(0, tsMs - t0); const s = Math.floor(d/1000); return pad2(Math.floor(s/60))+':'+pad2(s%60); };
-    const now = ()=>Date.now();
+      const ty = document.createElement('div');
+      ty.className = 'type pill';
+      ty.textContent = type;
 
-    function setState(kind,msg){
-      stateEl.textContent = msg || kind;
-      if (kind==='ok') { lampEl.style.background='#22c55e'; lampEl.style.boxShadow='0 0 12px rgba(34,197,94,.45)'; }
-      else if (kind==='wait'){ lampEl.style.background='#f59e0b'; lampEl.style.boxShadow='0 0 10px rgba(245,158,11,.35)'; }
-      else { lampEl.style.background='#ef4444'; lampEl.style.boxShadow='0 0 10px rgba(239,68,68,.35)'; }
+      const m = document.createElement('div');
+      m.className = 'msg';
+      m.textContent = msg;
+
+      row.appendChild(t);
+      row.appendChild(ty);
+      row.appendChild(m);
+      logEl.appendChild(row);
+      row.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
 
-    function trimPayload(ev){
-      const out = {...ev};
-      if (!out.msg && out.message) out.msg = out.message;
-      delete out.__raw;
-      delete out.execUrlPrefix;
-      return out;
-    }
+    function start()    { add('info', 'stream: connected'); }
+    function onClose()  { add('info', 'stream: closed'); }
+    function onError(e) { add('error', 'stream: error'); console.error(e); }
 
-    function formatLead(ev){
-      const name = ev.leadName || ev.lead || 'Lead';
-      const idx = (typeof ev.index==='number' ? ev.index : (ev.index?String(ev.index):null));
-      const tot = (typeof ev.total==='number' ? ev.total : (ev.total?String(ev.total):null));
-      if (idx!=null && tot!=null) return `${name} (${idx} of ${tot})`;
-      return name;
-    }
+    const es = new EventSource('/events');
+    es.addEventListener('open', start);
+    es.addEventListener('error', onError);
 
-    // REPLACE the entire prettifyMessage function with this:
-    function prettifyMessage(raw){
-      if (!raw) return '';
-      let s = String(raw).trim();
-
-      // Remove any leading dots / ellipsis / bullets + following spaces
-      // handles: ".", "..", "...", "…", "•", "·", "‧", "⋯", "∙"
-      s = s.replace(/^\s*(?:\.(?:\s|$))+/u, '');     // one-or-more ". " at start
-      s = s.replace(/^\s*[•·‧⋯∙…]+(?:\s|$)*/u, '');  // bullets/ellipsis variants
-
-      const sl = s.toLowerCase();
-
-      // Specific remaps (sentence-case: only first word capitalized)
-      if (sl === 'start')                     return 'Start';
-      if (sl === 'browser: ready')            return 'Browser: ready';
-      if (sl === 'login: starting')           return 'Logging in';
-      if (sl === 'login: ok')                 return 'Login: ✅';
-      // Nav -> right arrow (no space after emoji)
-      if (sl === 'nav: go to all leads')      return '➡️Go to all leads';
-      if (sl === 'nav: inbox loaded')         return '➡️Inbox loaded';
-      if (sl === 'pack: per page set to 100') return 'Pack: per page set to 100';
-
-      // Generic fallback: sentence-case (capitalize first letter only)
-      return s.replace(/^(\s*[a-zA-Z])/, m => m.toUpperCase());
-    }
-
-    function friendlyMessage(ev){
-      if (ev.msg) {
-        const m = String(ev.msg).trim();
-        if (m.toLowerCase() === 'hello') return ''; // hidden by caller anyway
-        return m;
-      }
-
-      switch (ev.type) {
-        case 'message':
-          if (ev.typeInner && String(ev.typeInner).toLowerCase()==='start') return 'Start';
-          return 'Message';
-
-        case 'lead':
-          return formatLead(ev);
-
-        case 'numbers': {
-          const p=[];
-          if ('listedCount' in ev)  p.push(`listed=${ev.listedCount}`);
-          if ('extraCount' in ev)   p.push(`extras=${ev.extraCount}`);
-          if ('flaggedCount' in ev) p.push(`flagged=${ev.flaggedCount}`);
-          return p.join(', ') || 'Numbers';
+    ['info','start','lead','numbers','badge','sheet','error','done'].forEach(ev => {
+      es.addEventListener(ev, (e) => {
+        try {
+          const data = JSON.parse(e.data || '{}');
+          if (ev === 'sheet' && data.url) {
+            add('sheet', data.url);
+          } else if (ev === 'lead' && data.leadName) {
+            add('lead', `#${data.index}/${data.total} ${data.leadName}`);
+          } else if (ev === 'badge') {
+            add('badge', `${data.badge || ''} total=${data.totalPremium}`);
+          } else if (ev === 'numbers') {
+            add('numbers', `listed=${data.listedCount} extras=${data.extraCount} flagged=${data.flaggedCount}`);
+          } else if (ev === 'done') {
+            add('done', `processed=${data.processed} in ${data.ms}ms`);
+          } else if (ev === 'start') {
+            add('start', `max=${data.maxLeads}`);
+          } else {
+            add(ev, data.msg || e.data || '');
+          }
+        } catch (err) {
+          add('error', 'parse error');
+          console.error(err, e.data);
         }
-
-        case 'badge':
-          return ('totalPremium' in ev) ? `⭐ totalPremium=${ev.totalPremium}` : 'Badge';
-
-        case 'sheet':
-          return ev.url || 'Sheet';
-
-        case 'done':
-          return ('processed' in ev) ? `processed=${ev.processed}` : 'Done';
-
-        case 'error':
-          return ev.error || ev.message || 'Error';
-
-        default:
-          return ev.type || 'Message';
-      }
-    }
-
-    // === badge emoji helpers ===
-    function extractTotalPremium(msg) {
-      // look for "totalPremium=185.75" pattern
-      const m = /totalPremium\s*=\s*([0-9]+(?:\.[0-9]+)?)/i.exec(msg || '');
-      return m ? Number(m[1]) : null;
-    }
-
-    function pickBadgeEmojiFromPremium(p) {
-      if (p == null || Number.isNaN(p)) return null;        // no change if missing
-      if (p === 0) return '🔴';                               // exactly zero
-      if (p < 50) return '🟣';                                // 0.01–49.99
-      if (p < 100) return '⚪';                               // 50.00–99.99
-      return '⭐';                                            // 100.00+
-    }
-
-    // Remove any existing leading emoji/symbol then prefix the chosen one
-    function applyBadgeEmoji(msg) {
-      const prem = extractTotalPremium(msg);
-      const emoji = pickBadgeEmojiFromPremium(prem);
-      if (!emoji) return msg;
-
-      // strip an existing leading symbol + optional space (e.g., "⭐ ", "• ", etc.)
-      const stripped = (msg || '').replace(/^[^\w\s]?\s*/, '');
-      return `${emoji} ${stripped}`;
-    }
-
-    function stopOldPulses() {
-      const pulses = Array.from(document.querySelectorAll('.pill.pulse .typing'));
-      pulses.slice(0, -1).forEach(el => el.classList.add('stopped'));
-    }
-
-    function addRow(tsMs,type,msg){
-      emptyEl.style.display='none';
-
-      // unify info → message for pill/color
-      let displayType = (type === 'info') ? 'message' : type;
-
-      const cTime=document.createElement('div');
-      cTime.className='cell clock';
-      cTime.textContent=mmss(tsMs);
-
-      const cType=document.createElement('div');
-      cType.className='cell type';
-      const pill=document.createElement('span');
-      pill.className=`pill ${displayType}`;
-      pill.title=displayType;
-      const dot=document.createElement('span');
-      dot.className='dot';
-      dot.style.background=getComputedStyle(document.documentElement).getPropertyValue(
-        displayType==='message'?'--msg':
-        displayType==='lead'   ?'--lead':
-        displayType==='sheet'  ?'--sheet':
-        displayType==='error'  ?'--err':
-        displayType==='done'   ?'--done':
-        displayType==='numbers'?'--number':
-        displayType==='badge'  ?'--badge':'--pulse'
-      );
-      pill.appendChild(dot);
-
-      if (displayType==='pulse'){
-        const t=document.createElement('span');
-        t.className='typing';
-        t.innerHTML='<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>';
-        pill.appendChild(t);
-      }else{
-        pill.appendChild(document.createTextNode(displayType));
-      }
-      cType.appendChild(pill);
-
-      const cMsg=document.createElement('div');
-      cMsg.className='cell msg';
-      cMsg.textContent=msg||'';
-
-      rowsEl.appendChild(cTime);
-      rowsEl.appendChild(cType);
-      rowsEl.appendChild(cMsg);
-
-      if (displayType==='pulse') stopOldPulses();
-
-      rowsEl.parentElement.scrollTop=rowsEl.parentElement.scrollHeight;
-    }
-
-    function shouldHideInfo(payload, type){
-      const m = String(payload.msg || payload.message || '').trim();
-
-      // hide explicit hello
-      if (m && /^hello$/i.test(m)) return true;
-      if (String(payload.type||'').toLowerCase()==='hello') return true;
-
-      // hide “lead: opening” and verbose monthly lines
-      if (/^lead\s*:\s*opening$/i.test(m)) return true;
-      if (/^lead\s+\d+:\s+monthly=/i.test(m)) return true;
-
-      return false;
-    }
-
-    function routeEvent(e){
-      const ts = now();
-      let type = e.type || 'message';
-      let payload = {};
-      try { payload = e.data ? JSON.parse(e.data) : {}; } catch { payload = {}; }
-
-      // heartbeat → pulse (throttled)
-      if (type==='heartbeat' || payload.type==='heartbeat'){
-        if (ts - lastPulseMs < 10_000) return;
-        lastPulseMs = ts;
-        addRow(ts,'pulse','');
-        return;
-      }
-
-      // prefer explicit payload types we know
-      const known=new Set(['info','lead','sheet','error','done','numbers','badge','message']);
-      if (payload.type && known.has(payload.type)) type = payload.type;
-
-      const clean = trimPayload(payload);
-
-      // hide noise including "hello"
-      if ( (type==='info' || type==='message') && shouldHideInfo(clean, type)) return;
-
-      // capture inner type for message transform
-      if (type==='message' && clean.type && clean.type!=='message') clean.typeInner = clean.type;
-
-      let msg = friendlyMessage({ type, ...clean });
-
-      // For message/info lines: ensure final prettify
-      if ((type==='message' || type==='info') && msg) {
-        msg = prettifyMessage(msg);
-      }
-
-      if (type === 'badge') {
-        msg = applyBadgeEmoji(msg);
-      }
-
-      addRow(ts, type, msg);
-    }
-
-    function connect(){
-      try { if (es) es.close(); } catch {}
-      setState('wait','connecting…');
-
-      // reset relative clock
-      t0 = Date.now();
-
-      es = new EventSource(ENDPOINT,{ withCredentials:false });
-
-      es.onopen = () => {
-        setState('ok','Live');
-        backoff = 1000;
-        addRow(now(),'message','Live'); // first row
-      };
-
-      es.onmessage = routeEvent; // default (no event name) messages ONLY
-      // Named events (NO 'message' here)
-      ['info','lead','sheet','error','done','numbers','badge','heartbeat'].forEach(t => {
-        es.addEventListener(t, routeEvent);
       });
-
-      es.onerror = () => {
-        setState('wait',`retry in ~${Math.round(backoff/1000)}s`);
-        try { es.close(); } catch {}
-        setTimeout(connect, backoff + Math.floor(Math.random()*400));
-        backoff = Math.min(MAX_BACKOFF, backoff*2);
-      };
-    }
-
-    connect();
-
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState==='visible' && es && es.readyState===EventSource.CLOSED) connect();
     });
   </script>
 </body>
