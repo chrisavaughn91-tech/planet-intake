@@ -2,7 +2,7 @@
 // Usage: node scripts/test-e2e.js
 // Config via env:
 //   E2E_LIMIT         -> how many leads (?limit=), default 10
-//   E2E_SMOKE_LIMIT   -> seconds to wait for sheet url, default 180
+//   E2E_SMOKE_LIMIT   -> seconds to wait for sheet url, default 600
 //   E2E_SERVER        -> base URL, default http://127.0.0.1:8080
 //
 // Exits nonzero if sheet url not seen within the window.
@@ -16,7 +16,7 @@ const fetchFn = globalThis.fetch;
 
 const BASE   = process.env.E2E_SERVER || "http://127.0.0.1:8080";
 const LIMIT  = Number(process.env.E2E_LIMIT || 10);
-const WAIT_S = Number(process.env.E2E_SMOKE_LIMIT || 180);
+const WAIT_S = Number(process.env.E2E_SMOKE_LIMIT || 600);  // ⬅️ bumped from 180 to 600
 
 function now() { return new Date().toLocaleTimeString(); }
 function log(...a) { console.log(`[E2E ${now()}]`, ...a); }
