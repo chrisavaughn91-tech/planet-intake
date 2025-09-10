@@ -12,7 +12,7 @@ Web App URL: https://script.google.com/macros/s/AKfycbwm-xCWee.../exec
 
 ## Local E2E Settings
 E2E_LIMIT: 200
-E2E_WAIT_S: 600
+E2E_SMOKE_LIMIT: 600   # canonical (test harness also accepts legacy E2E_WAIT_S)
 MAX_LEADS_DEFAULT: 200
 
 ## Notes
