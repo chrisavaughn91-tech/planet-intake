@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { emit, onClientConnect, removeClient } from "./events.js";
-import { scrapePlanet } from "./scraper.js";
+// NOTE: scraper is now lazy-loaded (see getScrapePlanet below)
 import { createSheetAndShare } from "./sheets.js";
 
 dotenv.config();
@@ -68,7 +68,17 @@ function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// --- NEW: lazy-load scraper on demand
+async function getScrapePlanet() {
+  const mod = await import("./scraper.js");
+  if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
+  return mod.scrapePlanet;
+}
+
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
+  // lazy import here, right before first use
+  const scrapePlanet = await getScrapePlanet();
+
   const result = await scrapePlanet({ username, password, max, jobId });
   if (!result?.ok) {
     emit("error", { msg: "scrape failed: " + (result?.error || "unknown"), jobId });
@@ -190,7 +200,7 @@ process.on("uncaughtException", (e) => {
    Server start + optional autorun (guarded)
    ========================= */
 const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log("server listening on", PORT);
 
   const flag = String(process.env.START_ON_BOOT || "").toLowerCase();

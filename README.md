@@ -52,3 +52,7 @@ Behavior:
 
       npm run start:full
       curl -sS "http://127.0.0.1:8080/run/full?max=200"
+
+## Notes
+- The scraper module is **lazy-loaded** on first run to keep startup light in Codespaces.
+- Server binds to **0.0.0.0** to ensure port forwarding works reliably.
