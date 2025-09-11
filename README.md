@@ -54,6 +54,16 @@ Behavior:
 - The run uses START_MAX if set; otherwise falls back to MAX_LEADS_DEFAULT; else scraper default.
 - All events stream to `/live` as usual.
 
+## Live Stream controls (Change 7)
+
+- **Elapsed time clock** — timestamps begin at **`00:00:00`** on the first `start` event (fallback: first event).
+- **Filter chips** — toggle visibility of: `info, start, lead, numbers, badge, sheet, error, done, client`.
+- **Search box** — quick text filter (e.g., `autorun`, `sheet:url`, a job id).
+- **Badges** — “AUTORUN” vs “MANUAL” is inferred client-side from the event payload/text.
+- **Auto-scroll** — on by default; when off, a sticky “New messages ↓” appears.
+- **Clear / Copy** — clear current view or copy last 200 lines to clipboard.
+- **Reconnect ribbon** — visible when the SSE connection is retrying.
+
 ## Troubleshooting: Live page keeps reconnecting
 - Disable autorun temporarily:
 
