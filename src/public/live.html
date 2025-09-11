@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Intake — Live Stream</title>
+  <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
@@ -50,11 +50,15 @@
     .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
     .stickyNew .button{background:#122845;border-color:#204a86}
     .muted{color:#909090}
+    /* link styling for sheet URL */
+    .link{color:#9fd1ff;text-decoration:none;border-bottom:1px dotted #4a78a8}
+    .link:hover{text-decoration:underline}
+    .mini{font-size:12px;margin-left:8px}
   </style>
 </head>
 <body>
   <header>
-    <div class="brand">Planet Intake — Live</div>
+    <div class="brand">Planet Lead Pull — Live</div>
     <div class="toolbar" id="toolbar">
       <!-- filter chips -->
       <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
@@ -128,6 +132,11 @@
     }
 
     // --- rendering ----------------------------------------------------------
+    function urlFrom(text){
+      const m = (text||"").match(/https?:\/\/\S+/);
+      return m ? m[0].replace(/[)\]}.,;!?]+$/,'') : null;
+    }
+
     function addRow(level, msg, meta = {}) {
       // filtering (by type and query)
       if (!filters.get(level)) return;
@@ -154,7 +163,35 @@
 
       ty.append(lvl, badge);
 
-      const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
+      const m = document.createElement('div'); m.className = 'msg';
+
+      // === NEW: clickable Sheet URL + Copy button ===========================
+      if (level === 'sheet') {
+        const url = meta.url || urlFrom(msg);
+        if (url) {
+          const a = document.createElement('a');
+          a.href = url; a.target = "_blank"; a.rel = "noopener";
+          a.className = 'link';
+          a.textContent = url;
+
+          const copy = document.createElement('button');
+          copy.className = 'button mini';
+          copy.textContent = 'Copy URL';
+          copy.onclick = async () => {
+            try {
+              await navigator.clipboard.writeText(url);
+              const old = copy.textContent; copy.textContent = 'Copied!'; setTimeout(()=>copy.textContent=old, 1200);
+            } catch(e) {}
+          };
+
+          m.append(a, copy);
+        } else {
+          m.textContent = msg || '';
+        }
+      } else {
+        m.textContent = msg || '';
+      }
+      // =====================================================================
 
       row.append(t, ty, m);
       logEl.appendChild(row);
@@ -208,7 +245,7 @@
       lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
       numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
       badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet: (d)=> addRow('sheet', d.url || d.msg || ''),
+      sheet: (d)=> addRow('sheet', d.url || d.msg || '', d),   // pass url in meta
       error: (d)=> addRow('error', d.msg || ''),
       done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
       client:(d)=> addRow('client', d.msg || '')
