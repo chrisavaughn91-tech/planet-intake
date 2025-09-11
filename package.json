@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "start:full": "node src/server.js --run-full",
     "stop": "pkill -f \"node .*src/server.js\" || true",
-    "restart": "npm run stop && npm run start",
+    "restart": "npm run stop; sleep 0.3; npm run start",
     "test:push": "node scripts/test-push.js",
     "test": "npm run -s test:push",
     "scrape": "node src/scraper.js",

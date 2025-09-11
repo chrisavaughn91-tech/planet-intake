@@ -14,9 +14,11 @@
   
       npm run stop
 
-- Restart quickly:
+- Restart with a brief safety pause to avoid race conditions:
 
       npm run restart
+
+> `restart` runs: `stop` → **short pause** → `start`, ensuring the previous server has fully exited before launching a new one.
 
 ## Health Check (Apps Script)
 Verify the deployed Apps Script Web App with `?action=health`:
