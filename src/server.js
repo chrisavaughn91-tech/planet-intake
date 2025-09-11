@@ -179,9 +179,40 @@ app.get("/run/full", async (req, res) => {
 });
 
 /* =========================
-   Server start
+   Server start + optional auto-run
    ========================= */
 const PORT = Number(process.env.PORT || 8080);
 app.listen(PORT, () => {
   console.log("server listening on", PORT);
+
+  // Optional: kick off a run on boot if enabled
+  const flag = String(process.env.START_ON_BOOT || "").toLowerCase();
+  const shouldStart =
+    flag === "true" || flag === "1" || flag === "yes" || flag === "on";
+
+  if (shouldStart) {
+    const username = envUser();
+    const password = envPass();
+    const email = envEmail();
+
+    // Use START_MAX if provided; else fall back to MAX_LEADS_DEFAULT; else undefined (scraper default)
+    const startMax =
+      process.env.START_MAX != null
+        ? Number(process.env.START_MAX)
+        : (process.env.MAX_LEADS_DEFAULT != null
+            ? Number(process.env.MAX_LEADS_DEFAULT)
+            : undefined);
+
+    const jobId = mkJobId();
+    emit("info", { msg: `autorun: start (job ${jobId}, max=${startMax ?? "default"})`, jobId });
+
+    // Don't block the boot; fire it off asynchronously
+    (async () => {
+      try {
+        await runScrapeAndSheet({ username, password, email, max: startMax, jobId });
+      } catch (e) {
+        emit("error", { msg: "autorun: exception " + (e?.message || e), jobId });
+      }
+    })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e), jobId }));
+  }
 });
