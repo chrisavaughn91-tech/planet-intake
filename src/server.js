@@ -81,16 +81,14 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
     let sig = "object:{email,result}";
 
     try {
-      // ✅ matches your sheets.js signature
+      // matches sheets.js signature
       sheet = await createSheetAndShare({ email, result });
-    } catch (e1) {
-      // Optional back-compat if an older sheets.js ever appears
+    } catch (_e1) {
+      // Optional back-compat path, if older sheets.js ever appears
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
 
-    // Accept BOTH shapes:
-    //   { url }  OR  { ok:true, url }
     const url = sheet?.url || null;
     const ok  = url ? true : (sheet?.ok === true && !!sheet?.url);
 
@@ -127,7 +125,7 @@ app.get("/scrape", async (req, res) => {
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null); // global; job events mirrored via events.js
+    const clientId = onClientConnect(res, null);
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
@@ -179,23 +177,35 @@ app.get("/run/full", async (req, res) => {
 });
 
 /* =========================
-   Server start + optional auto-run
+   Global error surfacing
+   ========================= */
+process.on("unhandledRejection", (e) => {
+  emit("error", { msg: "unhandledRejection: " + (e?.message || e) });
+});
+process.on("uncaughtException", (e) => {
+  emit("error", { msg: "uncaughtException: " + (e?.message || e) });
+});
+
+/* =========================
+   Server start + optional autorun (guarded)
    ========================= */
 const PORT = Number(process.env.PORT || 8080);
 app.listen(PORT, () => {
   console.log("server listening on", PORT);
 
-  // Optional: kick off a run on boot if enabled
   const flag = String(process.env.START_ON_BOOT || "").toLowerCase();
   const shouldStart =
     flag === "true" || flag === "1" || flag === "yes" || flag === "on";
 
-  if (shouldStart) {
+  // One-shot guard so autorun only fires once per process
+  if (shouldStart && !global.__AUTORUN_STARTED) {
+    global.__AUTORUN_STARTED = true;
+
+    const delayMs = Number(process.env.AUTORUN_DELAY_MS || 1500);
     const username = envUser();
     const password = envPass();
     const email = envEmail();
 
-    // Use START_MAX if provided; else fall back to MAX_LEADS_DEFAULT; else undefined (scraper default)
     const startMax =
       process.env.START_MAX != null
         ? Number(process.env.START_MAX)
@@ -204,15 +214,18 @@ app.listen(PORT, () => {
             : undefined);
 
     const jobId = mkJobId();
-    emit("info", { msg: `autorun: start (job ${jobId}, max=${startMax ?? "default"})`, jobId });
+    emit("info", { msg: `autorun: scheduled in ${delayMs}ms (job ${jobId}, max=${startMax ?? "default"})`, jobId });
 
-    // Don't block the boot; fire it off asynchronously
-    (async () => {
-      try {
-        await runScrapeAndSheet({ username, password, email, max: startMax, jobId });
-      } catch (e) {
-        emit("error", { msg: "autorun: exception " + (e?.message || e), jobId });
-      }
-    })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e), jobId }));
+    setTimeout(() => {
+      emit("info", { msg: `autorun: start (job ${jobId})`, jobId });
+      (async () => {
+        try {
+          await runScrapeAndSheet({ username, password, email, max: startMax, jobId });
+          emit("info", { msg: `autorun: end (job ${jobId})`, jobId });
+        } catch (e) {
+          emit("error", { msg: "autorun: exception " + (e?.message || e), jobId });
+        }
+      })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e), jobId }));
+    }, delayMs);
   }
 });

@@ -36,8 +36,19 @@ Set the following to automatically kick off a scrape when the server boots:
 
     START_ON_BOOT=true     # enable autorun on server start (default: off)
     START_MAX=200          # optional; overrides MAX_LEADS_DEFAULT for this autorun only
+    AUTORUN_DELAY_MS=1500  # optional; delay before autorun to avoid Codespaces reconnects
 
 Behavior:
-- If START_ON_BOOT is true/1/yes/on, the server will trigger a run immediately after it starts.
+- If START_ON_BOOT is true/1/yes/on, the server will trigger a run once after it starts.
 - The run uses START_MAX if set; otherwise falls back to MAX_LEADS_DEFAULT; else scraper default.
 - All events stream to `/live` as usual.
+
+## Troubleshooting: Live page keeps reconnecting
+- Disable autorun temporarily:
+
+      START_ON_BOOT=false
+
+  Then restart and trigger a manual run:
+
+      npm run start:full
+      curl -sS "http://127.0.0.1:8080/run/full?max=200"
