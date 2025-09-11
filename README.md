@@ -9,6 +9,15 @@
     - GET  http://localhost:8080/run/full?max=200
     - POST http://localhost:8080/run  with body: {"max":200}
 
+## Safe Stop / Restart (Codespaces-friendly)
+- Stop only the app server (does **not** kill VS Code):
+  
+      npm run stop
+
+- Restart quickly:
+
+      npm run restart
+
 ## Health Check (Apps Script)
 Verify the deployed Apps Script Web App with `?action=health`:
 
