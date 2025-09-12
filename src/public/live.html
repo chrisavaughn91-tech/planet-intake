@@ -1,3 +1,4 @@
+<!-- src/public/live.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -5,265 +6,276 @@
   <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{
-      --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8; --border:#222;
-      --pill:#1e1f27; --pill-b:#2a2c38;
-      --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
-      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
-      --accent:#6aa8ff;
+    :root {
+      --bg: #0d0f14;
+      --card: #151a22;
+      --muted: #8b98a5;
+      --text: #e7eef7;
+      --accent: #7cc0ff;
+      --good: #7dffa0;
+      --warn: #ffd36a;
+      --bad: #ff7d7d;
+      --chip: #202733;
+      --chip-border: #2b3544;
+      --row-border: #1d2330;
     }
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-    header{position:sticky;top:0;background:rgba(11,11,12,.9);backdrop-filter:blur(6px);
-      border-bottom:1px solid var(--border);padding:10px 12px;z-index:10}
-    .brand{font-weight:700;letter-spacing:.3px}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
-    .chip{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:999px;
-      background:var(--pill);border:1px solid var(--pill-b);font-size:12px;cursor:pointer;user-select:none}
-    .chip[data-on="false"]{opacity:.35}
-    .chip .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
-    .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
-    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
-    .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
-    .dot.error{background:var(--err)} .dot.done{background:var(--done)}
-    .dot.client{background:#aaa}
-    .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-    .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
-    .button:hover{border-color:#3a3c48}
-    .input{padding:5px 9px;border-radius:8px;border:1px solid var(--pill-b);background:#0e0f13;color:var(--fg);min-width:220px}
-    .legend{margin-top:6px;font-size:12px;color:var(--muted)}
-    .banner{position:sticky;top:64px;background:#201b0b;color:#ffdd99;border-bottom:1px solid #3a2d12;padding:6px 12px;display:none}
-    .container{padding:12px 12px 20px}
-    .row{display:grid;grid-template-columns:100px 120px 86px 1fr;gap:10px;align-items:start;
-      padding:7px 0;border-bottom:1px dashed #232323}
-    .time{color:#bbb;font-variant-numeric:tabular-nums}
-    .type{display:inline-flex;align-items:center;gap:6px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px}
-    .msg{white-space:pre-wrap;color:#e5e7eb}
-    .badge-AUTORUN{color:#222;background:#ffd27a;border-color:#ffde9b}
-    .badge-MANUAL{color:#d7ebff;background:#243247;border-color:#3d4f6b}
-    .level-info{color:var(--info)} .level-start{color:var(--warn);font-weight:600}
-    .level-lead{color:var(--lead)} .level-numbers{color:var(--ok)}
-    .level-badge{color:var(--badge)} .level-sheet{color:var(--sheet)}
-    .level-error{color:var(--err);font-weight:600} .level-done{color:var(--done);font-weight:600}
-    .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
-    .stickyNew .button{background:#122845;border-color:#204a86}
-    .muted{color:#909090}
-    /* link styling for sheet URL */
-    .link{color:#9fd1ff;text-decoration:none;border-bottom:1px dotted #4a78a8}
-    .link:hover{text-decoration:underline}
-    .mini{font-size:12px;margin-left:8px}
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 16px 32px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0;
+      letter-spacing: .2px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 13px;
+      margin-left: 6px;
+    }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--chip);
+      border: 1px solid var(--chip-border);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chip.on { color: var(--text); border-color: var(--accent); }
+    .controls {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px;
+    }
+    input[type="text"] {
+      background: var(--card);
+      border: 1px solid var(--chip-border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      min-width: 260px;
+    }
+    button, .btn {
+      background: var(--card);
+      border: 1px solid var(--chip-border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn.on { border-color: var(--accent); }
+    .table {
+      margin-top: 14px;
+      border: 1px solid var(--chip-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .thead, .row {
+      display: grid;
+      grid-template-columns: 92px 88px 1fr;
+      gap: 0;
+      border-bottom: 1px solid var(--row-border);
+    }
+    .thead { background: #0f141d; color: var(--muted); font-size: 12px; }
+    .thead div { padding: 8px 10px; }
+    .row div { padding: 10px; font-size: 13px; line-height: 1.35; }
+    .lvl { text-transform: lowercase; }
+    .lvl .tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid var(--chip-border); background: var(--chip); color: var(--muted);
+      font-size: 11px;
+    }
+    .lvl .tag.info { color: var(--text); }
+    .lvl .tag.start { color: var(--accent); }
+    .lvl .tag.lead { color: var(--good); }
+    .lvl .tag.numbers { color: var(--accent); }
+    .lvl .tag.sheet { color: var(--good); }
+    .lvl .tag.error { color: var(--bad); }
+    .lvl .tag.done  { color: var(--good); }
+    .row a {
+      color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent);
+    }
+    .muted { color: var(--muted); }
+    .topline { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   </style>
 </head>
 <body>
-  <header>
-    <div class="brand">Planet Lead Pull — Live</div>
-    <div class="toolbar" id="toolbar">
-      <!-- filter chips -->
-      <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
-      <div class="chip" data-key="start" data-on="true"><span class="dot start"></span>start</div>
-      <div class="chip" data-key="lead" data-on="true"><span class="dot lead"></span>lead</div>
-      <div class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</div>
-      <div class="chip" data-key="badge" data-on="true"><span class="dot badge"></span>badge</div>
-      <div class="chip" data-key="sheet" data-on="true"><span class="dot sheet"></span>sheet</div>
-      <div class="chip" data-key="error" data-on="true"><span class="dot error"></span>error</div>
-      <div class="chip" data-key="done" data-on="true"><span class="dot done"></span>done</div>
-      <div class="chip" data-key="client" data-on="false"><span class="dot client"></span>client</div>
-      <div class="right">
-        <input id="q" class="input" placeholder="Filter text (e.g. autorun, sheet:url, jobId)" />
-        <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
-        <button id="clearBtn" class="button" title="Clear log view">Clear</button>
-        <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
-      </div>
+  <div class="wrap">
+    <div class="topline">
+      <h1>Planet Lead Pull — Live</h1>
+      <span class="sub">Channel:</span>
+      <span id="channel" class="mono chip"></span>
+      <span class="sub">Elapsed:</span>
+      <span id="clock" class="mono chip on">00:00:00</span>
+      <span id="sheetLink" class="chip"><span class="muted">sheet:</span> <a id="sheetHref" target="_blank" rel="noopener"></a></span>
     </div>
-    <div class="legend">Timestamps show elapsed time since run start (first <span class="level-start">start</span> event). “Autorun” vs “Manual” is inferred client-side.</div>
-  </header>
 
-  <div class="banner" id="banner">Reconnecting…</div>
-  <div class="container" id="log"></div>
-  <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
+    <div class="controls">
+      <div class="chips">
+        <span class="chip" data-filter="info">info</span>
+        <span class="chip" data-filter="start">start</span>
+        <span class="chip" data-filter="lead">lead</span>
+        <span class="chip" data-filter="numbers">numbers</span>
+        <span class="chip" data-filter="badge">badge</span>
+        <span class="chip" data-filter="sheet">sheet</span>
+        <span class="chip" data-filter="error">error</span>
+        <span class="chip" data-filter="done">done</span>
+        <span class="chip" data-filter="client">client</span>
+      </div>
+      <input id="q" type="text" placeholder="Filter text (e.g. autorun, sheet:url)" />
+      <button id="clear">Clear</button>
+      <button id="copy">Copy last 200</button>
+      <button id="autoscroll" class="btn on">auto-scroll</button>
+    </div>
+
+    <div class="table">
+      <div class="thead">
+        <div>time</div>
+        <div>tag</div>
+        <div>message</div>
+      </div>
+      <div id="rows"></div>
+    </div>
+  </div>
 
   <script>
-    const logEl = document.getElementById('log');
-    const toolbar = document.getElementById('toolbar');
-    const banner = document.getElementById('banner');
-    const stickyNew = document.getElementById('stickyNew');
-    const inputQ = document.getElementById('q');
-    const autoScrollChip = document.getElementById('autoScroll');
+    // --- Query params ---
+    const params = new URLSearchParams(location.search);
+    const channel = params.get('job') || params.get('channel') || 'global';
+    document.getElementById('channel').textContent = channel;
 
-    // --- filter state -------------------------------------------------------
-    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
-    toolbar.addEventListener('click', (e)=>{
-      const ch = e.target.closest('.chip[data-key]');
-      if (!ch) return;
-      ch.dataset.on = ch.dataset.on === 'true' ? 'false' : 'true';
-      filters.set(ch.dataset.key, ch.dataset.on === 'true');
-      refilter();
-    });
-    autoScrollChip.addEventListener('click', ()=>{
-      autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false':'true';
-      maybeShowNew();
-    });
+    // --- Timer starting at 00:00:00 (since first "start" event OR connect) ---
+    let t0 = null;                 // will set on first event; fallback to connect time
+    let tConnect = performance.now();
 
-    document.getElementById('clearBtn').onclick = ()=>{ logEl.innerHTML = ''; };
-    document.getElementById('copyBtn').onclick = ()=>{
-      const rows = [...logEl.querySelectorAll('.row')].slice(-200);
-      const text = rows.map(r => r.innerText.replace(/\s+\n/g,' ')).join('\n');
-      navigator.clipboard.writeText(text).catch(()=>{});
-    };
-    inputQ.addEventListener('input', ()=> refilter());
-
-    // --- elapsed time baseline ---------------------------------------------
-    let t0 = null; // set on first 'start' event; fallback to first event if needed
-    const now = () => performance.now();
-    const fmtHMS = (ms) => {
-      const s = Math.max(0, Math.floor(ms/1000));
-      const h = Math.floor(s/3600);
-      const m = Math.floor((s%3600)/60);
-      const ss = s%60;
-      const pad = (n)=> String(n).padStart(2,'0');
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
-    };
-
-    function elapsed() {
-      if (!t0) return '00:00:00';
-      return fmtHMS(now() - t0);
+    const clockEl = document.getElementById('clock');
+    function fmt(ms) {
+      const total = Math.max(0, Math.floor(ms / 1000));
+      const h = String(Math.floor(total / 3600)).padStart(2,'0');
+      const m = String(Math.floor((total % 3600) / 60)).padStart(2,'0');
+      const s = String(total % 60).padStart(2,'0');
+      return `${h}:${m}:${s}`;
     }
+    setInterval(() => {
+      const base = (t0 ?? tConnect);
+      clockEl.textContent = fmt(performance.now() - base);
+    }, 500);
 
-    // --- rendering ----------------------------------------------------------
-    function urlFrom(text){
-      const m = (text||"").match(/https?:\/\/\S+/);
-      return m ? m[0].replace(/[)\]}.,;!?]+$/,'') : null;
-    }
-
-    function addRow(level, msg, meta = {}) {
-      // filtering (by type and query)
-      if (!filters.get(level)) return;
-
-      const q = inputQ.value.trim().toLowerCase();
-      if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
-
-      const row = document.createElement('div'); row.className = 'row';
-      const t = document.createElement('div');  t.className = 'time'; t.textContent = elapsed();
-
-      const ty = document.createElement('div'); ty.className = 'type';
-      const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
-      const badge = document.createElement('span'); badge.className = 'pill muted';
-
-      // infer job badge
-      const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
-                     (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
-      if (level === 'start' || source) {
-        badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
-        badge.classList.add(source ? `badge-${source}` : 'badge-MANUAL');
-      } else {
-        badge.style.display = 'none';
-      }
-
-      ty.append(lvl, badge);
-
-      const m = document.createElement('div'); m.className = 'msg';
-
-      // === NEW: clickable Sheet URL + Copy button ===========================
-      if (level === 'sheet') {
-        const url = meta.url || urlFrom(msg);
-        if (url) {
-          const a = document.createElement('a');
-          a.href = url; a.target = "_blank"; a.rel = "noopener";
-          a.className = 'link';
-          a.textContent = url;
-
-          const copy = document.createElement('button');
-          copy.className = 'button mini';
-          copy.textContent = 'Copy URL';
-          copy.onclick = async () => {
-            try {
-              await navigator.clipboard.writeText(url);
-              const old = copy.textContent; copy.textContent = 'Copied!'; setTimeout(()=>copy.textContent=old, 1200);
-            } catch(e) {}
-          };
-
-          m.append(a, copy);
-        } else {
-          m.textContent = msg || '';
-        }
-      } else {
-        m.textContent = msg || '';
-      }
-      // =====================================================================
-
-      row.append(t, ty, m);
-      logEl.appendChild(row);
-
-      if (autoScrollChip.dataset.on === 'true') {
-        row.scrollIntoView({behavior:'smooth', block:'end'});
-        stickyNew.style.display = 'none';
-      } else {
-        maybeShowNew();
-      }
-    }
-
-    function maybeShowNew(){
-      const atBottom = Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 4;
-      stickyNew.style.display = (autoScrollChip.dataset.on === 'false' && !atBottom) ? 'flex' : 'none';
-    }
-    function scrollToEnd(force=false){
-      logEl.scrollTop = logEl.scrollHeight;
-      if (force) stickyNew.style.display = 'none';
-    }
-    logEl.addEventListener('scroll', ()=> maybeShowNew());
-
-    function refilter(){
-      [...logEl.children].forEach(row=>{
-        const level = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
-        const text = row.innerText.toLowerCase();
-        const q = inputQ.value.trim().toLowerCase();
-        const typeText = level ? level.textContent : 'info';
-        const showType = filters.get(typeText);
-        const showText = !q || text.includes(q);
-        row.style.display = (showType && showText) ? '' : 'none';
-      });
-    }
-
-    // --- SSE setup ----------------------------------------------------------
-    function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
-
-    const es = new EventSource('/events');
-    es.addEventListener('open', () => {
-      showBanner(false);
-      addRow('info', 'stream: connected');
-    });
-    es.addEventListener('error', () => {
-      showBanner(true);
-      addRow('error', 'stream: error (trying to reconnect…)');
-    });
-
-    const handlers = {
-      info:  (d)=> addRow('info', d.msg || ''),
-      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-      lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
-      numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-      badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet: (d)=> addRow('sheet', d.url || d.msg || '', d),   // pass url in meta
-      error: (d)=> addRow('error', d.msg || ''),
-      done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
-      client:(d)=> addRow('client', d.msg || '')
-    };
-
-    // subscribe to known event types
-    ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
-      es.addEventListener(type, (e)=>{
-        try{
-          const data = JSON.parse(e.data || '{}');
-          if (!t0 && type !== 'info') t0 = now(); // fallback baseline if no explicit 'start'
-          (handlers[type] || handlers.info)(data);
-        }catch(err){
-          addRow('error', 'parse error');
-          console.error(err, e.data);
-        }
+    // --- UI state ---
+    const rows = document.getElementById('rows');
+    const filterChips = new Map();
+    document.querySelectorAll('.chip[data-filter]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const key = chip.dataset.filter;
+        const on = chip.classList.toggle('on');
+        if (on) filterChips.set(key, true); else filterChips.delete(key);
+        applyFilter();
       });
     });
+    const q = document.getElementById('q');
+    q.addEventListener('input', applyFilter);
+    const clearBtn = document.getElementById('clear');
+    clearBtn.addEventListener('click', () => { rows.innerHTML = ''; });
+    const copyBtn = document.getElementById('copy');
+    copyBtn.addEventListener('click', () => {
+      const lines = [...rows.querySelectorAll('.row')].slice(-200)
+        .map(r => r.dataset.raw || r.textContent.trim());
+      navigator.clipboard.writeText(lines.join('\n')).catch(()=>{});
+    });
+    const autoBtn = document.getElementById('autoscroll');
+    let autoScroll = true;
+    autoBtn.addEventListener('click', () => {
+      autoScroll = !autoScroll;
+      autoBtn.classList.toggle('on', autoScroll);
+    });
+
+    function applyFilter() {
+      const text = q.value.trim().toLowerCase();
+      const tagFilters = [...filterChips.keys()];
+      for (const row of rows.querySelectorAll('.row')) {
+        const matchesTag = tagFilters.length === 0 || tagFilters.includes(row.dataset.tag);
+        const matchesText = !text || (row.dataset.raw || '').toLowerCase().includes(text);
+        row.style.display = (matchesTag && matchesText) ? '' : 'none';
+      }
+    }
+
+    function addRow(tag, message, raw, url) {
+      const now = performance.now();
+      // Initialize t0 the moment we see an explicit "start" OR first event if none appear
+      if (t0 === null) {
+        if ((tag || '').toLowerCase() === 'start') t0 = now;
+        else if (!t0) t0 = tConnect; // fallback to connect time, then will be replaced on "start"
+      }
+      const elapsed = fmt(now - (t0 ?? tConnect));
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.tag = (tag || 'info').toLowerCase();
+      row.dataset.raw = raw || message || '';
+      row.innerHTML = `
+        <div class="time mono">${elapsed}</div>
+        <div class="lvl"><span class="tag ${row.dataset.tag}">${row.dataset.tag}</span></div>
+        <div class="msg"></div>
+      `;
+      const msg = row.querySelector('.msg');
+      msg.textContent = message || '';
+      if (url) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = 'open';
+        msg.appendChild(document.createTextNode(' '));
+        msg.appendChild(a);
+        // also surface sheet link in header if it's a sheet event
+        if ((row.dataset.tag === 'sheet' || row.dataset.tag === 'numbers') && url.includes('docs.google.com/spreadsheets')) {
+          const link = document.getElementById('sheetHref');
+          link.textContent = url;
+          link.href = url;
+          document.getElementById('sheetLink').classList.add('on');
+        }
+      }
+      rows.appendChild(row);
+      applyFilter();
+      if (autoScroll) row.scrollIntoView({block:'end'});
+    }
+
+    // --- SSE wiring (per-job channel) ---
+    const ev = new EventSource(`/events?job=${encodeURIComponent(channel)}`);
+    ev.onmessage = (e) => {
+      try {
+        const payload = JSON.parse(e.data || '{}');
+        const tag = (payload.tag || payload.type || 'info').toString();
+        const txt = payload.text || payload.msg || payload.message || payload.event || '';
+        const url = payload.url || payload.href || null;
+        addRow(tag, txt, e.data, url);
+      } catch (_) {
+        addRow('info', e.data || '', e.data, null);
+      }
+    };
+    ev.onerror = () => {
+      addRow('error', 'stream: disconnected (retrying…)');
+    };
+
+    // Announce client connected
+    addRow('info', 'client: connected');
   </script>
 </body>
 </html>

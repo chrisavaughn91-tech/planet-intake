@@ -1,79 +1,191 @@
-# Planet Intake
+# README.md — Planet Lead Pull
+
+A Node/Express + Playwright app that scrapes leads, writes a Google Sheet through an Apps Script Web App, and streams progress to a live dashboard. Multi-user runs are isolated by **job id** so each user sees only their own stream.
+
+---
 
 ## Quick Runs
 
-- Smoke: `npm run test:e2e` (about 10 leads by default)
-- Full:
-  - `npm run start:full` (honors `.env` MAX_LEADS_DEFAULT), then visit `/live`
-  - or:
-    - GET  http://localhost:8080/run/full?max=200
-    - POST http://localhost:8080/run  with body: {"max":200}
+- **Smoke / E2E** (defaults to small sample):
+  
+  ~~~bash
+  npm run test:e2e
+  ~~~
+
+- **Full run**:
+  - Start the server then visit `/live`:
+    ~~~bash
+    npm run start:full
+    ~~~
+  - Or trigger via HTTP:
+    ~~~bash
+    # GET
+    curl -sS "http://127.0.0.1:8080/run/full?max=200"
+
+    # POST (if your server exposes /run with body)
+    curl -sS -X POST "http://127.0.0.1:8080/run" \
+      -H "content-type: application/json" \
+      -d '{"max":200}'
+    ~~~
+
+---
 
 ## Safe Stop / Restart (Codespaces-friendly)
-- Stop only the app server (does **not** kill VS Code):
-  
-      npm run stop
 
-- Restart with a brief safety pause to avoid race conditions:
+- **Stop** only the app server (does **not** kill VS Code):
+  ~~~bash
+  npm run stop
+  ~~~
 
-      npm run restart
+- **Restart** with a tiny safety pause to avoid race conditions:
+  ~~~bash
+  npm run restart
+  ~~~
 
-> `restart` runs: `stop` → **short pause** → `start`, ensuring the previous server has fully exited before launching a new one.
+> `restart` runs: `stop` → short sleep → `start`, ensuring the previous server has fully exited.
+
+---
 
 ## Health Check (Apps Script)
-Verify the deployed Apps Script Web App with `?action=health`:
 
-    curl -s "https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec?action=health"
+Verify your deployed Apps Script Web App with `?action=health`:
 
-Sample JSON (shape may vary):
+~~~bash
+curl -s "https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec?action=health"
+~~~
 
-    {"ok":true,"version":4,"tag":"v4-planet-intake-canonical","deployedAt":"2025-09-10T19:40:00.000Z"}
+Sample (shape may vary):
+
+~~~json
+{"ok":true,"version":4,"tag":"v4-planet-intake-canonical","deployedAt":"2025-09-10T19:40:00.000Z"}
+~~~
+
+---
 
 ## Environment Variables
 
-Set these in `.env` (never commit secrets):
+Create `.env` (never commit secrets):
 
-    PLANET_USERNAME=...
-    PLANET_PASSWORD=...
-    REPORT_EMAIL=...
-    GSCRIPT_WEBAPP_URL=https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec
-    MAX_LEADS_DEFAULT=200
+~~~ini
+GSCRIPT_WEBAPP_URL=https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec
+PLANET_USERNAME=your_username
+PLANET_PASSWORD=your_password
+REPORT_EMAIL=you@example.com
 
-- Keep the Live Stream open at `/live` to watch progress in real time.
+# Defaults / behavior toggles
+MAX_LEADS_DEFAULT=200
+START_ON_BOOT=false
+AUTORUN_DELAY_MS=3000
+~~~
+
+---
 
 ## Optional: Auto-run on Server Start
 
-Set the following to automatically kick off a scrape when the server boots:
+Set the following to auto-start one scrape shortly after the server boots (useful in Codespaces):
 
-    START_ON_BOOT=true     # enable autorun on server start (default: off)
-    START_MAX=200          # optional; overrides MAX_LEADS_DEFAULT for this autorun only
-    AUTORUN_DELAY_MS=1500  # optional; delay before autorun to avoid Codespaces reconnects
+~~~ini
+START_ON_BOOT=true
+START_MAX=200         # optional; overrides MAX_LEADS_DEFAULT for this single autorun
+AUTORUN_DELAY_MS=1500 # small delay helps avoid reconnect races
+~~~
 
 Behavior:
-- If START_ON_BOOT is true/1/yes/on, the server will trigger a run once after it starts.
-- The run uses START_MAX if set; otherwise falls back to MAX_LEADS_DEFAULT; else scraper default.
+- If `START_ON_BOOT` is true/1/yes/on, the server triggers **one** run after startup.
+- The run uses `START_MAX` if set; otherwise `MAX_LEADS_DEFAULT`; otherwise scraper default.
 - All events stream to `/live` as usual.
 
-## Live Stream controls (Change 7)
+---
 
-- **Elapsed time clock** — timestamps begin at **`00:00:00`** on the first `start` event (fallback: first event).
-- **Filter chips** — toggle visibility of: `info, start, lead, numbers, badge, sheet, error, done, client`.
+## Live Stream (Change 7)
+
+- **Elapsed timer** starts at **00:00:00** (locks to the first `start` event; falls back to first message).
+- **Filter chips** — toggle: `info`, `start`, `lead`, `numbers`, `badge`, `sheet`, `error`, `done`, `client`.
 - **Search box** — quick text filter (e.g., `autorun`, `sheet:url`, a job id).
-- **Badges** — “AUTORUN” vs “MANUAL” is inferred client-side from the event payload/text.
 - **Auto-scroll** — on by default; when off, a sticky “New messages ↓” appears.
-- **Clear / Copy** — clear current view or copy last 200 lines to clipboard.
-- **Reconnect ribbon** — visible when the SSE connection is retrying.
+- **Sheet link** — appears clickable when available; opens in a new tab.
 
-## Troubleshooting: Live page keeps reconnecting
-- Disable autorun temporarily:
+Open:
+~~~text
+/live
+~~~
 
-      START_ON_BOOT=false
+---
 
-  Then restart and trigger a manual run:
+## Multi-user Login (Change 8)
 
-      npm run start:full
-      curl -sS "http://127.0.0.1:8080/run/full?max=200"
+Use the built-in form to start an **isolated** run with your own credentials:
+
+- Open:
+  ~~~text
+  /login
+  ~~~
+- Fields: **username**, **password**, **report email**, optional **max**, and an **auto-start** toggle.
+- On submit, server returns:
+  ~~~json
+  { "jobId": "abc123", "liveUrl": "/live?job=abc123" }
+  ~~~
+- You’re redirected to `/live?job=abc123`, which shows only **your** run (events are scoped by job id).
+- Multiple users can run simultaneously; each gets a private stream and their own sheet shared to their email.
+
+---
+
+## Manual Run (advanced)
+
+~~~bash
+# Start server
+npm run start
+
+# Kick a full run for a given job id
+curl -sS "http://127.0.0.1:8080/run/full?job=test123&max=200"
+
+# open: /live?job=test123
+~~~
+
+If your server exposes POST `/run`:
+~~~bash
+curl -sS -X POST "http://127.0.0.1:8080/run" \
+  -H "content-type: application/json" \
+  -d '{"username":"u","password":"p","email":"me@example.com","max":100,"autoStart":true}'
+~~~
+
+---
+
+## Troubleshooting
+
+**Live page keeps reconnecting**
+~~~bash
+# Disable autorun temporarily
+echo "START_ON_BOOT=false" >> .env
+npm run restart
+
+# Then manually trigger:
+curl -sS "http://127.0.0.1:8080/run/full?max=200"
+~~~
+
+**No port shows in Ports panel**
+~~~bash
+pkill -f "node .*server.js" || true
+npm run start
+~~~
+
+---
+
+## Git hygiene (after each confirmed change)
+
+~~~bash
+git add -A
+git commit -m "change <n>: <short summary>"
+git push -u origin <branch-for-that-change>
+# Optional SoT checkpoint:
+git tag -a "sot-v1-change-<n>" -m "SoT v1 after change <n>"
+git push origin --tags
+~~~
+
+---
 
 ## Notes
+
 - The scraper module is **lazy-loaded** on first run to keep startup light in Codespaces.
-- Server binds to **0.0.0.0** to ensure port forwarding works reliably.
+- Server binds to **0.0.0.0:8080** so port forwarding works reliably.
+- Timestamps in `/live` start at **00:00:00** for true elapsed runtime.
