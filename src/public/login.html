@@ -72,7 +72,7 @@
 
     $('#f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      status.textContent = 'Starting…';
+      status.textContent = 'Creating job…';
       try {
         const payload = {
           username: $('#u').value.trim(),
@@ -82,31 +82,17 @@
           autoStart: $('#s').value === 'true'
         };
 
-        // 1) Create per-run job via POST /run
-        const res = await fetch('/run', {
+        // Create a per-run job and get its private live URL (with token)
+        const res = await fetch('/session', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error(await res.text().catch(()=>('HTTP '+res.status)));
-        const data = await res.json(); // { jobId, liveUrl }
-        const jobId  = data.jobId;
-        const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(jobId)}`;
+        const data = await res.json(); // { ok, jobId, liveUrl }
+        const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(data.jobId)}`;
 
-        // 2) If autoStart, trigger proven GET /run/full using that job id (and optional max)
-        if (payload.autoStart) {
-          const q = new URLSearchParams();
-          q.set('job', jobId);
-          if (payload.max) q.set('max', String(payload.max));
-          const fullRes = await fetch(`/run/full?${q.toString()}`);
-          if (!fullRes.ok) {
-            const txt = await fullRes.text().catch(()=>('HTTP '+fullRes.status));
-            throw new Error('Failed to start full run: ' + txt);
-          }
-        }
-
-        // 3) Navigate to private live page
-        status.innerHTML = '<span class="ok">OK</span> — opening live…';
+        status.innerHTML = '<span class="ok">Job created.</span> Opening live…';
         setTimeout(() => location.href = liveUrl, 350);
       } catch (err) {
         console.error(err);
