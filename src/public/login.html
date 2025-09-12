@@ -81,6 +81,8 @@
           max:      ($('#m').value || '').trim(),
           autoStart: $('#s').value === 'true'
         };
+
+        // 1) Create per-run job via POST /run
         const res = await fetch('/run', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -88,9 +90,24 @@
         });
         if (!res.ok) throw new Error(await res.text().catch(()=>('HTTP '+res.status)));
         const data = await res.json(); // { jobId, liveUrl }
-        const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(data.jobId)}`;
+        const jobId  = data.jobId;
+        const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(jobId)}`;
+
+        // 2) If autoStart, trigger proven GET /run/full using that job id (and optional max)
+        if (payload.autoStart) {
+          const q = new URLSearchParams();
+          q.set('job', jobId);
+          if (payload.max) q.set('max', String(payload.max));
+          const fullRes = await fetch(`/run/full?${q.toString()}`);
+          if (!fullRes.ok) {
+            const txt = await fullRes.text().catch(()=>('HTTP '+fullRes.status));
+            throw new Error('Failed to start full run: ' + txt);
+          }
+        }
+
+        // 3) Navigate to private live page
         status.innerHTML = '<span class="ok">OK</span> — opening live…';
-        setTimeout(() => location.href = liveUrl, 400);
+        setTimeout(() => location.href = liveUrl, 350);
       } catch (err) {
         console.error(err);
         status.innerHTML = `<span class="err">Error:</span> ${err.message || err}`;
