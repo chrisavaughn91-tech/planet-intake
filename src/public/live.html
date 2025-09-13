@@ -5,8 +5,39 @@
   <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-  <!-- External theme variables (kept) -->
-  <link rel="stylesheet" href="/live-themes.css" />
+  <!-- 1) External theme file (cache-busted) -->
+  <link rel="stylesheet" href="/live-themes.css?v=2b" />
+
+  <!-- 2) Inline NEON fallback so the page is correct even if external CSS is stale/not loaded -->
+  <style id="neon-fallback">
+    :root {
+      /* Neon Command Center palette (same as our neon theme) */
+      --bg:#070b12; --fg:#cfe8ff; --muted:#9fb6d1;
+      --border:#0e1a2b; --row-divider:#10233e;
+
+      --pill:#0d1420; --pill-b:#17233a; --pill-fg:#cfe8ff;
+      --header-bg: rgba(7,11,18,.9);
+      --input-bg:#0a1120;
+
+      --hover-border:#2b62ff;
+      --hover-shadow: 0 0 14px rgba(44,120,255,.35);
+
+      --accent-info:#7db0ff; --accent-start:#ffe077; --accent-error:#ff6b8a;
+      --accent-sheet:#76f7ff; --accent-lead:#baff6d; --accent-numbers:#7dffb0;
+      --accent-badge:#e7a4ff; --accent-done:#74f7c6; --accent-client:#7d8aa5;
+
+      --reconnect-bg:#111a2e; --reconnect-fg:#e4f1ff; --reconnect-border:#1f3561;
+      --sticky-btn-bg:#0a1f44; --sticky-btn-bd:#1e4ed8;
+
+      --time-fg:#a8c7ff; --msg-fg:#e6f2ff;
+
+      --badge-aut-run-fg:#152028; --badge-aut-run-bg:#ffe077; --badge-aut-run-bd:#ffeaaa;
+      --badge-man-fg:#e8d7ff; --badge-man-bg:#22183a; --badge-man-bd:#3b2c63;
+
+      --newest-shadow: 0 0 22px rgba(62,150,255,.45);
+      --newest-divider:#254a84;
+    }
+  </style>
 
   <!-- Base + minimal page styles (colors come from CSS variables) -->
   <style>
@@ -57,7 +88,7 @@
     .stickyNew .button { background:var(--sticky-btn-bg); border-color:var(--sticky-btn-bd); }
   </style>
 </head>
-<body data-theme="neon"><!-- hard-lock Neon -->
+<body data-theme="neon">
   <header>
     <div class="brand">Planet Lead Pull — Live</div>
     <div class="toolbar" id="toolbar">
@@ -172,9 +203,7 @@
       currentLead.parts.badge = `${star}total=${d.totalPremium}`;
       updateLeadRow();
     }
-    function finalizeLead(){
-      currentLead = null;
-    }
+    function finalizeLead(){ currentLead = null; }
     function updateLeadRow(){
       if (!currentLead) return;
       const { row, parts } = currentLead;
@@ -203,12 +232,11 @@
     // Event handlers
     const handlers = {
       info:  (d)=> addRow('info', d.msg || ''),
-      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`); },
+      start: (d)=> { if (!t0) t0 = performance.now(); addRow('start', `max=${d.maxLeads ?? ''}`); },
       lead:  (d)=> startLead(d),
       numbers:(d)=> updateNumbers(d),
       badge: (d)=> updateBadge(d),
       sheet: (d)=> {
-        // Clickable link
         const url = d.url || d.msg || '';
         const a = document.createElement('a'); a.href = url; a.textContent = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
         addRow('sheet', a);
@@ -218,12 +246,11 @@
       client:(d)=> addRow('client', d.msg || '')
     };
 
-    // Subscribe to all event types
     ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
       es.addEventListener(type, (e)=>{
         try{
           const data = JSON.parse(e.data || '{}');
-          if (!t0 && type === 'start') t0 = now();
+          if (!t0 && type === 'start') t0 = performance.now();
           (handlers[type] || handlers.info)(data);
         }catch(err){
           addRow('error', 'parse error');
@@ -231,6 +258,9 @@
         }
       });
     });
+
+    // Tiny diagnostic (optional): log theme variable so we can see it's applied
+    console.debug('[live] theme --bg =', getComputedStyle(document.documentElement).getPropertyValue('--bg'));
   </script>
 </body>
 </html>
