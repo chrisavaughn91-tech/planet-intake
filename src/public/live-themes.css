@@ -1,0 +1,207 @@
+/* Theme variables for the livestream. Each theme sets a palette + effects.
+   Base layout and component structure live in live.html's <style> block. */
+
+/* ---------- Global defaults (fallback if no theme set) ---------- */
+:root {
+  --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8;
+  --border:#222; --row-divider:#232323;
+  --pill:#1e1f27; --pill-b:#2a2c38; --pill-fg:#e8e8e8;
+  --input-bg:#0e0f13; --header-bg:rgba(11,11,12,.9);
+  --hover-border:#3a3c48; --hover-shadow:none;
+
+  --accent-info:#9bb7ff; --accent-start:#ffd27a; --accent-error:#ff7b7b;
+  --accent-sheet:#9ff2ff; --accent-lead:#c3f77a; --accent-numbers:#9be7a5;
+  --accent-badge:#f6b4ff; --accent-done:#8ef0c9; --accent-client:#aaa;
+
+  --reconnect-bg:#201b0b; --reconnect-fg:#ffdd99; --reconnect-border:#3a2d12;
+  --sticky-btn-bg:#122845; --sticky-btn-bd:#204a86;
+  --time-fg:#bbbbbb; --msg-fg:#e5e7eb;
+
+  --badge-aut-run-fg:#222; --badge-aut-run-bg:#ffd27a; --badge-aut-run-bd:#ffde9b;
+  --badge-man-fg:#d7ebff; --badge-man-bg:#243247; --badge-man-bd:#3d4f6b;
+
+  --newest-shadow: 0 0 0 0 rgba(0,0,0,0);
+  --newest-divider: var(--row-divider);
+  --row-anim: fadeIn .15s ease forwards;
+}
+
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+
+/* =========================================================
+   THEME: Minimalist Modern (LIGHT)
+   Paper-white, soft gray dividers, subtle blue accents.
+   ========================================================= */
+body[data-theme="minimalist"] {
+  --bg:#f9fafb;
+  --fg:#0f172a;
+  --muted:#6b7280;
+
+  --border:#e5e7eb;
+  --row-divider:#eef0f3;
+
+  --pill:#ffffff;
+  --pill-b:#e5e7eb;
+  --pill-fg:#111827;
+
+  --input-bg:#ffffff;
+  --header-bg:rgba(249,250,251,.9);
+
+  --hover-border:#c7d2fe;               /* blue-200 */
+  --hover-shadow: 0 1px 0 rgba(17,24,39,.04);
+
+  --accent-info:#2563eb;   /* blue-600  */
+  --accent-start:#d97706;  /* amber-600 */
+  --accent-error:#dc2626;  /* red-600   */
+  --accent-sheet:#0891b2;  /* cyan-700  */
+  --accent-lead:#15803d;   /* green-700 */
+  --accent-numbers:#047857;/* emerald-700 */
+  --accent-badge:#7c3aed;  /* violet-700 */
+  --accent-done:#16a34a;   /* green-600 */
+  --accent-client:#4b5563; /* gray-600  */
+
+  --reconnect-bg:#fff7ed; --reconnect-fg:#7c2d12; --reconnect-border:#fed7aa;
+  --sticky-btn-bg:#e0e7ff; --sticky-btn-bd:#c7d2fe;
+
+  --time-fg:#334155;
+  --msg-fg:#111827;
+
+  --badge-aut-run-fg:#1f2937; --badge-aut-run-bg:#fde68a; --badge-aut-run-bd:#fef3c7;
+  --badge-man-fg:#111827; --badge-man-bg:#e5e7eb; --badge-man-bd:#d1d5db;
+
+  --newest-shadow: inset 0 -1px 0 0 #e5e7eb;
+  --newest-divider:#dfe3e8;
+}
+
+/* =========================================================
+   THEME: Neon Command Center (NAVY DARK + glow)
+   ========================================================= */
+body[data-theme="neon"] {
+  --bg:#070b12; --fg:#cfe8ff; --muted:#9fb6d1;
+  --border:#0e1a2b; --row-divider:#10233e;
+
+  --pill:#0d1420; --pill-b:#17233a; --pill-fg:#cfe8ff;
+  --header-bg: rgba(7,11,18,.9);
+  --input-bg:#0a1120;
+
+  --hover-border:#2b62ff;
+  --hover-shadow: 0 0 14px rgba(44,120,255,.35);
+
+  --accent-info:#7db0ff; --accent-start:#ffe077; --accent-error:#ff6b8a;
+  --accent-sheet:#76f7ff; --accent-lead:#baff6d; --accent-numbers:#7dffb0;
+  --accent-badge:#e7a4ff; --accent-done:#74f7c6; --accent-client:#7d8aa5;
+
+  --reconnect-bg:#111a2e; --reconnect-fg:#e4f1ff; --reconnect-border:#1f3561;
+  --sticky-btn-bg:#0a1f44; --sticky-btn-bd:#1e4ed8;
+
+  --badge-aut-run-fg:#152028; --badge-aut-run-bg:#ffe077; --badge-aut-run-bd:#ffeaaa;
+  --badge-man-fg:#e8d7ff; --badge-man-bg:#22183a; --badge-man-bd:#3b2c63;
+
+  --time-fg:#a8c7ff; --msg-fg:#e6f2ff;
+
+  --newest-shadow: 0 0 22px rgba(62,150,255,.45);
+  --newest-divider:#254a84;
+}
+
+/* =========================================================
+   THEME: Data Journal (LIGHT + zebra)
+   Cream paper background with pastel accents.
+   ========================================================= */
+body[data-theme="journal"] {
+  --bg:#fffdfa; --fg:#1f2937; --muted:#6b7280;
+
+  --border:#e7e5e4;       /* stone-200 */
+  --row-divider:#efeae6;
+
+  --pill:#ffffff;
+  --pill-b:#e7e5e4;
+  --pill-fg:#1f2937;
+
+  --input-bg:#ffffff;
+  --header-bg: rgba(255,253,250,.92);
+
+  --hover-border:#f5d0fe; /* fuchsia-200 */
+
+  --accent-info:#6d28d9;     /* violet-700  */
+  --accent-start:#b45309;    /* amber-700   */
+  --accent-error:#b91c1c;    /* red-700     */
+  --accent-sheet:#155e75;    /* cyan-900    */
+  --accent-lead:#166534;     /* green-800   */
+  --accent-numbers:#047857;  /* emerald-700 */
+  --accent-badge:#a21caf;    /* fuchsia-800 */
+  --accent-done:#15803d;     /* green-700   */
+  --accent-client:#6b7280;   /* gray-500    */
+
+  --reconnect-bg:#fff7ed; --reconnect-fg:#7c2d12; --reconnect-border:#fed7aa;
+
+  --time-fg:#334155; --msg-fg:#111827;
+
+  --badge-aut-run-fg:#1f2937; --badge-aut-run-bg:#fde68a; --badge-aut-run-bd:#fef3c7;
+  --badge-man-fg:#1f2937; --badge-man-bg:#e7e5e4; --badge-man-bd:#d6d3d1;
+
+  --newest-shadow: inset 0 -1px 0 0 #e7e5e4;
+  --newest-divider:#e7e5e4;
+}
+body[data-theme="journal"] #log .row:nth-child(even) {
+  background: rgba(0,0,0,0.03);
+}
+
+/* =========================================================
+   THEME: Gamified Arcade (DARK + gradient + shimmer newest)
+   ========================================================= */
+body[data-theme="arcade"] {
+  --bg:#0a0a13; --fg:#f4f7ff; --muted:#b7c0d6;
+  --border:#1a1a2a; --row-divider:#1d1d33;
+
+  --pill:#0e0e20; --pill-b:#2d2d7a; --pill-fg:#f4f7ff;
+  --header-bg: linear-gradient(90deg,#0a0a13,#171741);
+  --input-bg:#0b0b1e;
+
+  --hover-border:#6b6bff;
+  --hover-shadow: 0 0 18px rgba(90,90,223,.40);
+
+  --accent-info:#8fb3ff; --accent-start:#ffd05e; --accent-error:#ff5e7a;
+  --accent-sheet:#79f5ff; --accent-lead:#a9ff6e; --accent-numbers:#7dffb0;
+  --accent-badge:#ffb2ff; --accent-done:#71f4c3; --accent-client:#8f95c2;
+
+  --badge-aut-run-fg:#0f0f1c; --badge-aut-run-bg:#ffd05e; --badge-aut-run-bd:#ffe099;
+  --badge-man-fg:#efe1ff; --badge-man-bg:#231e54; --badge-man-bd:#3b35a3;
+
+  --time-fg:#c7d2ff; --msg-fg:#f4f7ff;
+
+  --newest-shadow: 0 0 26px rgba(120,120,255,.45);
+  --newest-divider:#2c2c65;
+}
+/* subtle progress sparkle on newest line */
+body[data-theme="arcade"] #log .row:last-child {
+  background-image: linear-gradient(90deg, rgba(255,255,255,.07), transparent 35%);
+  background-size: 400% 100%;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes shimmer { 0%{background-position:120% 0} 100%{background-position:-20% 0} }
+
+/* =========================================================
+   THEME: Sleek Analyst Terminal (GRAPHITE DARK)
+   ========================================================= */
+body[data-theme="analyst"] {
+  --bg:#0c0d0f; --fg:#e6e7ea; --muted:#9aa1ab;
+  --border:#1e1f23; --row-divider:#22242a;
+
+  --pill:#131519; --pill-b:#1f2329; --pill-fg:#e6e7ea;
+  --header-bg: rgba(12,13,15,.92);
+  --input-bg:#0f1115;
+
+  --hover-border:#2a2e36;
+  --hover-shadow: 0 0 0 rgba(0,0,0,0);
+
+  --accent-info:#a6b8ff; --accent-start:#ffc86e; --accent-error:#ff6a6a;
+  --accent-sheet:#96f0ff; --accent-lead:#bff778; --accent-numbers:#94edaa;
+  --accent-badge:#ecb9ff; --accent-done:#88efcc; --accent-client:#a0a6b2;
+
+  --badge-aut-run-fg:#222; --badge-aut-run-bg:#ffc86e; --badge-aut-run-bd:#ffdca3;
+  --badge-man-fg:#dce9ff; --badge-man-bg:#1a2432; --badge-man-bd:#2b394f;
+
+  --time-fg:#cbd5e1; --msg-fg:#e6e7ea;
+
+  --newest-shadow: inset 0 -1px 0 0 #2a2e36;
+  --newest-divider:#2a2e36;
+}
