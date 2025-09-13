@@ -1,8 +1,8 @@
-// Simple SSE event hub with required job-scoped channels in multi-user mode.
+// Simple SSE event hub with optional job-scoped channels.
 // Exports:
 //   - onClientConnect(res, jobId?) -> clientId
 //   - removeClient(clientId)
-//   - emit(type, payload)  // payload must include jobId for per-run streams
+//   - emit(type, payload)  // payload may include jobId
 
 let nextId = 1;
 /** @type {Array<{id:number, res:import('http').ServerResponse, jobId:string|null}>} */
@@ -41,16 +41,14 @@ export function removeClient(clientId) {
   }
 }
 
-/** Emit to matching job; mirror to global listeners only when jobId is null. */
+/** Emit to matching job; also mirror to global listeners when a jobId is present. */
 export function emit(type, payload = {}) {
-  // Require jobId for scoped run events; allow null for legacy info.
   const targetJob = Object.prototype.hasOwnProperty.call(payload, "jobId")
     ? payload.jobId
     : null;
 
   for (const c of CLIENTS) {
     if (targetJob !== null) {
-      // Send only to clients for same jobId, or any clients that didn't specify one (legacy)
       if (c.jobId !== targetJob && c.jobId !== null) continue;
     }
     writeEvent(c.res, type, payload);

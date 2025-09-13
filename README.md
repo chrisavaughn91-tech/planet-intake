@@ -1,170 +1,79 @@
-# Planet Lead Pull
+# Planet Intake
 
-A Node/Express + Playwright app that logs into Planet, scrapes leads, writes a Google Sheet via an Apps Script Web App, and streams progress to a live dashboard.  
-Multi-user runs are isolated by **channel/job id** so each user only sees their own stream.
+## Quick Runs
 
----
+- Smoke: `npm run test:e2e` (about 10 leads by default)
+- Full:
+  - `npm run start:full` (honors `.env` MAX_LEADS_DEFAULT), then visit `/live`
+  - or:
+    - GET  http://localhost:8080/run/full?max=200
+    - POST http://localhost:8080/run  with body: {"max":200}
 
-## Quick Start (Local)
+## Safe Stop / Restart (Codespaces-friendly)
+- Stop only the app server (does **not** kill VS Code):
+  
+      npm run stop
 
-### 1) Install & run
-~~~bash
-npm ci
-cp -n env.txt .env   # or create .env from scratch (see below)
-npm run start
-# open your Codespaces public URL on port 8080, e.g. https://...-8080.app.github.dev/
-~~~
+- Restart with a brief safety pause to avoid race conditions:
 
-### 2) Health check (server)
-~~~bash
-curl -sS "http://127.0.0.1:8080/health"
-~~~
+      npm run restart
 
-### 3) Health check (Apps Script Web App)
-~~~bash
-# Replace with your deployed Web App URL
-curl -sS "https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec?action=health"
-~~~
+> `restart` runs: `stop` → **short pause** → `start`, ensuring the previous server has fully exited before launching a new one.
 
----
+## Health Check (Apps Script)
+Verify the deployed Apps Script Web App with `?action=health`:
 
-## Environment Variables (`.env`)
+    curl -s "https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec?action=health"
 
-Create a `.env` file (never commit real secrets):
+Sample JSON (shape may vary):
 
-~~~ini
-# Apps Script Web App endpoint (exec URL)
-GSCRIPT_WEBAPP_URL=https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec
+    {"ok":true,"version":4,"tag":"v4-planet-intake-canonical","deployedAt":"2025-09-10T19:40:00.000Z"}
 
-# Default credentials/email for ad-hoc/admin runs (sessions supply their own)
-PLANET_USERNAME=your_username
-PLANET_PASSWORD=your_password
-REPORT_EMAIL=you@example.com
+## Environment Variables
 
-# Behavior / defaults
-MAX_LEADS_DEFAULT=200
-START_ON_BOOT=false
-START_MAX=200
-AUTORUN_DELAY_MS=3000
+Set these in `.env` (never commit secrets):
 
-# Session security (change in prod)
-SESSION_SECRET=dev-session-secret-change-me
-JOB_TTL_HOURS=24
-~~~
+    PLANET_USERNAME=...
+    PLANET_PASSWORD=...
+    REPORT_EMAIL=...
+    GSCRIPT_WEBAPP_URL=https://script.google.com/macros/s/AKfycbwm-xCWeejP10bWRAkPXMhKMyBJcIx4wzKqMIwaQYc4rQ0dE0Mu_rTTf7Rz3dF-yPwJ/exec
+    MAX_LEADS_DEFAULT=200
 
----
+- Keep the Live Stream open at `/live` to watch progress in real time.
 
-## Running a Scrape
+## Optional: Auto-run on Server Start
 
-### Option A — Session flow (recommended for end users)
-1. Open `/login` in your browser.  
-2. Enter **Planet username**, **password**, and **email** (where the sheet link will be sent).  
-3. Submit. The server creates a private channel and returns:
-   ~~~json
-   {
-     "ok": true,
-     "jobId": "<id>",
-     "liveUrl": "/live?channel=<id>&token=<signed>"
-   }
-   ~~~
-4. You’ll be redirected to your **private live page**. Watch your run in real time.  
-5. When done, you’ll get a **Google Sheets link** (also emitted in the stream).
+Set the following to automatically kick off a scrape when the server boots:
 
-### Option B — Ad-hoc/admin run (dev/testing)
-1. In a terminal:
-   ~~~bash
-   curl -sS "http://127.0.0.1:8080/run/full?max=50"
-   # => {"ok":true,"jobId":"<id>"}
-   ~~~
-2. Watch it in the browser (no session token; dev only):
-   ~~~
-   http://127.0.0.1:8080/live?channel=<id>&token=dev
-   ~~~
-3. Legacy path style also works:
-   ~~~
-   http://127.0.0.1:8080/live/<id>?token=dev
-   ~~~
+    START_ON_BOOT=true     # enable autorun on server start (default: off)
+    START_MAX=200          # optional; overrides MAX_LEADS_DEFAULT for this autorun only
+    AUTORUN_DELAY_MS=1500  # optional; delay before autorun to avoid Codespaces reconnects
 
----
+Behavior:
+- If START_ON_BOOT is true/1/yes/on, the server will trigger a run once after it starts.
+- The run uses START_MAX if set; otherwise falls back to MAX_LEADS_DEFAULT; else scraper default.
+- All events stream to `/live` as usual.
 
-## Live Streams — Channels & Tokens
+## Live Stream controls (Change 7)
 
-- The live page subscribes via:
-  ~~~
-  /events?channel=<id>&token=<signed-or-dev>
-  ~~~
-- **Session runs** use a **signed token** and a private channel.  
-- **Ad-hoc runs** (dev only) can use `token=dev`.
+- **Elapsed time clock** — timestamps begin at **`00:00:00`** on the first `start` event (fallback: first event).
+- **Filter chips** — toggle visibility of: `info, start, lead, numbers, badge, sheet, error, done, client`.
+- **Search box** — quick text filter (e.g., `autorun`, `sheet:url`, a job id).
+- **Badges** — “AUTORUN” vs “MANUAL” is inferred client-side from the event payload/text.
+- **Auto-scroll** — on by default; when off, a sticky “New messages ↓” appears.
+- **Clear / Copy** — clear current view or copy last 200 lines to clipboard.
+- **Reconnect ribbon** — visible when the SSE connection is retrying.
 
-**Binding runs to what you’re watching**
-- You can kick a run tied to a specific stream by providing `channel` (or `job` / `jobId`) to the run endpoint:
-  ~~~bash
-  curl -sS -X POST "http://127.0.0.1:8080/run" \
-    -H "content-type: application/json" \
-    -d '{"channel":"<id>","max":25}'
-  ~~~
-- The legacy GET also accepts binding:
-  ~~~bash
-  curl -sS "http://127.0.0.1:8080/run/full?channel=<id>&max=25"
-  ~~~
+## Troubleshooting: Live page keeps reconnecting
+- Disable autorun temporarily:
 
----
+      START_ON_BOOT=false
 
-## E2E / Smoke Tests
+  Then restart and trigger a manual run:
 
-- **SSE + sheet smoke** (waits for a sheet link within a timeout):
-  ~~~bash
-  npm run test:e2e
-  ~~~
-  > This test is backend-only; it doesn’t bind to your live UI.
+      npm run start:full
+      curl -sS "http://127.0.0.1:8080/run/full?max=200"
 
-- **Direct Apps Script push smoke**:
-  ~~~bash
-  npm run test:push
-  ~~~
-
----
-
-## Docker (optional)
-
-~~~bash
-# Build
-docker build -t planet-intake:latest .
-
-# Run
-docker run --rm -p 8080:8080 --env-file .env planet-intake:latest
-~~~
-
----
-
-## Troubleshooting
-
-**Live page shows only `client: connected`**
-- Make sure the URL includes a **channel id** and **valid token**.
-  - Session: `liveUrl` already has both.
-  - Ad-hoc: append `&token=dev`, e.g. `/live?channel=<id>&token=dev`.
-- If you open the live page **after** a run finishes, it will look empty (SSE doesn’t replay history). Kick a new run bound to the same channel.
-
-**I see events in the terminal but not in the browser**
-- Verify the browser can read raw SSE at `/events?token=dev`.  
-- If raw events appear there, your `live.html` URL likely lacks `channel` or `token`.
-
-**Apps Script health returns not ok**
-- Re-deploy your Web App and confirm you’re using the latest “exec” URL.  
-- Ensure `GSCRIPT_WEBAPP_URL` in `.env` matches your latest deployment.
-
----
-
-## Git Hygiene (per confirmed Change)
-
-~~~bash
-git add -A
-git commit -m "change <n>: <short summary>"
-git push -u origin <branch-for-that-change>
-~~~
-
----
-
-## License
-
-Proprietary — internal use for Planet Intake project subscribers.
+## Notes
+- The scraper module is **lazy-loaded** on first run to keep startup light in Codespaces.
+- Server binds to **0.0.0.0** to ensure port forwarding works reliably.

@@ -1,10 +1,9 @@
 import express from "express";
 import dotenv from "dotenv";
 import path from "path";
-import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { emit, onClientConnect, removeClient } from "./events.js";
-// NOTE: scraper is lazy-loaded right before first use
+// NOTE: scraper is now lazy-loaded (see getScrapePlanet below)
 import { createSheetAndShare } from "./sheets.js";
 
 dotenv.config();
@@ -22,42 +21,36 @@ app.use("/static", express.static(path.join(__dirname, "public")));
 app.get("/live", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
-app.get("/live/:jobId", (_req, res) => {
-  // Back-compat path form; live.html now also reads the path segment if query is absent
-  res.sendFile(path.join(__dirname, "public", "live.html"));
-});
-app.get("/login", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "login.html"));
-});
-app.get("/", (_req, res) => res.redirect("/login"));
+app.get("/", (_req, res) => res.redirect("/live"));
 
 /* =========================
-   Config & helpers
+   SSE events hub (shared)
    ========================= */
-const SESSION_SECRET = String(process.env.SESSION_SECRET || "dev-session-secret-change-me");
-const TOKEN_TTL_HOURS = Number(process.env.JOB_TTL_HOURS || 24);
-const TOKEN_TTL_MS = TOKEN_TTL_HOURS * 3600 * 1000;
-const MAX_CONCURRENCY = Math.max(1, Number(process.env.MAX_CONCURRENCY || 3));
+app.get("/events", (req, res) => {
+  const headers = {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  };
+  res.writeHead(200, headers);
+  const clientId = onClientConnect(res, req.query.jobId || null);
+  emit("info", { msg: "client: connected", clientId, jobId: req.query.jobId || null });
+  req.on("close", () => removeClient(clientId));
+});
 
-function b64url(buf) {
-  return Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function signToken(jobId, issuedAtMs) {
-  const h = crypto.createHmac("sha256", SESSION_SECRET);
-  h.update(`${jobId}.${issuedAtMs}`);
-  return `${issuedAtMs}.${b64url(h.digest())}`;
-}
-function verifyToken(jobId, token) {
-  if (!token) return false;
-  const [issuedAtStr, sig] = String(token).split(".");
-  const issuedAt = Number(issuedAtStr);
-  if (!issuedAt || !sig) return false;
-  if (Date.now() - issuedAt > TOKEN_TTL_MS) return false;
-  const expected = signToken(jobId, issuedAt).split(".")[1];
-  return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-}
+/* =========================
+   Health + status
+   ========================= */
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
+app.get("/status", (_req, res) => {
+  res.json({ ok: true, clients: global.__SSE_CLIENTS ? global.__SSE_CLIENTS.length : 0 });
+});
 
-// env fallbacks for ad-hoc runs
+/* =========================
+   Helpers
+   ========================= */
 function envUser()  { return process.env.PLANET_USER  || process.env.PLANET_USERNAME || ""; }
 function envPass()  { return process.env.PLANET_PASS  || process.env.PLANET_PASSWORD || ""; }
 function envEmail() { return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL    || ""; }
@@ -67,7 +60,7 @@ function pickCreds(body) {
     username: body?.username || envUser(),
     password: body?.password || envPass(),
     email:    body?.email    || envEmail(),
-    max:      body?.max != null ? Number(body.max) : undefined,
+    max: body?.max ? Number(body.max) : undefined,
   };
 }
 
@@ -75,57 +68,17 @@ function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Normalize a job/channel identifier from query/body. */
-function pickJobId({ query = {}, body = {} }) {
-  return (
-    query.channel ||
-    query.job ||
-    query.jobId ||
-    body.channel ||
-    body.job ||
-    body.jobId ||
-    null
-  );
-}
-
-// --- Lazy-load scraper on demand
+// --- NEW: lazy-load scraper on demand
 async function getScrapePlanet() {
   const mod = await import("./scraper.js");
   if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
   return mod.scrapePlanet;
 }
 
-/* =========================
-   Queue & concurrency
-   ========================= */
-const ACTIVE = new Set(); // jobIds currently running
-const QUEUE = []; // fifo: { jobId, username, password, email, max }
-
-function enqueue(job) {
-  QUEUE.push(job);
-  emit("info", { msg: `queue: queued (pos=${QUEUE.length})`, jobId: job.jobId });
-  maybeStart();
-}
-function maybeStart() {
-  while (ACTIVE.size < MAX_CONCURRENCY && QUEUE.length > 0) {
-    const job = QUEUE.shift();
-    ACTIVE.add(job.jobId);
-    emit("start", { msg: "queued: start", jobId: job.jobId, maxLeads: job.max });
-    runScrapeAndSheet(job)
-      .catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId: job.jobId }))
-      .finally(() => {
-        ACTIVE.delete(job.jobId);
-        emit("done", { msg: "job: done", jobId: job.jobId, processed: undefined, ms: undefined });
-        maybeStart();
-      });
-  }
-}
-
-/* =========================
-   Core run function
-   ========================= */
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
+  // lazy import here, right before first use
   const scrapePlanet = await getScrapePlanet();
+
   const result = await scrapePlanet({ username, password, max, jobId });
   if (!result?.ok) {
     emit("error", { msg: "scrape failed: " + (result?.error || "unknown"), jobId });
@@ -136,15 +89,19 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
   try {
     let sheet;
     let sig = "object:{email,result}";
+
     try {
+      // matches sheets.js signature
       sheet = await createSheetAndShare({ email, result });
     } catch (_e1) {
+      // Optional back-compat path, if older sheets.js ever appears
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
 
     const url = sheet?.url || null;
     const ok  = url ? true : (sheet?.ok === true && !!sheet?.url);
+
     if (ok && url) {
       emit("sheet", { url, jobId });
       emit("info", { msg: `sheet:url ${url}`, jobId });
@@ -158,98 +115,14 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
 }
 
 /* =========================
-   SSE events (token-gated)
-   ========================= */
-app.get("/events", (req, res) => {
-  // Accept channel|job|jobId (we treat all as "channel" on the wire)
-  const ch = pickJobId({ query: req.query }) || null;
-  const token = req.query.token || null;
-
-  // Private channels require token; allow null (legacy global) for /live without id
-  if (ch !== null) {
-    const ok = verifyToken(ch, token) || token === "dev";
-    if (!ok) {
-      res.writeHead(401, { "Content-Type": "text/plain" });
-      res.end("unauthorized");
-      return;
-    }
-  }
-
-  const headers = {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-  };
-  res.writeHead(200, headers);
-
-  const clientId = onClientConnect(res, ch);
-  emit("info", { msg: "client: connected", clientId, jobId: ch || undefined });
-  req.on("close", () => removeClient(clientId));
-});
-
-/* =========================
-   Health + status
-   ========================= */
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() });
-});
-app.get("/status", (_req, res) => {
-  res.json({
-    ok: true,
-    clients: global.__SSE_CLIENTS ? global.__SSE_CLIENTS.length : 0,
-    active: Array.from(ACTIVE),
-    queued: QUEUE.map(j => j.jobId),
-    maxConcurrency: MAX_CONCURRENCY,
-  });
-});
-
-/* =========================
-   Sessions & runs
-   ========================= */
-// Login submits here to create a job and get a private liveUrl
-app.post("/session", (req, res) => {
-  const { username, password, email, max } = pickCreds(req.body || {});
-  if (!username || !password || !email) {
-    return res.status(400).json({ ok: false, error: "missing username/password/email" });
-  }
-
-  // Allow client to name a channel/job; otherwise mint one
-  const provided = pickJobId({ body: req.body });
-  const jobId = provided || mkJobId();
-  const issuedAt = Date.now();
-  const token = signToken(jobId, issuedAt);
-
-  const safeMax =
-    req.body?.max != null ? Number(req.body.max)
-    : (process.env.MAX_LEADS_DEFAULT != null ? Number(process.env.MAX_LEADS_DEFAULT)
-    : undefined);
-
-  const job = { jobId, username, password, email, max: safeMax };
-  enqueue(job);
-
-  // Use query-style liveUrl so the page can read channel & token
-  const liveUrl = `/live?channel=${encodeURIComponent(jobId)}&token=${encodeURIComponent(token)}`;
-  res.json({ ok: true, jobId, liveUrl });
-});
-
-// (Optional) Manual kick for a queued job (admin)
-app.post("/run/:jobId", (req, res) => {
-  const jobId = req.params.jobId;
-  const qIdx = QUEUE.findIndex(j => j.jobId === jobId);
-  if (qIdx === -1) return res.status(404).json({ ok: false, error: "job not queued" });
-  // Move job to front and try to start
-  const [job] = QUEUE.splice(qIdx, 1);
-  QUEUE.unshift(job);
-  maybeStart();
-  res.json({ ok: true, jobId, movedToFront: true });
-});
-
-/* =========================
-   Legacy / admin run endpoints
+   Run endpoints
    ========================= */
 app.get("/scrape", async (req, res) => {
   const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");
-  const max = req.query.max ? Number(req.query.max) : (req.query.limit ? Number(req.query.limit) : undefined);
+
+  const max = req.query.max
+    ? Number(req.query.max)
+    : (req.query.limit ? Number(req.query.limit) : undefined);
   const username = envUser();
   const password = envPass();
   const email = envEmail();
@@ -262,7 +135,7 @@ app.get("/scrape", async (req, res) => {
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null); // legacy/global
+    const clientId = onClientConnect(res, null);
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
@@ -288,12 +161,13 @@ app.get("/scrape", async (req, res) => {
 
 app.post("/run", async (req, res) => {
   const { username, password, email, max } = pickCreds(req.body || {});
-  const provided = pickJobId({ body: req.body });
-  const jobId = provided || mkJobId();
+  const jobId = mkJobId();
 
   emit("info", { msg: `run: start (job ${jobId})`, jobId });
+
   (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
     .catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
+
   res.json({ ok: true, jobId });
 });
 
@@ -302,12 +176,13 @@ app.get("/run/full", async (req, res) => {
   const username = envUser();
   const password = envPass();
   const email = envEmail();
-  const provided = pickJobId({ query: req.query });
-  const jobId = provided || mkJobId();
+  const jobId = mkJobId();
 
   emit("info", { msg: `run: full (job ${jobId})`, jobId });
+
   (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
     .catch((e) => emit("error", { msg: "run/full: exception " + (e?.message || e), jobId }));
+
   res.json({ ok: true, jobId });
 });
 
@@ -329,8 +204,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("server listening on", PORT);
 
   const flag = String(process.env.START_ON_BOOT || "").toLowerCase();
-  const shouldStart = flag === "true" || flag === "1" || flag === "yes" || flag === "on";
+  const shouldStart =
+    flag === "true" || flag === "1" || flag === "yes" || flag === "on";
 
+  // One-shot guard so autorun only fires once per process
   if (shouldStart && !global.__AUTORUN_STARTED) {
     global.__AUTORUN_STARTED = true;
 
