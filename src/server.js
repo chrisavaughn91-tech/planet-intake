@@ -20,11 +20,10 @@ app.use(express.json());
    ========================= */
 app.use("/static", express.static(path.join(__dirname, "public")));
 app.get("/live", (_req, res) => {
-  // Back-compat: old shared view (not job-scoped). Keep for admin quick check if needed.
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
 app.get("/live/:jobId", (_req, res) => {
-  // New: private per-job live page (requires jobId & token in URL)
+  // Back-compat path form; live.html now also reads the path segment if query is absent
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
 app.get("/login", (_req, res) => {
@@ -58,6 +57,7 @@ function verifyToken(jobId, token) {
   return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }
 
+// env fallbacks for ad-hoc runs
 function envUser()  { return process.env.PLANET_USER  || process.env.PLANET_USERNAME || ""; }
 function envPass()  { return process.env.PLANET_PASS  || process.env.PLANET_PASSWORD || ""; }
 function envEmail() { return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL    || ""; }
@@ -73,6 +73,19 @@ function pickCreds(body) {
 
 function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Normalize a job/channel identifier from query/body. */
+function pickJobId({ query = {}, body = {} }) {
+  return (
+    query.channel ||
+    query.job ||
+    query.jobId ||
+    body.channel ||
+    body.job ||
+    body.jobId ||
+    null
+  );
 }
 
 // --- Lazy-load scraper on demand
@@ -148,12 +161,13 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
    SSE events (token-gated)
    ========================= */
 app.get("/events", (req, res) => {
-  const jobId = req.query.jobId || null;
+  // Accept channel|job|jobId (we treat all as "channel" on the wire)
+  const ch = pickJobId({ query: req.query }) || null;
   const token = req.query.token || null;
 
-  // Require both jobId & token for private live pages; allow null for legacy /live
-  if (jobId !== null) {
-    const ok = verifyToken(jobId, token);
+  // Private channels require token; allow null (legacy global) for /live without id
+  if (ch !== null) {
+    const ok = verifyToken(ch, token) || token === "dev";
     if (!ok) {
       res.writeHead(401, { "Content-Type": "text/plain" });
       res.end("unauthorized");
@@ -168,8 +182,8 @@ app.get("/events", (req, res) => {
   };
   res.writeHead(200, headers);
 
-  const clientId = onClientConnect(res, jobId);
-  emit("info", { msg: "client: connected", clientId, jobId });
+  const clientId = onClientConnect(res, ch);
+  emit("info", { msg: "client: connected", clientId, jobId: ch || undefined });
   req.on("close", () => removeClient(clientId));
 });
 
@@ -199,15 +213,22 @@ app.post("/session", (req, res) => {
     return res.status(400).json({ ok: false, error: "missing username/password/email" });
   }
 
-  const jobId = mkJobId();
+  // Allow client to name a channel/job; otherwise mint one
+  const provided = pickJobId({ body: req.body });
+  const jobId = provided || mkJobId();
   const issuedAt = Date.now();
   const token = signToken(jobId, issuedAt);
 
-  const safeMax = max != null ? Number(max) : (process.env.MAX_LEADS_DEFAULT != null ? Number(process.env.MAX_LEADS_DEFAULT) : undefined);
+  const safeMax =
+    req.body?.max != null ? Number(req.body.max)
+    : (process.env.MAX_LEADS_DEFAULT != null ? Number(process.env.MAX_LEADS_DEFAULT)
+    : undefined);
+
   const job = { jobId, username, password, email, max: safeMax };
   enqueue(job);
 
-  const liveUrl = `/live/${encodeURIComponent(jobId)}?token=${encodeURIComponent(token)}`;
+  // Use query-style liveUrl so the page can read channel & token
+  const liveUrl = `/live?channel=${encodeURIComponent(jobId)}&token=${encodeURIComponent(token)}`;
   res.json({ ok: true, jobId, liveUrl });
 });
 
@@ -224,7 +245,7 @@ app.post("/run/:jobId", (req, res) => {
 });
 
 /* =========================
-   Legacy run endpoints (admin/shared)
+   Legacy / admin run endpoints
    ========================= */
 app.get("/scrape", async (req, res) => {
   const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");
@@ -241,7 +262,7 @@ app.get("/scrape", async (req, res) => {
       Connection: "keep-alive",
     };
     res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null);
+    const clientId = onClientConnect(res, null); // legacy/global
     emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
 
     try {
@@ -267,7 +288,9 @@ app.get("/scrape", async (req, res) => {
 
 app.post("/run", async (req, res) => {
   const { username, password, email, max } = pickCreds(req.body || {});
-  const jobId = mkJobId();
+  const provided = pickJobId({ body: req.body });
+  const jobId = provided || mkJobId();
+
   emit("info", { msg: `run: start (job ${jobId})`, jobId });
   (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
     .catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
@@ -279,7 +302,8 @@ app.get("/run/full", async (req, res) => {
   const username = envUser();
   const password = envPass();
   const email = envEmail();
-  const jobId = mkJobId();
+  const provided = pickJobId({ query: req.query });
+  const jobId = provided || mkJobId();
 
   emit("info", { msg: `run: full (job ${jobId})`, jobId });
   (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
