@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { emit, onClientConnect, removeClient } from "./events.js";
-// NOTE: scraper is now lazy-loaded (see getScrapePlanet below)
+// NOTE: scraper is lazy-loaded (see getScrapePlanet below)
 import { createSheetAndShare } from "./sheets.js";
 
 dotenv.config();
@@ -17,10 +17,27 @@ app.use(express.json());
 /* =========================
    Static + basic routes
    ========================= */
+// Serve the whole /public folder at the root (for future assets)
+app.use(express.static(path.join(__dirname, "public")));
+// Keep existing /static prefix too (back-compat)
 app.use("/static", express.static(path.join(__dirname, "public")));
+
+// New: explicit login route so /login works
+app.get("/login", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+// Existing: live page (query-string jobId supported by live.html)
 app.get("/live", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
+
+// New: pretty live link /live/:jobId (serves the same live.html)
+app.get("/live/:jobId", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "live.html"));
+});
+
+// Keep root redirect as-is (to live). We can change to /login later if desired.
 app.get("/", (_req, res) => res.redirect("/live"));
 
 /* =========================
@@ -68,7 +85,7 @@ function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// --- NEW: lazy-load scraper on demand
+// Lazy-load scraper on demand
 async function getScrapePlanet() {
   const mod = await import("./scraper.js");
   if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
@@ -76,7 +93,6 @@ async function getScrapePlanet() {
 }
 
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
-  // lazy import here, right before first use
   const scrapePlanet = await getScrapePlanet();
 
   const result = await scrapePlanet({ username, password, max, jobId });
@@ -89,12 +105,11 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
   try {
     let sheet;
     let sig = "object:{email,result}";
-
     try {
       // matches sheets.js signature
       sheet = await createSheetAndShare({ email, result });
     } catch (_e1) {
-      // Optional back-compat path, if older sheets.js ever appears
+      // Optional back-compat path
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
@@ -207,7 +222,6 @@ app.listen(PORT, "0.0.0.0", () => {
   const shouldStart =
     flag === "true" || flag === "1" || flag === "yes" || flag === "on";
 
-  // One-shot guard so autorun only fires once per process
   if (shouldStart && !global.__AUTORUN_STARTED) {
     global.__AUTORUN_STARTED = true;
 
@@ -235,7 +249,7 @@ app.listen(PORT, "0.0.0.0", () => {
         } catch (e) {
           emit("error", { msg: "autorun: exception " + (e?.message || e), jobId });
         }
-      })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e), jobId }));
+      })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e) }));
     }, delayMs);
   }
 });
