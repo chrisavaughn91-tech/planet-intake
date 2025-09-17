@@ -1,255 +1,131 @@
+// src/server.js
 import express from "express";
-import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { emit, onClientConnect, removeClient } from "./events.js";
-// NOTE: scraper is lazy-loaded (see getScrapePlanet below)
-import { createSheetAndShare } from "./sheets.js";
 
-dotenv.config();
+// Local modules
+import { emit, subscribe } from "./events.js";
+import { scrapePlanet } from "./scraper.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json());
+const PORT = process.env.PORT || 8080;
 
-/* =========================
-   Static + basic routes
-   ========================= */
-// Serve the whole /public folder at the root (for future assets)
-app.use(express.static(path.join(__dirname, "public")));
-// Keep existing /static prefix too (back-compat)
-app.use("/static", express.static(path.join(__dirname, "public")));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-// New: explicit login route so /login works
-app.get("/login", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "login.html"));
-});
+// Static files and simple page routes
+const pub = path.join(__dirname, "public");
+app.use(express.static(pub));
 
-// Existing: live page (query-string jobId supported by live.html)
-app.get("/live", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "live.html"));
-});
+app.get("/", (_req, res) => res.redirect("/login"));
+app.get("/login", (_req, res) => res.sendFile(path.join(pub, "login.html")));
+app.get("/live",  (_req, res) => res.sendFile(path.join(pub, "live.html")));
 
-// New: pretty live link /live/:jobId (serves the same live.html)
-app.get("/live/:jobId", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "live.html"));
-});
-
-// Keep root redirect as-is (to live). We can change to /login later if desired.
-app.get("/", (_req, res) => res.redirect("/live"));
-
-/* =========================
-   SSE events hub (shared)
-   ========================= */
+// --- Server-Sent Events (Optionally filtered by ?jobId=) ---
 app.get("/events", (req, res) => {
-  const headers = {
+  res.writeHead(200, {
     "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
+    "Cache-Control": "no-cache",
     Connection: "keep-alive",
-  };
-  res.writeHead(200, headers);
-  const clientId = onClientConnect(res, req.query.jobId || null);
-  emit("info", { msg: "client: connected", clientId, jobId: req.query.jobId || null });
-  req.on("close", () => removeClient(clientId));
-});
+  });
 
-/* =========================
-   Health + status
-   ========================= */
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() });
-});
-app.get("/status", (_req, res) => {
-  res.json({ ok: true, clients: global.__SSE_CLIENTS ? global.__SSE_CLIENTS.length : 0 });
-});
+  const wanted = (req.query.jobId || "").toString().trim();
 
-/* =========================
-   Helpers
-   ========================= */
-function envUser()  { return process.env.PLANET_USER  || process.env.PLANET_USERNAME || ""; }
-function envPass()  { return process.env.PLANET_PASS  || process.env.PLANET_PASSWORD || ""; }
-function envEmail() { return process.env.NOTIFY_EMAIL || process.env.REPORT_EMAIL    || ""; }
-
-function pickCreds(body) {
-  return {
-    username: body?.username || envUser(),
-    password: body?.password || envPass(),
-    email:    body?.email    || envEmail(),
-    max: body?.max ? Number(body.max) : undefined,
-  };
-}
-
-function mkJobId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// Lazy-load scraper on demand
-async function getScrapePlanet() {
-  const mod = await import("./scraper.js");
-  if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
-  return mod.scrapePlanet;
-}
-
-async function runScrapeAndSheet({ username, password, email, max, jobId }) {
-  const scrapePlanet = await getScrapePlanet();
-
-  const result = await scrapePlanet({ username, password, max, jobId });
-  if (!result?.ok) {
-    emit("error", { msg: "scrape failed: " + (result?.error || "unknown"), jobId });
-    return;
-  }
-
-  // === Sheets step ===
-  try {
-    let sheet;
-    let sig = "object:{email,result}";
+  const un = subscribe((m) => {
     try {
-      // matches sheets.js signature
-      sheet = await createSheetAndShare({ email, result });
-    } catch (_e1) {
-      // Optional back-compat path
-      sig = "fallback:(leads,email)";
-      sheet = await createSheetAndShare(result.leads, email);
+      if (wanted) {
+        const jid = m?.data?.jobId;
+        if (!jid || jid !== wanted) return; // filter out other jobs
+      }
+      res.write(`data: ${JSON.stringify(m)}\n\n`);
+    } catch {
+      // ignore broken writes
     }
+  });
 
-    const url = sheet?.url || null;
-    const ok  = url ? true : (sheet?.ok === true && !!sheet?.url);
+  req.on("close", () => {
+    try { un(); } catch {}
+  });
+});
 
-    if (ok && url) {
-      emit("sheet", { url, jobId });
-      emit("info", { msg: `sheet:url ${url}`, jobId });
-    } else {
-      const errMsg = sheet?.error || "unknown";
-      emit("error", { msg: `sheet: failed (${errMsg}) [sig=${sig}]`, jobId });
-    }
-  } catch (e) {
-    emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
-  }
-}
+// --- internal launcher: start a job and return its id ---
+async function launchRun(fields) {
+  const jobId = `m${Math.random().toString(36).slice(2, 7)}-${Date.now()
+    .toString()
+    .slice(-5)}`;
 
-/* =========================
-   Run endpoints
-   ========================= */
-app.get("/scrape", async (req, res) => {
-  const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");
+  // Announce start
+  emit("start", { jobId, msg: `run: full (job ${jobId})` });
 
-  const max = req.query.max
-    ? Number(req.query.max)
-    : (req.query.limit ? Number(req.query.limit) : undefined);
-  const username = envUser();
-  const password = envPass();
-  const email = envEmail();
-  const jobId = mkJobId();
+  const { username, password, email, max, autoStart } = fields || {};
 
-  if (wantsSSE) {
-    const headers = {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    };
-    res.writeHead(200, headers);
-    const clientId = onClientConnect(res, null);
-    emit("info", { msg: `scrape(sse): start (job ${jobId})`, jobId });
-
+  // Kick the scraper (fire-and-forget)
+  (async () => {
     try {
-      await runScrapeAndSheet({ username, password, email, max, jobId });
-      try { res.write(`event: end\n`); res.write(`data: {}\n\n`); } catch {}
+      const result = await scrapePlanet({
+        auth: { username, password },
+        email,
+        max,
+        autorun: !!autoStart,
+        jobId,
+      });
+
+      // If your scraper returns a sheet URL, emit it
+      if (result?.sheetUrl) {
+        emit("sheet", { jobId, url: result.sheetUrl });
+      }
+      emit("done", {
+        jobId,
+        msg: `processed=${result?.processed ?? "n/a"}`,
+      });
     } catch (e) {
-      try {
-        res.write(`event: error\n`);
-        res.write(`data: ${JSON.stringify({ msg: String(e?.message || e) })}\n\n`);
-      } catch {}
-    } finally {
-      removeClient(clientId);
-      try { res.end(); } catch {}
+      emit("error", { jobId, msg: String(e && e.message ? e.message : e) });
     }
-    return;
-  }
+  })();
 
-  emit("info", { msg: `scrape: start (job ${jobId})`, jobId });
-  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
-    .catch((e) => emit("error", { msg: "scrape: exception " + (e?.message || e), jobId }));
-  res.json({ ok: true, jobId, mode: "compat:/scrape(json)" });
-});
+  return jobId;
+}
 
+// --- Primary endpoint used by login.html ---
 app.post("/run", async (req, res) => {
-  const { username, password, email, max } = pickCreds(req.body || {});
-  const jobId = mkJobId();
-
-  emit("info", { msg: `run: start (job ${jobId})`, jobId });
-
-  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
-    .catch((e) => emit("error", { msg: "run: exception " + (e?.message || e), jobId }));
-
-  res.json({ ok: true, jobId });
-});
-
-app.get("/run/full", async (req, res) => {
-  const max = req.query.max ? Number(req.query.max) : undefined;
-  const username = envUser();
-  const password = envPass();
-  const email = envEmail();
-  const jobId = mkJobId();
-
-  emit("info", { msg: `run: full (job ${jobId})`, jobId });
-
-  (async () => { await runScrapeAndSheet({ username, password, email, max, jobId }); })()
-    .catch((e) => emit("error", { msg: "run/full: exception " + (e?.message || e), jobId }));
-
-  res.json({ ok: true, jobId });
-});
-
-/* =========================
-   Global error surfacing
-   ========================= */
-process.on("unhandledRejection", (e) => {
-  emit("error", { msg: "unhandledRejection: " + (e?.message || e) });
-});
-process.on("uncaughtException", (e) => {
-  emit("error", { msg: "uncaughtException: " + (e?.message || e) });
-});
-
-/* =========================
-   Server start + optional autorun (guarded)
-   ========================= */
-const PORT = Number(process.env.PORT || 8080);
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("server listening on", PORT);
-
-  const flag = String(process.env.START_ON_BOOT || "").toLowerCase();
-  const shouldStart =
-    flag === "true" || flag === "1" || flag === "yes" || flag === "on";
-
-  if (shouldStart && !global.__AUTORUN_STARTED) {
-    global.__AUTORUN_STARTED = true;
-
-    const delayMs = Number(process.env.AUTORUN_DELAY_MS || 1500);
-    const username = envUser();
-    const password = envPass();
-    const email = envEmail();
-
-    const startMax =
-      process.env.START_MAX != null
-        ? Number(process.env.START_MAX)
-        : (process.env.MAX_LEADS_DEFAULT != null
-            ? Number(process.env.MAX_LEADS_DEFAULT)
-            : undefined);
-
-    const jobId = mkJobId();
-    emit("info", { msg: `autorun: scheduled in ${delayMs}ms (job ${jobId}, max=${startMax ?? "default"})`, jobId });
-
-    setTimeout(() => {
-      emit("info", { msg: `autorun: start (job ${jobId})`, jobId });
-      (async () => {
-        try {
-          await runScrapeAndSheet({ username, password, email, max: startMax, jobId });
-          emit("info", { msg: `autorun: end (job ${jobId})`, jobId });
-        } catch (e) {
-          emit("error", { msg: "autorun: exception " + (e?.message || e), jobId });
-        }
-      })().catch((e) => emit("error", { msg: "autorun: exception " + (e?.message || e) }));
-    }, delayMs);
+  try {
+    const jobId = await launchRun(req.body || {});
+    res.json({ ok: true, jobId });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
   }
+});
+
+// --- Compatibility helpers (keep older entry points working) ---
+
+// POST /scrape  (legacy)
+app.post("/scrape", async (req, res) => {
+  try {
+    const jobId = await launchRun({ ...(req.body || {}), autoStart: true });
+    res.json({ ok: true, jobId });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// GET /run/full?max=120  (legacy)
+app.get("/run/full", async (req, res) => {
+  try {
+    const max = req.query.max ? Number(req.query.max) : undefined;
+    const jobId = await launchRun({ max, autoStart: true });
+    res.json({ ok: true, jobId });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+// Default 404
+app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.path}`));
+
+// Start server
+app.listen(PORT, () => {
+  emit("info", { msg: `server listening on ${PORT}` });
 });

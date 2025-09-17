@@ -59,7 +59,7 @@
     const params = new URLSearchParams(location.search);
     const jobId  = params.get('job') || params.get('jobId') || '';
 
-    let startAt = performance.now(); // elapsed clock 00:00:00 from page open (matches “first start event” idea)
+    let startAt = performance.now();
     let lastLeadGroup = null;
 
     function fmt(t){
@@ -74,9 +74,7 @@
       const f = filterEl.value.trim().toLowerCase();
       return !f || text.toLowerCase().includes(f);
     }
-    function maybeScroll(){
-      if (autoEl.checked) logEl.lastElementChild?.scrollIntoView({behavior:'smooth',block:'end'});
-    }
+    function maybeScroll(){ if (autoEl.checked) logEl.lastElementChild?.scrollIntoView({behavior:'smooth',block:'end'}); }
 
     function makeRow(type, text, cls=''){
       const row = document.createElement('div');
@@ -97,7 +95,6 @@
     function addRow(type, text, cls=''){
       if (!passesFilter(`${type} ${text}`)) return;
       const row = makeRow(type, text, cls);
-      // simple grouping: when a 'lead' appears, start a group; indent subsequent rows until next 'lead'
       if (type === 'lead') {
         lastLeadGroup = row;
         logEl.appendChild(row);
@@ -121,9 +118,8 @@
 
     metaEl.textContent = jobId ? `Live stream for job ${jobId}` : `Live stream (no jobId provided — showing all events)`;
 
-    // --- connect to server-sent events, filtering by jobId if provided ---
+    // --- SSE connection (filtered by jobId if present) ---
     const es = new EventSource(`/events${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`);
-
     es.addEventListener('open', ()=> addRow('info','stream: connected','ok'));
     es.addEventListener('error', ()=> addRow('error','stream: disconnected','err'));
 
@@ -137,7 +133,6 @@
       error:  d => addRow('error',  d.msg ?? JSON.stringify(d),'err'),
       sheet:  d => {
         if (d.url) {
-          // clickable link
           const row = makeRow('sheet', d.url);
           const msgEl = row.querySelector('.msg');
           msgEl.innerHTML = '';
@@ -157,7 +152,7 @@
       try{
         const m = JSON.parse(ev.data);
         const { type, data } = m;
-        if (jobId && data && data.jobId && data.jobId !== jobId) return; // extra defense
+        if (jobId && data && data.jobId && data.jobId !== jobId) return;
         (handlers[type] || handlers.info)(data || {});
       }catch(_){}
     });

@@ -78,7 +78,6 @@
       runBtn.disabled = true;
       say('Starting run…');
       try {
-        // Prefer POST /run (existing in your server). It should return JSON: { ok, jobId }
         const res = await fetch('/run', {
           method: 'POST',
           headers: { 'Content-Type':'application/json' },
@@ -89,10 +88,7 @@
           throw new Error(`Server responded ${res.status}: ${text}`);
         }
         const data = await res.json();
-        if (!data || !data.ok || !data.jobId) {
-          // Fallback: if server doesn’t return JSON (rare), try to parse text or guess
-          throw new Error('Unexpected response; no jobId returned.');
-        }
+        if (!data || !data.ok || !data.jobId) throw new Error('Unexpected response; no jobId returned.');
         say(`Run started. Redirecting to your live stream…`, 'ok');
         location.assign(`/live?job=${encodeURIComponent(data.jobId)}`);
       } catch (err) {
