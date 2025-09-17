@@ -142,16 +142,99 @@ function parseInfoCounts(txt) {
   return { from, to, total };
 }
 
-async function waitInboxInfoChange(page, prev, timeout = 10000) {
-  await page.waitForFunction(
-    (oldText) => {
-      const el = document.querySelector("#LeadTable_info");
-      const txt = (el?.textContent || "").replace(/\s+/g, " ").trim();
-      return !!txt && txt !== oldText;
-    },
-    prev,
-    { timeout }
-  );
+/* new: detect redraw by first-row key change */
+async function getFirstRowKey(page) {
+  return await page.evaluate((selector) => {
+    const first = document.querySelector(`${selector} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
+    return first ? first.getAttribute("href") : null;
+  }, LEAD_TABLE);
+}
+
+/* new: go to specific page by number if possible */
+async function gotoPageByNumber(page, targetPage) {
+  const paginate = page.locator("#LeadTable_paginate");
+  if (!(await paginate.count())) return false;
+
+  // Try common patterns: aria-label, data-dt-idx, visible link text
+  const candidates = paginate.locator([
+    `a[aria-label="Page ${targetPage}"]`,
+    `a[aria-controls="LeadTable"]:has-text("${targetPage}")`,
+    `a.paginate_button:has-text("${targetPage}")`
+  ].join(", "));
+
+  const n = await candidates.count();
+  if (!n) return false;
+
+  const beforeKey = await getFirstRowKey(page);
+  const el = candidates.first();
+
+  // robust click
+  try { await el.click({ timeout: 2000 }); }
+  catch { await page.evaluate((e) => e.click(), await el.elementHandle()); }
+
+  await ensureInboxStable(page);
+
+  // wait for first row to change OR info text to reflect new range
+  try {
+    await page.waitForFunction(
+      (prev, tblSel) => {
+        const first = document.querySelector(`${tblSel} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
+        const key = first ? first.getAttribute("href") : null;
+        const infoTxt = (document.querySelector("#LeadTable_info")?.textContent || "").replace(/\s+/g," ").trim();
+        return (key && key !== prev) || /Showing\s+101\s+to\b/.test(infoTxt) || /Page\s+2\b/.test(infoTxt);
+      },
+      beforeKey,
+      LEAD_TABLE,
+      { timeout: 8000 }
+    );
+  } catch {
+    // give it one more gentle nudge
+    await page.waitForTimeout(300);
+  }
+
+  return true;
+}
+
+/* fallback: click Next and wait by first-row key */
+async function clickNextInboxPage(page) {
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+  await ensureInboxStable(page);
+
+  const nextLi = page.locator("#LeadTable_next");
+  if (await nextLi.count()) {
+    const cls = (await nextLi.getAttribute("class")) || "";
+    if (/\bdisabled\b/i.test(cls)) {
+      info("📬next disabled (last page)");
+      return { advanced: false, changed: false };
+    }
+  }
+
+  const beforeKey = await getFirstRowKey(page);
+  const nextA = page.locator("#LeadTable_next a");
+  try { await nextA.click({ timeout: 2000 }); }
+  catch { await page.evaluate((el) => el && el.click(), await nextA.elementHandle()); }
+
+  await ensureInboxStable(page);
+
+  let changed = true;
+  try {
+    await page.waitForFunction(
+      (prev, tblSel) => {
+        const first = document.querySelector(`${tblSel} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
+        const key = first ? first.getAttribute("href") : null;
+        const infoTxt = (document.querySelector("#LeadTable_info")?.textContent || "").replace(/\s+/g," ").trim();
+        return (key && key !== prev) || /Showing\s+101\s+to\b/.test(infoTxt);
+      },
+      beforeKey,
+      LEAD_TABLE,
+      { timeout: 8000 }
+    );
+  } catch {
+    changed = false;
+  }
+
+  if (changed) info("➡️Go to next page");
+  return { advanced: changed, changed };
 }
 
 async function launch() {
@@ -259,7 +342,7 @@ async function goToAllLeads(page) {
 const TOKEN_RE =
   /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
-/** Text-scan for numbers across visible DOM (used for before/after baselines) */
+/** Text-scan for numbers across visible DOM */
 async function gatherVisibleNumberTokens(page) {
   return await page.evaluate((reSrc) => {
     const re = new RegExp(reSrc, "gi");
@@ -316,7 +399,6 @@ async function harvestClickToCall(page) {
             // 2) Text nodes on typical content elements (ignore icons)
             const els = document.querySelectorAll("div,span,li,p,td,th,a,button");
             for (const el of els) {
-              // Skip icon elements and anything under them
               if (el.tagName === "SVG" || el.closest("svg") || el.tagName === "I" || el.closest("i")) continue;
               const txt = (el.textContent || "").trim();
               if (!txt) continue;
@@ -344,10 +426,8 @@ async function harvestClickToCall(page) {
             scheduleIdle();
           });
 
-          // observe whole doc - the list often renders in place
           observer.observe(document.body, { subtree: true, childList: true, characterData: true });
 
-          // Quiet window + hard cap
           scheduleIdle();
           const hardTimer = setTimeout(done, maxMs);
         }),
@@ -355,7 +435,6 @@ async function harvestClickToCall(page) {
     )
   );
 
-  // Keep only the new stuff that appeared after opening the Call modal/list
   const diff = Array.from(afterTokens).filter((s) => !before.has(s));
 
   if (DEBUG) dlog(`C2C: after=${afterTokens.size} baseline=${before.size} diff=${diff.length}`);
@@ -388,23 +467,17 @@ async function harvestClickToCall(page) {
 
 /* ========= (3c) Deterministic expand of all policy blocks ========= */
 async function expandAllPoliciesDeterministic(page) {
-  // 1) Click "More" once if present (this reveals all blocks on this site)
   const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
   if (more) {
     await more.click().catch(() => {});
     await sleep(250);
   }
 
-  // 2) Now loop: scroll, wait, re-count "policy markers" until stable idle window
-  // We don't rely on CSS classes; instead we count heuristic anchors:
-  //  - occurrences of "Stage:" (each policy card on this page text includes it)
-  //  - rows labeled like "Ph:" / "Sec Ph:" which commonly co-occur within blocks
   const start = Date.now();
   let lastCount = -1;
   let idleSince = Date.now();
 
   while (Date.now() - start < POL_EXPAND_MAX_MS) {
-    // Scroll down a page to trigger lazy rendering
     await page.evaluate(() => { window.scrollBy(0, Math.floor(window.innerHeight * 0.9)); });
     await page.waitForTimeout(150);
 
@@ -420,12 +493,11 @@ async function expandAllPoliciesDeterministic(page) {
 
     if (total > lastCount) {
       lastCount = total;
-      idleSince = Date.now(); // growth observed → reset idle timer
+      idleSince = Date.now();
     } else if (Date.now() - idleSince >= POL_EXPAND_IDLE_MS) {
-      break; // stable for idle window → done
+      break;
     }
 
-    // In case content is above, also scroll to top then bottom to tick observers
     await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
     await page.waitForTimeout(60);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
@@ -466,10 +538,8 @@ async function getPrimaryNameFromHeader(page) {
 }
 
 async function parseLeadDetail(page) {
-  // (3c) use deterministic expansion so all blocks are visible
   await expandAllPoliciesDeterministic(page);
 
-  // Text-mode parsing for premiums / stage / etc.
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
   let monthlyTotalActive = 0;
@@ -514,7 +584,7 @@ async function parseLeadDetail(page) {
       }
     }
 
-    /* (3a) Lapse determination — 31-day grace + "00" => last-of-month (unchanged) */
+    /* (3a) Lapse determination — 31-day grace + "00" => last-of-month */
     if (active && paidTo) {
       const today = new Date();
 
@@ -567,7 +637,6 @@ async function parseLeadDetail(page) {
     });
   };
 
-  // 1) Text-mode assist: catch inline patterns adjacent to "Ph:" labels inside blocks
   const blockTokenReSrc = TOKEN_RE.source;
   for (const rawBlock of blocks) {
     const labelSpanRe =
@@ -581,7 +650,6 @@ async function parseLeadDetail(page) {
     }
   }
 
-  // 2) DOM-mode: walk label/value pairs; prefer exact labels & robust value extraction
   const domPairs = await page.evaluate(() => {
     const out = [];
     const labelRe =
@@ -674,47 +742,24 @@ async function getPackLinksFromPage(page) {
   return hrefs;
 }
 
-async function clickNextInboxPage(page) {
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
-  await ensureInboxStable(page);
-
-  const nextLi = page.locator("#LeadTable_next");
-  if (await nextLi.count()) {
-    const cls = (await nextLi.getAttribute("class")) || "";
-    if (/\bdisabled\b/i.test(cls)) {
-      info("📬next disabled (last page)");
-      return { advanced: false, changed: false };
-    }
-  }
-
-  const prevInfo = await getInboxInfoText(page);
-  const nextA = page.locator("#LeadTable_next a");
-  await nextA.click({ timeout: 5000 }).catch(() => {});
-  await ensureInboxStable(page);
-
-  let changed = true;
-  try { await waitInboxInfoChange(page, prevInfo); }
-  catch {
-    await page.keyboard.press("Escape").catch(() => {});
-    try { await waitInboxInfoChange(page, prevInfo); } catch { changed = false; }
-  }
-
-  if (changed) info("➡️Go to next page");
-  return { advanced: changed, changed };
-}
-
 async function collectPaginated(page, max) {
   await setInboxPageSize(page);
 
   const allSet = new Set();
   let pageNum = 1;
 
-  for (;;) {
-    const infoTxt = await getInboxInfoText(page);
-    const counts = parseInfoCounts(infoTxt);
-    const totalEntries = counts?.total || undefined;
+  // baseline info
+  let infoTxt = await getInboxInfoText(page);
+  let counts = parseInfoCounts(infoTxt);
+  const totalEntries = counts?.total || undefined;
+  const perPage = 100;
+  const totalPages = totalEntries ? Math.max(1, Math.ceil(totalEntries / perPage)) : undefined;
 
-    info(`📬page ${pageNum}${totalEntries ? ` of ~${Math.ceil(totalEntries / 100)}` : ""}`);
+  for (;;) {
+    infoTxt = await getInboxInfoText(page);
+    counts = parseInfoCounts(infoTxt);
+
+    info(`📬page ${pageNum}${totalPages ? ` of ${totalPages}` : ""}`);
 
     const hrefs = await getPackLinksFromPage(page);
     hrefs.forEach((h) => allSet.add(h));
@@ -722,15 +767,30 @@ async function collectPaginated(page, max) {
 
     if (max && allSet.size >= max) break;
 
-    const { advanced, changed } = await clickNextInboxPage(page);
-    if (!advanced || !changed) break;
+    // done?
+    if (totalPages && pageNum >= totalPages) break;
 
-    const postTxt = await getInboxInfoText(page);
-    const postCounts = parseInfoCounts(postTxt);
-    if (postCounts && postCounts.to >= postCounts.total) break;
+    // Prefer page-number click: go to (pageNum + 1)
+    const target = pageNum + 1;
+    let advanced = false;
+
+    if (totalPages && target <= totalPages) {
+      advanced = await gotoPageByNumber(page, target);
+    }
+
+    if (!advanced) {
+      const res = await clickNextInboxPage(page);
+      advanced = res.advanced && res.changed;
+    }
+
+    if (!advanced) {
+      info("📬pagination stalled; stopping");
+      break;
+    }
 
     pageNum += 1;
   }
+
   const all = Array.from(allSet);
   return max ? all.slice(0, max) : all;
 }
