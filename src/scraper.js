@@ -30,24 +30,20 @@ const dlog = (...args) => {
 /* NEW (3a): configurable grace window; default 31 days */
 const LAPSE_GRACE_DAYS = toNumber(process.env.LAPSE_GRACE_DAYS) ?? 31;
 
+/* NEW (3b): observer timing for Click-to-Call */
+const C2C_IDLE_MS = toNumber(process.env.C2C_IDLE_MS) ?? 800;   // quiet period
+const C2C_MAX_MS  = toNumber(process.env.C2C_MAX_MS)  ?? 6000;  // hard cap
+
 /* EMIT HELPERS */
-function info(msg) {
-  emit("info", { msg });
-}
-function reportError(err, extra = {}) {
-  emit("error", { msg: String((err && err.stack) || err), ...extra });
-}
+function info(msg) { emit("info", { msg }); }
+function reportError(err, extra = {}) { emit("error", { msg: String((err && err.stack) || err), ...extra }); }
 
 /* Validation */
-function sameDigits(s) {
-  return /^([0-9])\1{9}$/.test(s);
-}
+function sameDigits(s) { return /^([0-9])\1{9}$/.test(s); }
 function validUS10(d10) {
   if (!d10 || d10.length !== 10) return false;
   if (sameDigits(d10)) return false;
-  const npa = d10.slice(0, 3),
-    nxx = d10.slice(3, 6),
-    line = d10.slice(6);
+  const npa = d10.slice(0, 3), nxx = d10.slice(3, 6), line = d10.slice(6);
   if (/[01]/.test(npa[0])) return false;
   if (/[01]/.test(nxx[0])) return false;
   if (npa === "555" && /^01\d\d$/.test(line)) return false;
@@ -55,7 +51,7 @@ function validUS10(d10) {
   return true;
 }
 
-const TOLL_FREE = new Set(["800", "888", "877", "866", "855", "844", "833", "822"]);
+const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
 
 function normalizePhoneCandidate(raw, contextLabel) {
   if (/\b(dnc|do\s*not\s*call)\b/i.test(String(raw))) return null;
@@ -71,12 +67,8 @@ function normalizePhoneCandidate(raw, contextLabel) {
   if (s.startsWith("+1")) s = s.slice(2);
   if (s.length === 11 && s.startsWith("1")) s = s.slice(1);
 
-  let rawDigits = null,
-    pretty = null,
-    valid = false,
-    flags = [];
-  let tollFree = false,
-    international = false;
+  let rawDigits = null, pretty = null, valid = false, flags = [];
+  let tollFree = false, international = false;
 
   if (s.startsWith("+") && !s.startsWith("+1")) international = true;
 
@@ -84,11 +76,11 @@ function normalizePhoneCandidate(raw, contextLabel) {
     rawDigits = s;
     valid = validUS10(s);
     pretty = valid ? toPretty(s) : null;
-    if (TOLL_FREE.has(s.slice(0, 3))) tollFree = true;
+    if (TOLL_FREE.has(s.slice(0,3))) tollFree = true;
   } else if (/^\d{7}$/.test(s)) {
     rawDigits = s;
     flags.push("Needs Area Code");
-    pretty = `${s.slice(0, 3)}-${s.slice(3)}`;
+    pretty = `${s.slice(0,3)}-${s.slice(3)}`;
   } else {
     return null;
   }
@@ -111,24 +103,14 @@ function normalizePhoneCandidate(raw, contextLabel) {
 }
 
 function uniqBy(arr, keyFn) {
-  const seen = new Set();
-  const out = [];
-  for (const x of arr) {
-    const k = keyFn(x);
-    if (!seen.has(k)) {
-      seen.add(k);
-      out.push(x);
-    }
-  }
+  const seen = new Set(); const out = [];
+  for (const x of arr) { const k = keyFn(x); if (!seen.has(k)) { seen.add(k); out.push(x); } }
   return out;
 }
 
 async function firstVisible(locator) {
   const n = await locator.count();
-  for (let i = 0; i < n; i++) {
-    const el = locator.nth(i);
-    if (await el.isVisible()) return el;
-  }
+  for (let i = 0; i < n; i++) { const el = locator.nth(i); if (await el.isVisible()) return el; }
   return null;
 }
 
@@ -142,11 +124,8 @@ async function ensureInboxStable(page) {
   }
   const processing = page.locator("div.dataTables_processing");
   if (await processing.count()) {
-    try {
-      await processing.first().waitFor({ state: "hidden", timeout: 10000 });
-    } catch {
-      await processing.first().waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
-    }
+    try { await processing.first().waitFor({ state: "hidden", timeout: 10000 }); }
+    catch { await processing.first().waitFor({ state: "detached", timeout: 10000 }).catch(() => {}); }
   }
   await page.waitForTimeout(50);
 }
@@ -159,9 +138,7 @@ async function getInboxInfoText(page) {
 function parseInfoCounts(txt) {
   const m = txt.match(/Showing\s+(\d+)\s+to\s+(\d+)\s+of\s+(\d+)\s+entries/i);
   if (!m) return null;
-  const from = parseInt(m[1], 10);
-  const to = parseInt(m[2], 10);
-  const total = parseInt(m[3], 10);
+  const from = parseInt(m[1],10), to = parseInt(m[2],10), total = parseInt(m[3],10);
   return { from, to, total };
 }
 
@@ -180,7 +157,7 @@ async function waitInboxInfoChange(page, prev, timeout = 10000) {
 async function launch() {
   const browser = await chromium.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args: ["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({
     viewport: { width: 1360, height: 900 },
@@ -212,8 +189,7 @@ async function login(page, creds) {
   if (!userInput || !passInput) {
     const form = (await firstVisible(page.locator("form"))) || page.locator("body");
     if (!userInput) userInput = await firstVisible(form.locator("input").nth(0));
-    if (!passInput)
-      passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
+    if (!passInput) passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
   }
   if (!userInput || !passInput) {
     reportError("LOGIN: inputs not found");
@@ -258,10 +234,7 @@ async function goToAllLeads(page) {
     (await firstVisible(page.getByRole("button", { name: /my leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("My Leads"), button:has-text("My Leads")')));
 
-  if (myLeads) {
-    await myLeads.click().catch(() => {});
-    await sleep(300);
-  }
+  if (myLeads) { await myLeads.click().catch(() => {}); await sleep(300); }
 
   const allLeads =
     (await firstVisible(page.getByRole("link", { name: /all leads/i }))) ||
@@ -276,7 +249,6 @@ async function goToAllLeads(page) {
   }
 
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
-
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
   info("➡️Go to All Leads");
 }
@@ -287,6 +259,7 @@ async function goToAllLeads(page) {
 const TOKEN_RE =
   /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
+/** Text-scan for numbers across visible DOM (used for before/after baselines) */
 async function gatherVisibleNumberTokens(page) {
   return await page.evaluate((reSrc) => {
     const re = new RegExp(reSrc, "gi");
@@ -296,8 +269,7 @@ async function gatherVisibleNumberTokens(page) {
       for (const el of els) {
         if (!el.offsetParent && getComputedStyle(el).position !== "fixed") continue;
         const t = (el.textContent || "").trim();
-        let m;
-        while ((m = re.exec(t))) toks.add(m[0]);
+        let m; while ((m = re.exec(t))) toks.add(m[0]);
         const href = el.getAttribute && el.getAttribute("href");
         if (href && /tel:/i.test(href)) toks.add(href);
         const oc = el.getAttribute && el.getAttribute("onclick");
@@ -311,6 +283,7 @@ async function gatherVisibleNumberTokens(page) {
   }, TOKEN_RE.source);
 }
 
+/** (3b) Robust Click-to-Call harvesting */
 async function harvestClickToCall(page) {
   const rows = [];
 
@@ -325,15 +298,67 @@ async function harvestClickToCall(page) {
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(() => {});
 
-  /* (3a leaves C2C logic unchanged for now — 3b will strengthen timing & parsing) */
-  let after = new Set();
-  for (let i = 0; i < 6; i++) {
-    await page.waitForTimeout(300);
-    after = new Set(await gatherVisibleNumberTokens(page));
-    if (after.size > before.size) break;
-  }
+  // MutationObserver + quiet window strategy. Prefer tel: links, but also parse text.
+  const afterTokens = new Set(
+    await page.evaluate(
+      ({ reSrc, idleMs, maxMs }) =>
+        new Promise((resolve) => {
+          const re = new RegExp(reSrc, "gi");
+          const tokens = new Set();
 
-  const diff = Array.from(after).filter((s) => !before.has(s));
+          const snapshot = () => {
+            // 1) Explicit tel: links
+            document.querySelectorAll('a[href^="tel:"]').forEach((a) => {
+              const href = a.getAttribute("href") || "";
+              if (href) tokens.add(href);
+            });
+
+            // 2) Text nodes on typical content elements (ignore icons)
+            const els = document.querySelectorAll("div,span,li,p,td,th,a,button");
+            for (const el of els) {
+              // Skip icon elements and anything under them
+              if (el.tagName === "SVG" || el.closest("svg") || el.tagName === "I" || el.closest("i")) continue;
+              const txt = (el.textContent || "").trim();
+              if (!txt) continue;
+              let m; re.lastIndex = 0;
+              while ((m = re.exec(txt))) tokens.add(m[0]);
+            }
+          };
+
+          snapshot(); // initial scan
+
+          let idleTimer = null;
+          const done = () => {
+            observer.disconnect();
+            clearTimeout(hardTimer);
+            resolve(Array.from(tokens));
+          };
+
+          const scheduleIdle = () => {
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(done, idleMs);
+          };
+
+          const observer = new MutationObserver(() => {
+            snapshot();
+            scheduleIdle();
+          });
+
+          // observe whole doc - the list often renders in place
+          observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+
+          // Quiet window + hard cap
+          scheduleIdle();
+          const hardTimer = setTimeout(done, maxMs);
+        }),
+      { reSrc: TOKEN_RE.source, idleMs: C2C_IDLE_MS, maxMs: C2C_MAX_MS }
+    )
+  );
+
+  // Keep only the new stuff that appeared after opening the Call modal/list
+  const diff = Array.from(afterTokens).filter((s) => !before.has(s));
+
+  if (DEBUG) dlog(`C2C: after=${afterTokens.size} baseline=${before.size} diff=${diff.length}`);
 
   const seen = new Set();
   for (const token of diff) {
@@ -367,9 +392,7 @@ async function expandAllPolicies(page) {
     if (!more) break;
     await more.click().catch(() => {});
     await sleep(350);
-    const anotherMore = await firstVisible(
-      page.locator('button:has-text("More"), a:has-text("More")')
-    );
+    const anotherMore = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
     if (!anotherMore) break;
   }
 }
@@ -451,14 +474,7 @@ async function parseLeadDetail(page) {
       }
     }
 
-    /* ===== (3a) Lapse determination tweaks (conservative) =====
-       - Keep explicit lapsed flags as-is.
-       - Annual: unchanged (<= 366 days).
-       - Monthly (or unspecified mode):
-           Anchor = current month due day; if due day is 0/00, normalize to LAST day of month.
-           active = (anchor - paidTo) <= LAPSE_GRACE_DAYS
-       - When due day is unknown: fallback to (today - paidTo) <= LAPSE_GRACE_DAYS
-    */
+    /* (3a) Lapse determination tweaks — unchanged except for 31-day grace + "00" => last-of-month */
     if (active && paidTo) {
       const today = new Date();
 
@@ -467,13 +483,9 @@ async function parseLeadDetail(page) {
         active = diff <= 366;
       } else if (dueDay !== null && Number.isFinite(dueDay)) {
         const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-
-        // NEW: if dueDay is 0 (from "00"), treat anchor as last day of the month
         const normalizedDay = dueDay === 0 ? last : Math.min(Math.max(dueDay, 1), last);
-
         const anchor = new Date(today.getFullYear(), today.getMonth(), normalizedDay);
         const delta = Math.floor((anchor - paidTo) / 86400000);
-
         active = delta <= LAPSE_GRACE_DAYS;
       } else {
         const diff = Math.floor((today - paidTo) / 86400000);
@@ -498,15 +510,11 @@ async function parseLeadDetail(page) {
     policyRows.push({
       primaryName,
       source: "policy",
-      lineType: /sec/i.test(label)
-        ? "Secondary"
-        : /cell/i.test(label)
-        ? "Cell"
-        : /home/i.test(label)
-        ? "Home"
-        : /work/i.test(label)
-        ? "Work"
-        : "Policy",
+      lineType:
+        /sec/i.test(label) ? "Secondary" :
+        /cell/i.test(label) ? "Cell" :
+        /home/i.test(label) ? "Home" :
+        /work/i.test(label) ? "Work" : "Policy",
       original: norm.original,
       rawDigits: norm.rawDigits,
       phone: norm.phone,
@@ -527,8 +535,7 @@ async function parseLeadDetail(page) {
       const label = m[1];
       const span = m[2] || "";
       const tokRe = new RegExp(blockTokenReSrc, "gi");
-      let t;
-      while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
+      let t; while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
     }
   }
 
@@ -575,8 +582,7 @@ async function parseLeadDetail(page) {
   for (const { label, strings } of domPairs) {
     for (const s of strings) {
       tokenRe.lastIndex = 0;
-      let m;
-      while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
+      let m; while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
     }
   }
 
@@ -602,9 +608,7 @@ async function setInboxPageSize(page) {
       Array.from(sel.options || []).map((o) => o.value)
     );
     const current = await lengthSelect.inputValue().catch(() => null);
-    if (current !== "100") {
-      await lengthSelect.selectOption("100");
-    }
+    if (current !== "100") await lengthSelect.selectOption("100");
   }
 
   await ensureInboxStable(page);
@@ -614,9 +618,7 @@ async function setInboxPageSize(page) {
       null,
       { timeout: 10000 }
     );
-  } catch {
-    await page.waitForTimeout(250);
-  }
+  } catch { await page.waitForTimeout(250); }
 
   info(`📬setPageSize(100) options=[${options.join(",") || "unknown"}]`);
 }
@@ -648,15 +650,10 @@ async function clickNextInboxPage(page) {
   await ensureInboxStable(page);
 
   let changed = true;
-  try {
-    await waitInboxInfoChange(page, prevInfo);
-  } catch {
+  try { await waitInboxInfoChange(page, prevInfo); }
+  catch {
     await page.keyboard.press("Escape").catch(() => {});
-    try {
-      await waitInboxInfoChange(page, prevInfo);
-    } catch {
-      changed = false;
-    }
+    try { await waitInboxInfoChange(page, prevInfo); } catch { changed = false; }
   }
 
   if (changed) info("➡️Go to next page");
@@ -713,10 +710,7 @@ export async function scrapePlanet(opts = {}) {
     info("browser: ready");
 
     info("login: starting");
-    await login(page, { username, password }).catch((e) => {
-      reportError(e);
-      throw e;
-    });
+    await login(page, { username, password }).catch((e) => { reportError(e); throw e; });
     info("login: ok");
 
     await goToAllLeads(page);
@@ -726,13 +720,7 @@ export async function scrapePlanet(opts = {}) {
     const toVisit = max ? packlinks.slice(0, max) : packlinks;
     if (!toVisit.length) {
       info("No leads found in inbox.");
-      return {
-        ok: true,
-        leads: [],
-        clickToCall: [],
-        policyPhones: [],
-        meta: { ts: nowIso(), leadCount: 0 },
-      };
+      return { ok: true, leads: [], clickToCall: [], policyPhones: [], meta: { ts: nowIso(), leadCount: 0 } };
     }
 
     const clickToCallRows = [];
@@ -758,9 +746,7 @@ export async function scrapePlanet(opts = {}) {
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      const c2cDigits = new Set(
-        (c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || ""))
-      );
+      const c2cDigits = new Set((c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || "")));
       const policyPhonesExtra = (detail.policyRows || []).filter((r) => {
         const k = r.rawDigits || onlyDigits(r.phone || r.original || "");
         return k && !c2cDigits.has(k);
@@ -779,9 +765,7 @@ export async function scrapePlanet(opts = {}) {
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
 
       const validDigits = new Set();
-      const accValid = (r) => {
-        if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits);
-      };
+      const accValid = (r) => { if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits); };
       (c2c || []).forEach(accValid);
       (policyPhonesExtra || []).forEach(accValid);
 
@@ -821,9 +805,6 @@ export async function scrapePlanet(opts = {}) {
     reportError(err);
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
-    try {
-      // Always emit 'done' so tests and dashboards don't hang.
-      emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null });
-    } catch {}
+    try { emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null }); } catch {}
   }
 }
