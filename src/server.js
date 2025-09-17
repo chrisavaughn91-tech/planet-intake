@@ -2,125 +2,135 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-
-// Local modules
-import { emit, onClientConnect, removeClient } from "./events.js";
+import dotenv from "dotenv";
+import bodyParser from "body-parser";
 import { scrapePlanet } from "./scraper.js";
 
+dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 8080;
 
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true }));
+// Trust Codespaces proxy
+app.set("trust proxy", true);
 
-// Static files and simple page routes
-const pub = path.join(__dirname, "public");
-app.use(express.static(pub));
+// Parse bodies
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false }));
 
-app.get("/", (_req, res) => res.redirect("/login"));
-app.get("/login", (_req, res) => res.sendFile(path.join(pub, "login.html")));
-app.get("/live", (_req, res) => res.sendFile(path.join(pub, "live.html")));
+// Static (serves /login, /live by filename)
+app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
 
-// --- Server-Sent Events (optionally filtered by ?jobId=...) ---
-app.get("/events", (req, res) => {
-  // Standard SSE headers
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache, no-transform",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
+// --- health + root -------------------------------------------------
+app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get("/", (_req, res) => res.redirect(302, "/login"));
 
-  const jobId =
-    typeof req.query.jobId === "string" && req.query.jobId.trim()
-      ? req.query.jobId.trim()
-      : null;
+// --- in-memory SSE hub keyed by jobId ------------------------------
+const streams = new Map(); // Map<jobId, Set<res>>
 
-  // Register client with optional job scoping
-  const clientId = onClientConnect(res, jobId);
-
-  // Cleanup on disconnect
-  req.on("close", () => {
-    try { removeClient(clientId); } catch {}
-  });
-});
-
-// --- Internal launcher: start a job and return its id ---
-async function launchRun(fields) {
-  const jobId = `m${Math.random().toString(36).slice(2, 7)}-${Date.now()
-    .toString()
-    .slice(-5)}`;
-
-  emit("start", { jobId, msg: `run: full (job ${jobId})` });
-
-  const { username, password, email, max, autoStart } = fields || {};
-
-  // Fire-and-forget scrape
-  (async () => {
-    try {
-      const result = await scrapePlanet({
-        auth: { username, password },
-        email,
-        max,
-        autorun: !!autoStart,
-        jobId,
-      });
-
-      if (result?.sheetUrl) {
-        emit("sheet", { jobId, url: result.sheetUrl });
-      }
-      emit("done", {
-        jobId,
-        msg: `processed=${result?.processed ?? "n/a"}`,
-      });
-    } catch (e) {
-      emit("error", { jobId, msg: String(e?.message ?? e) });
-    }
-  })();
-
-  return jobId;
+function sseWrite(res, { event = "info", data = {} }) {
+  try {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  } catch { /* ignore broken pipes */ }
 }
 
-// --- Primary endpoint used by login.html ---
+function broadcast(jobId, payload) {
+  const set = streams.get(jobId);
+  if (!set || set.size === 0) return;
+  for (const res of set) sseWrite(res, payload);
+}
+
+function makeEmitter(jobId) {
+  return (event, data = {}) => {
+    const payload = typeof data === "string" ? { msg: data } : (data || {});
+    broadcast(jobId, { event, data: payload });
+  };
+}
+
+// --- SSE endpoint ---------------------------------------------------
+app.get("/events", (req, res) => {
+  const jobId = String(req.query.job || "").trim();
+  if (!jobId) return res.status(400).json({ ok: false, error: "missing job" });
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+
+  if (!streams.has(jobId)) streams.set(jobId, new Set());
+  streams.get(jobId).add(res);
+
+  // greet + heartbeat
+  sseWrite(res, { event: "info", data: { msg: "stream: connected" } });
+  const ping = setInterval(() => sseWrite(res, { event: "ping", data: {} }), 15000);
+
+  req.on("close", () => {
+    clearInterval(ping);
+    const set = streams.get(jobId);
+    if (set) {
+      set.delete(res);
+      if (set.size === 0) streams.delete(jobId);
+    }
+  });
+});
+
+// --- pages ----------------------------------------------------------
+app.get("/login", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+app.get("/live", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "live.html"));
+});
+
+// --- run a scrape ---------------------------------------------------
 app.post("/run", async (req, res) => {
   try {
-    const jobId = await launchRun(req.body || {});
-    res.json({ ok: true, jobId });
+    const {
+      username = "",
+      password = "",
+      email = "",
+      max,
+    } = req.body || {};
+
+    const jobId = `job${Math.random().toString(36).slice(2, 7)}-${Date.now().toString().slice(-5)}`;
+    const emit  = makeEmitter(jobId);
+
+    emit("start", { job: jobId, max: max ? Number(max) : null });
+
+    // fire-and-forget
+    (async () => {
+      try {
+        await scrapePlanet({
+          username,
+          password,
+          reportEmail: email,
+          max: max ? Number(max) : undefined,
+          jobId,
+          emit, // wire scraper logs to /events?job=...
+        });
+        emit("done", { ok: true, job: jobId });
+      } catch (e) {
+        emit("error", { msg: e?.message || String(e) });
+        emit("done",  { ok: false, job: jobId });
+      }
+    })();
+
+    // If browser submitted form, bounce them to their private live view
+    if ((req.headers.accept || "").includes("text/html")) {
+      return res.redirect(303, `/live?job=${encodeURIComponent(jobId)}`);
+    }
+    // Otherwise, JSON for programmatic callers
+    res.json({ ok: true, job: jobId, live: `/live?job=${encodeURIComponent(jobId)}` });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 });
 
-// --- Compatibility helpers (keep older entry points working) ---
-
-// POST /scrape (legacy)
-app.post("/scrape", async (req, res) => {
-  try {
-    const jobId = await launchRun({ ...(req.body || {}), autoStart: true });
-    res.json({ ok: true, jobId });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-// GET /run/full?max=120 (legacy)
-app.get("/run/full", async (req, res) => {
-  try {
-    const max = req.query.max ? Number(req.query.max) : undefined;
-    const jobId = await launchRun({ max, autoStart: true });
-    res.json({ ok: true, jobId });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
-// Default 404
-app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.path}`));
-
-// Start server
+// --- start ----------------------------------------------------------
 app.listen(PORT, () => {
-  emit("info", { msg: `server listening on ${PORT}` });
+  console.log(`Server listening on ${PORT}`);
 });

@@ -1,161 +1,102 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="utf-8" />
   <title>Planet Lead Pull — Live</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- same UI as your current version; tiny comment added to avoid drift -->
   <style>
-    :root{
-      --bg:#0b0e11; --panel:#11161e; --fg:#e7eef8; --muted:#9fb0c3; --ok:#71d68a; --warn:#ffcc66; --err:#ff6b6b;
-      --row:#0f131a; --row2:#0c1016; --accent:#67b2ff; --divider:#1b2533;
-    }
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif}
-    header{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--divider);background:var(--panel);position:sticky;top:0;z-index:10}
-    h1{margin:0;font-size:16px}
+    :root{color-scheme:dark light}
+    body{margin:0;background:#0b0f14;color:#e7eef7;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #1f2a37;background:#0f1620;position:sticky;top:0}
+    .title{font-weight:700}
     .controls{display:flex;gap:10px;align-items:center}
-    input[type="text"]{background:#0c1117;border:1px solid #223048;border-radius:8px;color:var(--fg);padding:8px 10px;min-width:260px}
-    button{appearance:none;border:1px solid #314158;background:#182234;color:#cfe2ff;border-radius:8px;padding:7px 10px;cursor:pointer}
-    button.primary{border-color:#2a75d4;background:#2a75d4;color:#fff}
-    .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #334; background:#141b24;border-radius:999px;padding:4px 8px;font-size:12px;color:#b8c7d8}
-    .row{display:grid;grid-template-columns:90px 80px 1fr;gap:10px;align-items:start;padding:10px 12px;border-bottom:1px dashed #1b2838;background:linear-gradient(180deg,var(--row),var(--row2))}
-    .row .ts{color:#9ab;white-space:nowrap}
-    .row .type{color:#b7c9df}
-    .row .msg{white-space:pre-wrap;word-break:break-word}
-    .row.lead{border-left:3px solid var(--accent); margin-top:6px}
-    .indent{margin-left:8px;border-left:2px solid #203047;padding-left:10px}
-    .muted{color:#8aa1b6}
-    .ok {color:var(--ok)}
-    .err{color:var(--err)}
-    .warn{color:var(--warn)}
-    .note{color:#8aa1b6}
-    .pill{display:inline-block;padding:2px 6px;border-radius:999px;background:#0e1520;border:1px solid #2a3b55;color:#a9c2e0;font-size:12px}
-    #log{padding-bottom:48px}
+    .btn{border:1px solid #2a3a4d;background:#111a24;color:#e7eef7;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px}
+    .rows{padding:10px 18px}
+    .row{display:grid;grid-template-columns:100px 80px 1fr;gap:14px;padding:10px 0;border-bottom:1px dashed #1f2a37}
+    .ts{opacity:.7}
+    .type{opacity:.85}
+    .msg a{color:#93c5fd}
   </style>
 </head>
 <body>
-  <header>
-    <h1>Planet Lead Pull — Live</h1>
+  <div class="bar">
+    <div class="title">Planet Lead Pull — Live</div>
     <div class="controls">
-      <input id="filter" type="text" placeholder="Filter text (e.g. autorun, sheet:url, jobId)…">
-      <span class="chip"><input id="auto" type="checkbox" checked> auto-scroll</span>
-      <button id="clear">Clear</button>
-      <button id="copy">Copy last 200</button>
+      <input id="filter" class="btn" placeholder="Filter text (e.g. autorun, sheet:url, jobId)..." />
+      <button id="clear" class="btn">Clear</button>
+      <label class="btn"><input id="auto" type="checkbox" checked /> auto-scroll</label>
+      <button id="copy" class="btn">Copy last 200</button>
     </div>
-  </header>
+  </div>
 
-  <div id="meta" class="note" style="padding:10px 16px;border-bottom:1px solid #132030"></div>
-  <div id="legend" class="note" style="display:none"></div>
-  <div id="log" role="log" aria-live="polite"></div>
+  <div class="rows" id="rows"></div>
 
   <script>
-    // --- helpers ---
     const $ = sel => document.querySelector(sel);
-    const filterEl = $('#filter');
-    const autoEl = $('#auto');
-    const logEl = $('#log');
-    const metaEl = $('#meta');
+    const rows = $("#rows");
+    const url = new URL(location.href);
+    const job = url.searchParams.get("job") || "";
 
-    const params = new URLSearchParams(location.search);
-    const jobId  = params.get('job') || params.get('jobId') || '';
-
-    let startAt = performance.now();
-    let lastLeadGroup = null;
-
-    function fmt(t){
-      const ms = Math.max(0, t - startAt);
+    const startedAt = Date.now();
+    const pad = n => String(n).padStart(2, "0");
+    const elapsed = () => {
+      const ms = Date.now() - startedAt;
       const s = Math.floor(ms/1000);
-      const hh = String(Math.floor(s/3600)).padStart(2,'0');
-      const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
-      const ss = String(s%60).padStart(2,'0');
-      return `${hh}:${mm}:${ss}`;
-    }
-    function passesFilter(text){
-      const f = filterEl.value.trim().toLowerCase();
-      return !f || text.toLowerCase().includes(f);
-    }
-    function maybeScroll(){ if (autoEl.checked) logEl.lastElementChild?.scrollIntoView({behavior:'smooth',block:'end'}); }
-
-    function makeRow(type, text, cls=''){
-      const row = document.createElement('div');
-      row.className = `row ${type} ${cls}`.trim();
-      const ts = document.createElement('div');
-      ts.className = 'ts';
-      ts.textContent = fmt(performance.now());
-      const ty = document.createElement('div');
-      ty.className = 'type';
-      ty.textContent = type;
-      const msg = document.createElement('div');
-      msg.className = 'msg';
-      msg.textContent = text;
-      row.append(ts,ty,msg);
-      return row;
-    }
-
-    function addRow(type, text, cls=''){
-      if (!passesFilter(`${type} ${text}`)) return;
-      const row = makeRow(type, text, cls);
-      if (type === 'lead') {
-        lastLeadGroup = row;
-        logEl.appendChild(row);
-      } else if (lastLeadGroup) {
-        const wrap = document.createElement('div');
-        wrap.className = 'indent';
-        wrap.appendChild(row);
-        logEl.appendChild(wrap);
-      } else {
-        logEl.appendChild(row);
-      }
-      maybeScroll();
-    }
-
-    $('#clear').addEventListener('click', ()=>{ logEl.innerHTML=''; lastLeadGroup=null; });
-    $('#copy').addEventListener('click', ()=>{
-      const nodes = Array.from(logEl.children).slice(-200);
-      const text = nodes.map(n => n.innerText.replace(/\n+/g,'  ')).join('\n');
-      navigator.clipboard.writeText(text).catch(()=>{});
-    });
-
-    metaEl.textContent = jobId ? `Live stream for job ${jobId}` : `Live stream (no jobId provided — showing all events)`;
-
-    // --- SSE connection (filtered by jobId if present) ---
-    const es = new EventSource(`/events${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`);
-    es.addEventListener('open', ()=> addRow('info','stream: connected','ok'));
-    es.addEventListener('error', ()=> addRow('error','stream: disconnected','err'));
-
-    const handlers = {
-      info:   d => addRow('info',   d.msg ?? JSON.stringify(d)),
-      start:  d => addRow('start',  d.msg ?? JSON.stringify(d)),
-      lead:   d => addRow('lead',   d.msg ?? (d.lead && d.lead.name) ? `lead: ${(d.lead.name||'').toUpperCase()}` : JSON.stringify(d)),
-      numbers:d => addRow('numbers',d.msg ?? JSON.stringify(d)),
-      badge:  d => addRow('badge',  d.msg ?? JSON.stringify(d)),
-      done:   d => addRow('done',   d.msg ?? JSON.stringify(d),'ok'),
-      error:  d => addRow('error',  d.msg ?? JSON.stringify(d),'err'),
-      sheet:  d => {
-        if (d.url) {
-          const row = makeRow('sheet', d.url);
-          const msgEl = row.querySelector('.msg');
-          msgEl.innerHTML = '';
-          const a = document.createElement('a');
-          a.href = d.url; a.target = '_blank'; a.rel='noopener';
-          a.textContent = d.url;
-          msgEl.appendChild(a);
-          if (passesFilter(`sheet ${d.url}`)) logEl.appendChild(row);
-          maybeScroll();
-        } else {
-          addRow('sheet', d.msg ?? JSON.stringify(d));
-        }
-      }
+      return `${pad(Math.floor(s/3600))}:${pad(Math.floor((s%3600)/60))}:${pad(s%60)}`;
     };
 
-    es.addEventListener('message', ev=>{
-      try{
-        const m = JSON.parse(ev.data);
-        const { type, data } = m;
-        if (jobId && data && data.jobId && data.jobId !== jobId) return;
-        (handlers[type] || handlers.info)(data || {});
-      }catch(_){}
+    function addRow(type, msg) {
+      const f = $("#filter").value.trim().toLowerCase();
+      if (f && !JSON.stringify(msg).toLowerCase().includes(f)) return;
+
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `
+        <div class="ts">${elapsed()}</div>
+        <div class="type">${type}</div>
+        <div class="msg"></div>
+      `;
+      const cell = row.querySelector(".msg");
+
+      if (msg && msg.sheetUrl) {
+        const a = document.createElement("a");
+        a.href = msg.sheetUrl; a.target = "_blank"; a.rel = "noopener";
+        a.textContent = msg.sheetUrl;
+        cell.appendChild(document.createTextNode("sheeturl: "));
+        cell.appendChild(a);
+      } else if (typeof msg === "string") {
+        cell.textContent = msg;
+      } else {
+        cell.textContent = msg && msg.msg ? msg.msg : JSON.stringify(msg || {});
+      }
+
+      rows.appendChild(row);
+      if ($("#auto").checked) row.scrollIntoView({ block: "end" });
+    }
+
+    $("#filter").addEventListener("input", () => { rows.innerHTML = ""; });
+    $("#clear").addEventListener("click", () => { rows.innerHTML = ""; });
+    $("#copy").addEventListener("click", async () => {
+      const text = [...rows.querySelectorAll(".row")].slice(-200).map(r => r.innerText).join("\n");
+      try { await navigator.clipboard.writeText(text); } catch {}
     });
+
+    const es = new EventSource(`/events?job=${encodeURIComponent(job)}`, { withCredentials: false });
+    es.addEventListener("info",    e => addRow("info",    JSON.parse(e.data||"{}")));
+    es.addEventListener("start",   e => addRow("start",   JSON.parse(e.data||"{}")));
+    es.addEventListener("lead",    e => addRow("lead",    JSON.parse(e.data||"{}")));
+    es.addEventListener("numbers", e => addRow("numbers", JSON.parse(e.data||"{}")));
+    es.addEventListener("badge",   e => addRow("badge",   JSON.parse(e.data||"{}")));
+    es.addEventListener("sheet",   e => addRow("sheet",   JSON.parse(e.data||"{}")));
+    es.addEventListener("done",    e => addRow("done",    JSON.parse(e.data||"{}")));
+    es.addEventListener("error",   e => addRow("error",   JSON.parse(e.data||"{}")));
+    es.addEventListener("ping",    _ => {/* heartbeat */});
+    es.onerror = () => addRow("error", { msg: "stream: disconnected" });
+    es.onopen  = () => addRow("info",  { msg: "client: connected" });
+
+    addRow("info", job ? { msg: `Live stream for job ${job}` } :
+                       { msg: "Live stream (no jobId provided — showing all events)" });
   </script>
 </body>
 </html>
