@@ -1,121 +1,114 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Planet Lead Pull — Login</title>
+  <meta charset="utf-8" />
+  <title>Planet Lead Pull — Sign in to Run</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --bg:#0b0e11; --panel:#12161c; --panel2:#0f141a; --fg:#e6eef8; --muted:#9fb0c3; --accent:#67b2ff; --danger:#ff6b6b; --ok:#9cff9c; }
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;display:flex;align-items:center;justify-content:center;padding:24px}
-    .card{width:100%;max-width:560px;background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid #18202a;border-radius:16px;box-shadow:0 6px 30px rgba(0,0,0,.35);padding:24px 24px 18px}
-    h1{margin:0 0 12px;font-size:20px}
-    p.sub{margin:0 0 18px;color:var(--muted)}
-    form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    label{font-size:12px;color:#b8c7d8}
-    input{width:100%;box-sizing:border-box;margin-top:4px;border-radius:10px;border:1px solid #243140;background:#0c1117;color:var(--fg);padding:10px 12px;outline:none}
-    input:focus{border-color:#315a99;box-shadow:0 0 0 3px rgba(103,178,255,.15)}
-    .col-span-2{grid-column:1 / -1}
-    .row{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px}
-    button{appearance:none;border:1px solid #2a75d4;background:#2a75d4;color:white;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
-    button:disabled{opacity:.6;cursor:not-allowed}
-    .ghost{background:transparent;border-color:#314158;color:#cfe2ff}
-    .note{margin-top:10px;color:#8ba0b4;font-size:12px}
-    .err{color:var(--danger);margin-top:8px}
-    .ok{color:var(--ok);margin-top:8px}
+    :root { color-scheme: dark light; }
+    body{margin:0;background:#0b0f14;color:#e7eef7;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .wrap{min-height:100svh;display:grid;place-items:center;padding:32px}
+    .card{width:min(740px,92vw);background:#0f1620;border:1px solid #1f2a37;border-radius:16px;padding:28px 28px 22px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    h1{margin:0 0 12px;font-size:20px;font-weight:700}
+    .note{opacity:.75;font-size:13px;margin-top:-2px;margin-bottom:18px}
+    label{display:block;font-size:13px;margin:14px 0 6px}
+    input{width:100%;padding:10px 12px;border:1px solid #2a3a4d;border-radius:9px;background:#0b121a;color:#e7eef7;outline:none}
+    input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.25)}
+    .row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:14px}
+    .left{display:flex;gap:10px;align-items:center}
+    .btn{border:1px solid #2a3a4d;background:#111a24;color:#e7eef7;border-radius:10px;padding:10px 14px;cursor:pointer}
+    .btn.primary{background:#2563eb;border-color:#2563eb}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .hint{font-size:12px;opacity:.65;margin-top:6px}
+    .check{display:flex;gap:8px;align-items:center;font-size:13px;opacity:.9;margin-top:10px}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Planet Lead Pull — Sign in to Run</h1>
-    <p class="sub">We’ll use these credentials <em>once</em> for this run. We do not store them.</p>
+  <div class="wrap">
+    <div class="card">
+      <h1>Planet Lead Pull — Sign in to Run</h1>
+      <div class="note">We’ll use these credentials <b>once</b> for this run. We do not store them.</div>
 
-    <form id="f">
-      <div class="col-span-2">
-        <label>Username
-          <input id="username" name="username" autocomplete="username" required/>
-        </label>
-      </div>
-      <div class="col-span-2">
-        <label>Password
-          <input id="password" name="password" type="password" autocomplete="current-password" required/>
-        </label>
-      </div>
-      <div class="col-span-2">
-        <label>Email (for tagging this run)
-          <input id="email" name="email" type="email" placeholder="you@example.com"/>
-        </label>
-      </div>
-      <div>
-        <label>Max leads (optional)
-          <input id="max" name="max" type="number" min="1" step="1" placeholder="e.g. 200"/>
-        </label>
-      </div>
-      <div>
-        <label>&nbsp;
-          <input id="autostart" name="autostart" type="checkbox" checked/>
-          Auto-start scrape
-        </label>
-      </div>
-      <div class="col-span-2 row">
-        <button type="button" class="ghost" id="demo">Quick Demo</button>
-        <button id="run" type="submit">Run my scrape →</button>
-      </div>
-    </form>
+      <label for="username">Username</label>
+      <input id="username" autocomplete="username" />
 
-    <div id="msg" class="note"></div>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+
+      <label for="email">Email (for tagging this run)</label>
+      <input id="email" type="email" placeholder="you@example.com" />
+
+      <label for="max">Max leads (optional)</label>
+      <input id="max" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 200" />
+
+      <div class="check">
+        <input id="autorun" type="checkbox" checked />
+        <label for="autorun">Auto-start scrape</label>
+      </div>
+
+      <div class="row">
+        <div class="left">
+          <button id="demo" class="btn">Quick Demo</button>
+        </div>
+        <div class="right">
+          <button id="run" class="btn primary">Run my scrape →</button>
+        </div>
+      </div>
+
+      <div class="hint" id="hint"></div>
+    </div>
   </div>
 
   <script>
-    const f = document.getElementById('f');
-    const msg = document.getElementById('msg');
-    const runBtn = document.getElementById('run');
-    const demoBtn = document.getElementById('demo');
+    const $ = id => document.getElementById(id);
+    const hint = $("hint");
 
-    function say(text, cls='note'){ msg.className = cls; msg.textContent = text; }
-
-    async function startRun(fields){
-      runBtn.disabled = true;
-      say('Starting run…');
-      try {
-        const res = await fetch('/run', {
-          method: 'POST',
-          headers: { 'Content-Type':'application/json' },
-          body: JSON.stringify(fields)
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(()=>res.statusText);
-          throw new Error(`Server responded ${res.status}: ${text}`);
-        }
-        const data = await res.json();
-        if (!data || !data.ok || !data.jobId) throw new Error('Unexpected response; no jobId returned.');
-        say(`Run started. Redirecting to your live stream…`, 'ok');
-        location.assign(`/live?job=${encodeURIComponent(data.jobId)}`);
-      } catch (err) {
-        say(`Error: ${err.message || err}`, 'err');
-      } finally {
-        runBtn.disabled = false;
-      }
+    function say(msg, kind="") {
+      hint.textContent = msg;
+      hint.style.color = kind === "err" ? "#fca5a5" : "#9ca3af";
     }
 
-    f.addEventListener('submit', (e)=>{
-      e.preventDefault();
-      const fields = {
-        username: document.getElementById('username').value.trim(),
-        password: document.getElementById('password').value,
-        email:    document.getElementById('email').value.trim(),
-        max:      document.getElementById('max').value ? Number(document.getElementById('max').value) : undefined,
-        autoStart:true
-      };
-      startRun(fields);
+    $("demo").addEventListener("click", () => {
+      $("username").value = "demo-user";
+      $("password").value = "demo-pass";
+      $("email").value    = "demo@example.com";
+      $("max").value      = "50";
+      say("Demo fields filled. Click “Run my scrape →” to start.");
     });
 
-    demoBtn.addEventListener('click', ()=>{
-      document.getElementById('username').value = 'demo_user';
-      document.getElementById('password').value = 'demo_pass';
-      document.getElementById('email').value    = 'demo@example.com';
-      document.getElementById('max').value      = '50';
-      say('Demo fields filled. Click “Run my scrape →” to start.', 'note');
+    $("run").addEventListener("click", async () => {
+      const payload = {
+        username: $("username").value.trim(),
+        password: $("password").value,
+        email: $("email").value.trim(),
+        max: $("max").value.trim(),
+        autorun: $("autorun").checked
+      };
+
+      if (!payload.username || !payload.password) {
+        say("Please enter your username and password.", "err");
+        return;
+      }
+
+      $("run").disabled = true;
+      say("Starting your run…");
+
+      try {
+        const resp = await fetch("/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data?.ok) throw new Error(data?.error || "Failed to start run");
+
+        // Redirect to your private live stream for this job
+        window.location.assign(data.live);
+      } catch (e) {
+        say(e.message || String(e), "err");
+        $("run").disabled = false;
+      }
     });
   </script>
 </body>
