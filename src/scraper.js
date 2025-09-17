@@ -23,16 +23,16 @@ const toPretty = (d10) => (d10 ? `(${d10.slice(0, 3)}) ${d10.slice(3, 6)}-${d10.
 const onlyDigits = (s) => String(s || "").replace(/\D/g, "");
 
 const DEBUG = String(process.env.DEBUG_SCRAPER || "") === "1";
-const dlog = (...args) => {
-  if (DEBUG) console.log("[SCRAPER]", ...args);
-};
+const dlog = (...args) => { if (DEBUG) console.log("[SCRAPER]", ...args); };
 
-/* NEW (3a): configurable grace window; default 31 days */
+/* (3a): configurable grace window; default 31 days */
 const LAPSE_GRACE_DAYS = toNumber(process.env.LAPSE_GRACE_DAYS) ?? 31;
-
-/* NEW (3b): observer timing for Click-to-Call */
+/* (3b): observer timing for Click-to-Call */
 const C2C_IDLE_MS = toNumber(process.env.C2C_IDLE_MS) ?? 800;   // quiet period
 const C2C_MAX_MS  = toNumber(process.env.C2C_MAX_MS)  ?? 6000;  // hard cap
+/* (3c): deterministic expand timing */
+const POL_EXPAND_IDLE_MS = toNumber(process.env.POL_EXPAND_IDLE_MS) ?? 600;
+const POL_EXPAND_MAX_MS  = toNumber(process.env.POL_EXPAND_MAX_MS)  ?? 10000;
 
 /* EMIT HELPERS */
 function info(msg) { emit("info", { msg }); }
@@ -386,15 +386,53 @@ async function harvestClickToCall(page) {
   return uniqBy(rows, (r) => `${r.rawDigits || r.original}-${r.extension || ""}`);
 }
 
-async function expandAllPolicies(page) {
-  for (let i = 0; i < 12; i++) {
-    const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
-    if (!more) break;
+/* ========= (3c) Deterministic expand of all policy blocks ========= */
+async function expandAllPoliciesDeterministic(page) {
+  // 1) Click "More" once if present (this reveals all blocks on this site)
+  const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
+  if (more) {
     await more.click().catch(() => {});
-    await sleep(350);
-    const anotherMore = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
-    if (!anotherMore) break;
+    await sleep(250);
   }
+
+  // 2) Now loop: scroll, wait, re-count "policy markers" until stable idle window
+  // We don't rely on CSS classes; instead we count heuristic anchors:
+  //  - occurrences of "Stage:" (each policy card on this page text includes it)
+  //  - rows labeled like "Ph:" / "Sec Ph:" which commonly co-occur within blocks
+  const start = Date.now();
+  let lastCount = -1;
+  let idleSince = Date.now();
+
+  while (Date.now() - start < POL_EXPAND_MAX_MS) {
+    // Scroll down a page to trigger lazy rendering
+    await page.evaluate(() => { window.scrollBy(0, Math.floor(window.innerHeight * 0.9)); });
+    await page.waitForTimeout(150);
+
+    const counts = await page.evaluate(() => {
+      const txt = (document.body.innerText || "");
+      const stage = (txt.match(/\bStage:/g) || []).length;
+      const ph = (txt.match(/\bSec(?:ond(?:ary)?)?\s*Ph\s*:|\bPh\s*:/gi) || []).length;
+      return { stage, ph, total: stage + ph };
+    });
+
+    const total = counts.total;
+    if (DEBUG) console.log("[SCRAPER] policyExpand snapshot:", counts);
+
+    if (total > lastCount) {
+      lastCount = total;
+      idleSince = Date.now(); // growth observed → reset idle timer
+    } else if (Date.now() - idleSince >= POL_EXPAND_IDLE_MS) {
+      break; // stable for idle window → done
+    }
+
+    // In case content is above, also scroll to top then bottom to tick observers
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await page.waitForTimeout(60);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+    await page.waitForTimeout(120);
+  }
+
+  if (DEBUG) dlog("[SCRAPER] expandAllPoliciesDeterministic: done");
 }
 
 async function getPrimaryNameFromHeader(page) {
@@ -428,8 +466,10 @@ async function getPrimaryNameFromHeader(page) {
 }
 
 async function parseLeadDetail(page) {
-  await expandAllPolicies(page);
+  // (3c) use deterministic expansion so all blocks are visible
+  await expandAllPoliciesDeterministic(page);
 
+  // Text-mode parsing for premiums / stage / etc.
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
   let monthlyTotalActive = 0;
@@ -474,7 +514,7 @@ async function parseLeadDetail(page) {
       }
     }
 
-    /* (3a) Lapse determination tweaks — unchanged except for 31-day grace + "00" => last-of-month */
+    /* (3a) Lapse determination — 31-day grace + "00" => last-of-month (unchanged) */
     if (active && paidTo) {
       const today = new Date();
 
@@ -499,6 +539,7 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
+  /* ===== (3c) Structured DOM harvesting of policy phones ===== */
   const policyRows = [];
   const seen = new Set();
   const pushPolicyNumber = (token, label, primaryName) => {
@@ -526,6 +567,7 @@ async function parseLeadDetail(page) {
     });
   };
 
+  // 1) Text-mode assist: catch inline patterns adjacent to "Ph:" labels inside blocks
   const blockTokenReSrc = TOKEN_RE.source;
   for (const rawBlock of blocks) {
     const labelSpanRe =
@@ -539,6 +581,7 @@ async function parseLeadDetail(page) {
     }
   }
 
+  // 2) DOM-mode: walk label/value pairs; prefer exact labels & robust value extraction
   const domPairs = await page.evaluate(() => {
     const out = [];
     const labelRe =
