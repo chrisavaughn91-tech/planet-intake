@@ -27,6 +27,9 @@ const dlog = (...args) => {
   if (DEBUG) console.log("[SCRAPER]", ...args);
 };
 
+/* NEW (3a): configurable grace window; default 31 days */
+const LAPSE_GRACE_DAYS = toNumber(process.env.LAPSE_GRACE_DAYS) ?? 31;
+
 /* EMIT HELPERS */
 function info(msg) {
   emit("info", { msg });
@@ -322,6 +325,7 @@ async function harvestClickToCall(page) {
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(() => {});
 
+  /* (3a leaves C2C logic unchanged for now — 3b will strengthen timing & parsing) */
   let after = new Set();
   for (let i = 0; i < 6; i++) {
     await page.waitForTimeout(300);
@@ -447,23 +451,33 @@ async function parseLeadDetail(page) {
       }
     }
 
+    /* ===== (3a) Lapse determination tweaks (conservative) =====
+       - Keep explicit lapsed flags as-is.
+       - Annual: unchanged (<= 366 days).
+       - Monthly (or unspecified mode):
+           Anchor = current month due day; if due day is 0/00, normalize to LAST day of month.
+           active = (anchor - paidTo) <= LAPSE_GRACE_DAYS
+       - When due day is unknown: fallback to (today - paidTo) <= LAPSE_GRACE_DAYS
+    */
     if (active && paidTo) {
       const today = new Date();
+
       if (mode === "annual") {
         const diff = Math.floor((today - paidTo) / 86400000);
         active = diff <= 366;
-      } else if (dueDay) {
+      } else if (dueDay !== null && Number.isFinite(dueDay)) {
         const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-        const anchor = new Date(
-          today.getFullYear(),
-          today.getMonth(),
-          Math.min(Math.max(dueDay, 1), last)
-        );
+
+        // NEW: if dueDay is 0 (from "00"), treat anchor as last day of the month
+        const normalizedDay = dueDay === 0 ? last : Math.min(Math.max(dueDay, 1), last);
+
+        const anchor = new Date(today.getFullYear(), today.getMonth(), normalizedDay);
         const delta = Math.floor((anchor - paidTo) / 86400000);
-        active = delta <= 60;
+
+        active = delta <= LAPSE_GRACE_DAYS;
       } else {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 60;
+        active = diff <= LAPSE_GRACE_DAYS;
       }
     }
 
