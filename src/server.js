@@ -44,9 +44,7 @@ app.get("/events", (req, res) => {
 
   // Cleanup on disconnect
   req.on("close", () => {
-    try {
-      removeClient(clientId);
-    } catch {}
+    try { removeClient(clientId); } catch {}
   });
 });
 
