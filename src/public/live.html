@@ -2,123 +2,231 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Lead Pull — Live</title>
+  <title>Planet Intake — Live Stream</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{color-scheme:dark; font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial;}
-    body{margin:0; background:#0f1620; color:#e7eef7;}
-    header{position:sticky; top:0; background:#0f1620; border-bottom:1px solid #1f2a37; padding:10px 14px; display:flex; gap:12px; align-items:center;}
-    header .meta{margin-left:auto; opacity:.8; font-size:12px}
-    .btn{background:#111a24; color:#e7eef7; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12px; border:1px dashed #1f2a37;}
-    .row{display:grid; grid-template-columns:84px 84px 1fr; gap:10px; padding:4px 10px; border-bottom:1px dashed #1f2a37;}
-    .row .ts{opacity:.7}
-    .row.info  .type{color:#8ab4ff}
-    .row.start .type{color:#b6f09c}
-    .row.lead  .type{color:#ffd166}
-    .row.error .type{color:#ff6b6b}
-    .indent{padding-left:18px}
-    #log{padding-bottom:60vh}
-    a{color:#8ab4ff}
+    :root{
+      --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8; --border:#222;
+      --pill:#1e1f27; --pill-b:#2a2c38;
+      --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
+      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
+      --accent:#6aa8ff;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+    header{position:sticky;top:0;background:rgba(11,11,12,.9);backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--border);padding:10px 12px;z-index:10}
+    .brand{font-weight:700;letter-spacing:.3px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+    .chip{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:999px;
+      background:var(--pill);border:1px solid var(--pill-b);font-size:12px;cursor:pointer;user-select:none}
+    .chip[data-on="false"]{opacity:.35}
+    .chip .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
+    .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
+    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
+    .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
+    .dot.error{background:var(--err)} .dot.done{background:var(--done)}
+    .dot.client{background:#aaa}
+    .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
+    .button:hover{border-color:#3a3c48}
+    .input{padding:5px 9px;border-radius:8px;border:1px solid var(--pill-b);background:#0e0f13;color:var(--fg);min-width:220px}
+    .legend{margin-top:6px;font-size:12px;color:var(--muted)}
+    .banner{position:sticky;top:64px;background:#201b0b;color:#ffdd99;border-bottom:1px solid #3a2d12;padding:6px 12px;display:none}
+    .container{padding:12px 12px 20px}
+    .row{display:grid;grid-template-columns:100px 120px 86px 1fr;gap:10px;align-items:start;
+      padding:7px 0;border-bottom:1px dashed #232323}
+    .time{color:#bbb;font-variant-numeric:tabular-nums}
+    .type{display:inline-flex;align-items:center;gap:6px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px}
+    .msg{white-space:pre-wrap;color:#e5e7eb}
+    .badge-AUTORUN{color:#222;background:#ffd27a;border-color:#ffde9b}
+    .badge-MANUAL{color:#d7ebff;background:#243247;border-color:#3d4f6b}
+    .level-info{color:var(--info)} .level-start{color:var(--warn);font-weight:600}
+    .level-lead{color:var(--lead)} .level-numbers{color:var(--ok)}
+    .level-badge{color:var(--badge)} .level-sheet{color:var(--sheet)}
+    .level-error{color:var(--err);font-weight:600} .level-done{color:var(--done);font-weight:600}
+    .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
+    .stickyNew .button{background:#122845;border-color:#204a86}
+    .muted{color:#909090}
   </style>
 </head>
 <body>
   <header>
-    <input id="filter" placeholder="Filter text (e.g. start, lead, sheet, error)" class="btn" style="flex:1" />
-    <label class="btn"><input id="auto" type="checkbox" checked /> auto-scroll</label>
-    <button id="clear" class="btn">Clear</button>
-    <button id="copy"  class="btn">Copy last 200</button>
-    <div id="meta" class="meta"></div>
+    <div class="brand">Planet Intake — Live</div>
+    <div class="toolbar" id="toolbar">
+      <!-- filter chips -->
+      <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
+      <div class="chip" data-key="start" data-on="true"><span class="dot start"></span>start</div>
+      <div class="chip" data-key="lead" data-on="true"><span class="dot lead"></span>lead</div>
+      <div class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</div>
+      <div class="chip" data-key="badge" data-on="true"><span class="dot badge"></span>badge</div>
+      <div class="chip" data-key="sheet" data-on="true"><span class="dot sheet"></span>sheet</div>
+      <div class="chip" data-key="error" data-on="true"><span class="dot error"></span>error</div>
+      <div class="chip" data-key="done" data-on="true"><span class="dot done"></span>done</div>
+      <div class="chip" data-key="client" data-on="false"><span class="dot client"></span>client</div>
+      <div class="right">
+        <input id="q" class="input" placeholder="Filter text (e.g. autorun, sheet:url, jobId)" />
+        <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
+        <button id="clearBtn" class="button" title="Clear log view">Clear</button>
+        <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
+      </div>
+    </div>
+    <div class="legend">Timestamps show elapsed time since run start (first <span class="level-start">start</span> event). “Autorun” vs “Manual” is inferred client-side.</div>
   </header>
 
-  <div id="log" role="log" aria-live="polite"></div>
+  <div class="banner" id="banner">Reconnecting…</div>
+  <div class="container" id="log"></div>
+  <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
 
   <script>
-    // --- helpers ---
-    const $ = sel => document.querySelector(sel);
-    const filterEl = $('#filter');
-    const autoEl   = $('#auto');
-    const logEl    = $('#log');
-    const metaEl   = $('#meta');
+    const logEl = document.getElementById('log');
+    const toolbar = document.getElementById('toolbar');
+    const banner = document.getElementById('banner');
+    const stickyNew = document.getElementById('stickyNew');
+    const inputQ = document.getElementById('q');
+    const autoScrollChip = document.getElementById('autoScroll');
 
-    const params = new URLSearchParams(location.search);
-    // Accept either ?job= or ?jobId=, but normalize to job
-    const jobId = params.get('job') || params.get('jobId') || '';
-
-    let startAt = performance.now();
-    let lastLeadGroup = null;
-
-    function fmt(t){
-      const ms = Math.max(0, t - startAt);
-      const s  = Math.floor(ms/1000);
-      const hh = String(Math.floor(s/3600)).padStart(2,'0');
-      const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
-      const ss = String(s%60).padStart(2,'0');
-      return `${hh}:${mm}:${ss}`;
-    }
-    function passesFilter(text){
-      const f = filterEl.value.trim().toLowerCase();
-      return !f || text.toLowerCase().includes(f);
-    }
-    function maybeScroll(){
-      if (autoEl.checked) logEl.lastElementChild?.scrollIntoView({behavior:'smooth', block:'end'});
-    }
-
-    function makeRow(type, text, cls=''){
-      const row = document.createElement('div');
-      row.className = `row ${type} ${cls}`.trim();
-      const ts = document.createElement('div'); ts.className='ts';   ts.textContent = fmt(performance.now());
-      const ty = document.createElement('div'); ty.className='type'; ty.textContent = type;
-      const msg = document.createElement('div'); msg.className='msg'; msg.textContent = text;
-      row.append(ts,ty,msg);
-      return row;
-    }
-    function addRow(type, text, cls=''){
-      if (!passesFilter(`${type} ${text}`)) return;
-      const row = makeRow(type, text, cls);
-      if (type === 'lead') {
-        lastLeadGroup = row;
-        logEl.appendChild(row);
-      } else if (lastLeadGroup) {
-        const wrap = document.createElement('div');
-        wrap.className = 'indent';
-        wrap.appendChild(row);
-        logEl.appendChild(wrap);
-      } else {
-        logEl.appendChild(row);
-      }
-      maybeScroll();
-    }
-
-    $('#clear').addEventListener('click', ()=>{ logEl.innerHTML=''; lastLeadGroup=null; });
-    $('#copy').addEventListener('click', ()=>{
-      const nodes = Array.from(logEl.children).slice(-200);
-      const text = nodes.map(n => n.innerText.replace(/\n+/g,'  ')).join('\n');
-      navigator.clipboard.writeText(text).catch(()=>{});
+    // --- filter state -------------------------------------------------------
+    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
+    toolbar.addEventListener('click', (e)=>{
+      const ch = e.target.closest('.chip[data-key]');
+      if (!ch) return;
+      ch.dataset.on = ch.dataset.on === 'true' ? 'false' : 'true';
+      filters.set(ch.dataset.key, ch.dataset.on === 'true');
+      refilter();
+    });
+    autoScrollChip.addEventListener('click', ()=>{
+      autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false':'true';
+      maybeShowNew();
     });
 
-    metaEl.textContent = jobId ? `Live stream for job ${jobId}` : `Live stream (no job — showing all events)`;
+    document.getElementById('clearBtn').onclick = ()=>{ logEl.innerHTML = ''; };
+    document.getElementById('copyBtn').onclick = ()=>{
+      const rows = [...logEl.querySelectorAll('.row')].slice(-200);
+      const text = rows.map(r => r.innerText.replace(/\s+\n/g,' ')).join('\n');
+      navigator.clipboard.writeText(text).catch(()=>{});
+    };
+    inputQ.addEventListener('input', ()=> refilter());
 
-    // *** IMPORTANT: use ?job= (not ?jobId=). We still accept jobId on the server, but normalize here. ***
-    const es = new EventSource(`/events${jobId ? `?job=${encodeURIComponent(jobId)}` : ''}`);
-
-    es.addEventListener('open',  ()=> addRow('info','stream: connected','ok'));
-    es.addEventListener('error', ()=> addRow('error','stream: disconnected','err'));
-
-    const handlers = {
-      info:   d => addRow('info',   d.msg ?? JSON.stringify(d)),
-      start:  d => addRow('start',  d.msg ?? JSON.stringify(d)),
-      lead:   d => addRow('lead',   d.msg ?? (d.company ? `${d.company} — ${d.contact || ''}` : JSON.stringify(d))),
-      sheet:  d => addRow('sheet',  d.url ? `Sheet created: ${d.url}` : JSON.stringify(d)),
-      done:   d => addRow('done',   JSON.stringify(d), 'ok'),
-      error:  d => addRow('error',  d.msg ?? JSON.stringify(d), 'err'),
+    // --- elapsed time baseline ---------------------------------------------
+    let t0 = null; // set on first 'start' event; fallback to first event if needed
+    const now = () => performance.now();
+    const fmtHMS = (ms) => {
+      const s = Math.max(0, Math.floor(ms/1000));
+      const h = Math.floor(s/3600);
+      const m = Math.floor((s%3600)/60);
+      const ss = s%60;
+      const pad = (n)=> String(n).padStart(2,'0');
+      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
     };
 
-    for (const t of Object.keys(handlers)) {
-      es.addEventListener(t, ev => {
-        try { handlers[t](JSON.parse(ev.data||'{}')); }
-        catch { addRow('error', `bad event data for ${t}`); }
+    function elapsed() {
+      if (!t0) return '00:00:00';
+      return fmtHMS(now() - t0);
+    }
+
+    // --- rendering ----------------------------------------------------------
+    function addRow(level, msg, meta = {}) {
+      // filtering (by type and query)
+      if (!filters.get(level)) return;
+
+      const q = inputQ.value.trim().toLowerCase();
+      if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
+
+      const row = document.createElement('div'); row.className = 'row';
+      const t = document.createElement('div');  t.className = 'time'; t.textContent = elapsed();
+
+      const ty = document.createElement('div'); ty.className = 'type';
+      const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
+      const badge = document.createElement('span'); badge.className = 'pill muted';
+
+      // infer job badge
+      const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
+                     (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
+      if (level === 'start' || source) {
+        badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
+        badge.classList.add(source ? `badge-${source}` : 'badge-MANUAL');
+      } else {
+        badge.style.display = 'none';
+      }
+
+      ty.append(lvl, badge);
+
+      const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
+
+      row.append(t, ty, m);
+      logEl.appendChild(row);
+
+      if (autoScrollChip.dataset.on === 'true') {
+        row.scrollIntoView({behavior:'smooth', block:'end'});
+        stickyNew.style.display = 'none';
+      } else {
+        maybeShowNew();
+      }
+    }
+
+    function maybeShowNew(){
+      const atBottom = Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 4;
+      stickyNew.style.display = (autoScrollChip.dataset.on === 'false' && !atBottom) ? 'flex' : 'none';
+    }
+    function scrollToEnd(force=false){
+      logEl.scrollTop = logEl.scrollHeight;
+      if (force) stickyNew.style.display = 'none';
+    }
+    logEl.addEventListener('scroll', ()=> maybeShowNew());
+
+    function refilter(){
+      [...logEl.children].forEach(row=>{
+        const level = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
+        const text = row.innerText.toLowerCase();
+        const q = inputQ.value.trim().toLowerCase();
+        const typeText = level ? level.textContent : 'info';
+        const showType = filters.get(typeText);
+        const showText = !q || text.includes(q);
+        row.style.display = (showType && showText) ? '' : 'none';
       });
     }
+
+    // --- SSE setup ----------------------------------------------------------
+    function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
+
+    const es = new EventSource('/events');
+    es.addEventListener('open', () => {
+      showBanner(false);
+      addRow('info', 'stream: connected');
+    });
+    es.addEventListener('error', () => {
+      showBanner(true);
+      addRow('error', 'stream: error (trying to reconnect…)');
+    });
+
+    const handlers = {
+      info:  (d)=> addRow('info', d.msg || ''),
+      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
+      numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
+      badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
+      sheet: (d)=> addRow('sheet', d.url || d.msg || ''),
+      error: (d)=> addRow('error', d.msg || ''),
+      done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
+      client:(d)=> addRow('client', d.msg || '')
+    };
+
+    // subscribe to known event types
+    ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
+      es.addEventListener(type, (e)=>{
+        try{
+          const data = JSON.parse(e.data || '{}');
+          if (!t0 && type !== 'info') t0 = now(); // fallback baseline if no explicit 'start'
+          (handlers[type] || handlers.info)(data);
+        }catch(err){
+          addRow('error', 'parse error');
+          console.error(err, e.data);
+        }
+      });
+    });
   </script>
 </body>
 </html>

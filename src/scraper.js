@@ -23,27 +23,28 @@ const toPretty = (d10) => (d10 ? `(${d10.slice(0, 3)}) ${d10.slice(3, 6)}-${d10.
 const onlyDigits = (s) => String(s || "").replace(/\D/g, "");
 
 const DEBUG = String(process.env.DEBUG_SCRAPER || "") === "1";
-const dlog = (...args) => { if (DEBUG) console.log("[SCRAPER]", ...args); };
-
-/* (3a): configurable grace window; default 31 days */
-const LAPSE_GRACE_DAYS = toNumber(process.env.LAPSE_GRACE_DAYS) ?? 31;
-/* (3b): observer timing for Click-to-Call */
-const C2C_IDLE_MS = toNumber(process.env.C2C_IDLE_MS) ?? 800;   // quiet period
-const C2C_MAX_MS  = toNumber(process.env.C2C_MAX_MS)  ?? 6000;  // hard cap
-/* (3c): deterministic expand timing */
-const POL_EXPAND_IDLE_MS = toNumber(process.env.POL_EXPAND_IDLE_MS) ?? 600;
-const POL_EXPAND_MAX_MS  = toNumber(process.env.POL_EXPAND_MAX_MS)  ?? 10000;
+const dlog = (...args) => {
+  if (DEBUG) console.log("[SCRAPER]", ...args);
+};
 
 /* EMIT HELPERS */
-function info(msg) { emit("info", { msg }); }
-function reportError(err, extra = {}) { emit("error", { msg: String((err && err.stack) || err), ...extra }); }
+function info(msg) {
+  emit("info", { msg });
+}
+function reportError(err, extra = {}) {
+  emit("error", { msg: String((err && err.stack) || err), ...extra });
+}
 
 /* Validation */
-function sameDigits(s) { return /^([0-9])\1{9}$/.test(s); }
+function sameDigits(s) {
+  return /^([0-9])\1{9}$/.test(s);
+}
 function validUS10(d10) {
   if (!d10 || d10.length !== 10) return false;
   if (sameDigits(d10)) return false;
-  const npa = d10.slice(0, 3), nxx = d10.slice(3, 6), line = d10.slice(6);
+  const npa = d10.slice(0, 3),
+    nxx = d10.slice(3, 6),
+    line = d10.slice(6);
   if (/[01]/.test(npa[0])) return false;
   if (/[01]/.test(nxx[0])) return false;
   if (npa === "555" && /^01\d\d$/.test(line)) return false;
@@ -51,7 +52,7 @@ function validUS10(d10) {
   return true;
 }
 
-const TOLL_FREE = new Set(["800","888","877","866","855","844","833","822"]);
+const TOLL_FREE = new Set(["800", "888", "877", "866", "855", "844", "833", "822"]);
 
 function normalizePhoneCandidate(raw, contextLabel) {
   if (/\b(dnc|do\s*not\s*call)\b/i.test(String(raw))) return null;
@@ -67,8 +68,12 @@ function normalizePhoneCandidate(raw, contextLabel) {
   if (s.startsWith("+1")) s = s.slice(2);
   if (s.length === 11 && s.startsWith("1")) s = s.slice(1);
 
-  let rawDigits = null, pretty = null, valid = false, flags = [];
-  let tollFree = false, international = false;
+  let rawDigits = null,
+    pretty = null,
+    valid = false,
+    flags = [];
+  let tollFree = false,
+    international = false;
 
   if (s.startsWith("+") && !s.startsWith("+1")) international = true;
 
@@ -76,11 +81,11 @@ function normalizePhoneCandidate(raw, contextLabel) {
     rawDigits = s;
     valid = validUS10(s);
     pretty = valid ? toPretty(s) : null;
-    if (TOLL_FREE.has(s.slice(0,3))) tollFree = true;
+    if (TOLL_FREE.has(s.slice(0, 3))) tollFree = true;
   } else if (/^\d{7}$/.test(s)) {
     rawDigits = s;
     flags.push("Needs Area Code");
-    pretty = `${s.slice(0,3)}-${s.slice(3)}`;
+    pretty = `${s.slice(0, 3)}-${s.slice(3)}`;
   } else {
     return null;
   }
@@ -103,14 +108,24 @@ function normalizePhoneCandidate(raw, contextLabel) {
 }
 
 function uniqBy(arr, keyFn) {
-  const seen = new Set(); const out = [];
-  for (const x of arr) { const k = keyFn(x); if (!seen.has(k)) { seen.add(k); out.push(x); } }
+  const seen = new Set();
+  const out = [];
+  for (const x of arr) {
+    const k = keyFn(x);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(x);
+    }
+  }
   return out;
 }
 
 async function firstVisible(locator) {
   const n = await locator.count();
-  for (let i = 0; i < n; i++) { const el = locator.nth(i); if (await el.isVisible()) return el; }
+  for (let i = 0; i < n; i++) {
+    const el = locator.nth(i);
+    if (await el.isVisible()) return el;
+  }
   return null;
 }
 
@@ -124,8 +139,11 @@ async function ensureInboxStable(page) {
   }
   const processing = page.locator("div.dataTables_processing");
   if (await processing.count()) {
-    try { await processing.first().waitFor({ state: "hidden", timeout: 10000 }); }
-    catch { await processing.first().waitFor({ state: "detached", timeout: 10000 }).catch(() => {}); }
+    try {
+      await processing.first().waitFor({ state: "hidden", timeout: 10000 });
+    } catch {
+      await processing.first().waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+    }
   }
   await page.waitForTimeout(50);
 }
@@ -138,109 +156,28 @@ async function getInboxInfoText(page) {
 function parseInfoCounts(txt) {
   const m = txt.match(/Showing\s+(\d+)\s+to\s+(\d+)\s+of\s+(\d+)\s+entries/i);
   if (!m) return null;
-  const from = parseInt(m[1],10), to = parseInt(m[2],10), total = parseInt(m[3],10);
+  const from = parseInt(m[1], 10);
+  const to = parseInt(m[2], 10);
+  const total = parseInt(m[3], 10);
   return { from, to, total };
 }
 
-/* new: detect redraw by first-row key change */
-async function getFirstRowKey(page) {
-  return await page.evaluate((selector) => {
-    const first = document.querySelector(`${selector} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
-    return first ? first.getAttribute("href") : null;
-  }, LEAD_TABLE);
-}
-
-/* new: go to specific page by number if possible */
-async function gotoPageByNumber(page, targetPage) {
-  const paginate = page.locator("#LeadTable_paginate");
-  if (!(await paginate.count())) return false;
-
-  // Try common patterns: aria-label, data-dt-idx, visible link text
-  const candidates = paginate.locator([
-    `a[aria-label="Page ${targetPage}"]`,
-    `a[aria-controls="LeadTable"]:has-text("${targetPage}")`,
-    `a.paginate_button:has-text("${targetPage}")`
-  ].join(", "));
-
-  const n = await candidates.count();
-  if (!n) return false;
-
-  const beforeKey = await getFirstRowKey(page);
-  const el = candidates.first();
-
-  // robust click
-  try { await el.click({ timeout: 2000 }); }
-  catch { await page.evaluate((e) => e.click(), await el.elementHandle()); }
-
-  await ensureInboxStable(page);
-
-  // wait for first row to change OR info text to reflect new range
-  try {
-    await page.waitForFunction(
-      (prev, tblSel) => {
-        const first = document.querySelector(`${tblSel} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
-        const key = first ? first.getAttribute("href") : null;
-        const infoTxt = (document.querySelector("#LeadTable_info")?.textContent || "").replace(/\s+/g," ").trim();
-        return (key && key !== prev) || /Showing\s+101\s+to\b/.test(infoTxt) || /Page\s+2\b/.test(infoTxt);
-      },
-      beforeKey,
-      LEAD_TABLE,
-      { timeout: 8000 }
-    );
-  } catch {
-    // give it one more gentle nudge
-    await page.waitForTimeout(300);
-  }
-
-  return true;
-}
-
-/* fallback: click Next and wait by first-row key */
-async function clickNextInboxPage(page) {
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
-  await ensureInboxStable(page);
-
-  const nextLi = page.locator("#LeadTable_next");
-  if (await nextLi.count()) {
-    const cls = (await nextLi.getAttribute("class")) || "";
-    if (/\bdisabled\b/i.test(cls)) {
-      info("📬next disabled (last page)");
-      return { advanced: false, changed: false };
-    }
-  }
-
-  const beforeKey = await getFirstRowKey(page);
-  const nextA = page.locator("#LeadTable_next a");
-  try { await nextA.click({ timeout: 2000 }); }
-  catch { await page.evaluate((el) => el && el.click(), await nextA.elementHandle()); }
-
-  await ensureInboxStable(page);
-
-  let changed = true;
-  try {
-    await page.waitForFunction(
-      (prev, tblSel) => {
-        const first = document.querySelector(`${tblSel} tbody tr td a[href*="/Lead/InboxDetail?LeadId="]`);
-        const key = first ? first.getAttribute("href") : null;
-        const infoTxt = (document.querySelector("#LeadTable_info")?.textContent || "").replace(/\s+/g," ").trim();
-        return (key && key !== prev) || /Showing\s+101\s+to\b/.test(infoTxt);
-      },
-      beforeKey,
-      LEAD_TABLE,
-      { timeout: 8000 }
-    );
-  } catch {
-    changed = false;
-  }
-
-  if (changed) info("➡️Go to next page");
-  return { advanced: changed, changed };
+async function waitInboxInfoChange(page, prev, timeout = 10000) {
+  await page.waitForFunction(
+    (oldText) => {
+      const el = document.querySelector("#LeadTable_info");
+      const txt = (el?.textContent || "").replace(/\s+/g, " ").trim();
+      return !!txt && txt !== oldText;
+    },
+    prev,
+    { timeout }
+  );
 }
 
 async function launch() {
   const browser = await chromium.launch({
     headless: true,
-    args: ["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   });
   const context = await browser.newContext({
     viewport: { width: 1360, height: 900 },
@@ -272,7 +209,8 @@ async function login(page, creds) {
   if (!userInput || !passInput) {
     const form = (await firstVisible(page.locator("form"))) || page.locator("body");
     if (!userInput) userInput = await firstVisible(form.locator("input").nth(0));
-    if (!passInput) passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
+    if (!passInput)
+      passInput = await firstVisible(form.locator('input[type="password"], input').nth(1));
   }
   if (!userInput || !passInput) {
     reportError("LOGIN: inputs not found");
@@ -317,7 +255,10 @@ async function goToAllLeads(page) {
     (await firstVisible(page.getByRole("button", { name: /my leads/i }))) ||
     (await firstVisible(page.locator('a:has-text("My Leads"), button:has-text("My Leads")')));
 
-  if (myLeads) { await myLeads.click().catch(() => {}); await sleep(300); }
+  if (myLeads) {
+    await myLeads.click().catch(() => {});
+    await sleep(300);
+  }
 
   const allLeads =
     (await firstVisible(page.getByRole("link", { name: /all leads/i }))) ||
@@ -332,6 +273,7 @@ async function goToAllLeads(page) {
   }
 
   await page.goto(PACK_URL, { waitUntil: "domcontentloaded" });
+
   await page.waitForSelector(`a[href*="${PACK_ANCHOR}"]`, { timeout: 30000 });
   info("➡️Go to All Leads");
 }
@@ -342,7 +284,6 @@ async function goToAllLeads(page) {
 const TOKEN_RE =
   /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
-/** Text-scan for numbers across visible DOM */
 async function gatherVisibleNumberTokens(page) {
   return await page.evaluate((reSrc) => {
     const re = new RegExp(reSrc, "gi");
@@ -352,7 +293,8 @@ async function gatherVisibleNumberTokens(page) {
       for (const el of els) {
         if (!el.offsetParent && getComputedStyle(el).position !== "fixed") continue;
         const t = (el.textContent || "").trim();
-        let m; while ((m = re.exec(t))) toks.add(m[0]);
+        let m;
+        while ((m = re.exec(t))) toks.add(m[0]);
         const href = el.getAttribute && el.getAttribute("href");
         if (href && /tel:/i.test(href)) toks.add(href);
         const oc = el.getAttribute && el.getAttribute("onclick");
@@ -366,7 +308,6 @@ async function gatherVisibleNumberTokens(page) {
   }, TOKEN_RE.source);
 }
 
-/** (3b) Robust Click-to-Call harvesting */
 async function harvestClickToCall(page) {
   const rows = [];
 
@@ -381,63 +322,14 @@ async function harvestClickToCall(page) {
   const before = new Set(await gatherVisibleNumberTokens(page));
   await callBtn.click().catch(() => {});
 
-  // MutationObserver + quiet window strategy. Prefer tel: links, but also parse text.
-  const afterTokens = new Set(
-    await page.evaluate(
-      ({ reSrc, idleMs, maxMs }) =>
-        new Promise((resolve) => {
-          const re = new RegExp(reSrc, "gi");
-          const tokens = new Set();
+  let after = new Set();
+  for (let i = 0; i < 6; i++) {
+    await page.waitForTimeout(300);
+    after = new Set(await gatherVisibleNumberTokens(page));
+    if (after.size > before.size) break;
+  }
 
-          const snapshot = () => {
-            // 1) Explicit tel: links
-            document.querySelectorAll('a[href^="tel:"]').forEach((a) => {
-              const href = a.getAttribute("href") || "";
-              if (href) tokens.add(href);
-            });
-
-            // 2) Text nodes on typical content elements (ignore icons)
-            const els = document.querySelectorAll("div,span,li,p,td,th,a,button");
-            for (const el of els) {
-              if (el.tagName === "SVG" || el.closest("svg") || el.tagName === "I" || el.closest("i")) continue;
-              const txt = (el.textContent || "").trim();
-              if (!txt) continue;
-              let m; re.lastIndex = 0;
-              while ((m = re.exec(txt))) tokens.add(m[0]);
-            }
-          };
-
-          snapshot(); // initial scan
-
-          let idleTimer = null;
-          const done = () => {
-            observer.disconnect();
-            clearTimeout(hardTimer);
-            resolve(Array.from(tokens));
-          };
-
-          const scheduleIdle = () => {
-            if (idleTimer) clearTimeout(idleTimer);
-            idleTimer = setTimeout(done, idleMs);
-          };
-
-          const observer = new MutationObserver(() => {
-            snapshot();
-            scheduleIdle();
-          });
-
-          observer.observe(document.body, { subtree: true, childList: true, characterData: true });
-
-          scheduleIdle();
-          const hardTimer = setTimeout(done, maxMs);
-        }),
-      { reSrc: TOKEN_RE.source, idleMs: C2C_IDLE_MS, maxMs: C2C_MAX_MS }
-    )
-  );
-
-  const diff = Array.from(afterTokens).filter((s) => !before.has(s));
-
-  if (DEBUG) dlog(`C2C: after=${afterTokens.size} baseline=${before.size} diff=${diff.length}`);
+  const diff = Array.from(after).filter((s) => !before.has(s));
 
   const seen = new Set();
   for (const token of diff) {
@@ -465,46 +357,17 @@ async function harvestClickToCall(page) {
   return uniqBy(rows, (r) => `${r.rawDigits || r.original}-${r.extension || ""}`);
 }
 
-/* ========= (3c) Deterministic expand of all policy blocks ========= */
-async function expandAllPoliciesDeterministic(page) {
-  const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
-  if (more) {
+async function expandAllPolicies(page) {
+  for (let i = 0; i < 12; i++) {
+    const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
+    if (!more) break;
     await more.click().catch(() => {});
-    await sleep(250);
+    await sleep(350);
+    const anotherMore = await firstVisible(
+      page.locator('button:has-text("More"), a:has-text("More")')
+    );
+    if (!anotherMore) break;
   }
-
-  const start = Date.now();
-  let lastCount = -1;
-  let idleSince = Date.now();
-
-  while (Date.now() - start < POL_EXPAND_MAX_MS) {
-    await page.evaluate(() => { window.scrollBy(0, Math.floor(window.innerHeight * 0.9)); });
-    await page.waitForTimeout(150);
-
-    const counts = await page.evaluate(() => {
-      const txt = (document.body.innerText || "");
-      const stage = (txt.match(/\bStage:/g) || []).length;
-      const ph = (txt.match(/\bSec(?:ond(?:ary)?)?\s*Ph\s*:|\bPh\s*:/gi) || []).length;
-      return { stage, ph, total: stage + ph };
-    });
-
-    const total = counts.total;
-    if (DEBUG) console.log("[SCRAPER] policyExpand snapshot:", counts);
-
-    if (total > lastCount) {
-      lastCount = total;
-      idleSince = Date.now();
-    } else if (Date.now() - idleSince >= POL_EXPAND_IDLE_MS) {
-      break;
-    }
-
-    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
-    await page.waitForTimeout(60);
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
-    await page.waitForTimeout(120);
-  }
-
-  if (DEBUG) dlog("[SCRAPER] expandAllPoliciesDeterministic: done");
 }
 
 async function getPrimaryNameFromHeader(page) {
@@ -538,7 +401,7 @@ async function getPrimaryNameFromHeader(page) {
 }
 
 async function parseLeadDetail(page) {
-  await expandAllPoliciesDeterministic(page);
+  await expandAllPolicies(page);
 
   const pageText = await page.evaluate(() => document.body.innerText || "");
   const blocks = pageText.split(/\bStage:\s*/i).slice(1);
@@ -584,22 +447,23 @@ async function parseLeadDetail(page) {
       }
     }
 
-    /* (3a) Lapse determination — 31-day grace + "00" => last-of-month */
     if (active && paidTo) {
       const today = new Date();
-
       if (mode === "annual") {
         const diff = Math.floor((today - paidTo) / 86400000);
         active = diff <= 366;
-      } else if (dueDay !== null && Number.isFinite(dueDay)) {
+      } else if (dueDay) {
         const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-        const normalizedDay = dueDay === 0 ? last : Math.min(Math.max(dueDay, 1), last);
-        const anchor = new Date(today.getFullYear(), today.getMonth(), normalizedDay);
+        const anchor = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          Math.min(Math.max(dueDay, 1), last)
+        );
         const delta = Math.floor((anchor - paidTo) / 86400000);
-        active = delta <= LAPSE_GRACE_DAYS;
+        active = delta <= 60;
       } else {
         const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= LAPSE_GRACE_DAYS;
+        active = diff <= 60;
       }
     }
 
@@ -609,7 +473,6 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
-  /* ===== (3c) Structured DOM harvesting of policy phones ===== */
   const policyRows = [];
   const seen = new Set();
   const pushPolicyNumber = (token, label, primaryName) => {
@@ -621,11 +484,15 @@ async function parseLeadDetail(page) {
     policyRows.push({
       primaryName,
       source: "policy",
-      lineType:
-        /sec/i.test(label) ? "Secondary" :
-        /cell/i.test(label) ? "Cell" :
-        /home/i.test(label) ? "Home" :
-        /work/i.test(label) ? "Work" : "Policy",
+      lineType: /sec/i.test(label)
+        ? "Secondary"
+        : /cell/i.test(label)
+        ? "Cell"
+        : /home/i.test(label)
+        ? "Home"
+        : /work/i.test(label)
+        ? "Work"
+        : "Policy",
       original: norm.original,
       rawDigits: norm.rawDigits,
       phone: norm.phone,
@@ -646,7 +513,8 @@ async function parseLeadDetail(page) {
       const label = m[1];
       const span = m[2] || "";
       const tokRe = new RegExp(blockTokenReSrc, "gi");
-      let t; while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
+      let t;
+      while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
     }
   }
 
@@ -693,7 +561,8 @@ async function parseLeadDetail(page) {
   for (const { label, strings } of domPairs) {
     for (const s of strings) {
       tokenRe.lastIndex = 0;
-      let m; while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
+      let m;
+      while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
     }
   }
 
@@ -719,7 +588,9 @@ async function setInboxPageSize(page) {
       Array.from(sel.options || []).map((o) => o.value)
     );
     const current = await lengthSelect.inputValue().catch(() => null);
-    if (current !== "100") await lengthSelect.selectOption("100");
+    if (current !== "100") {
+      await lengthSelect.selectOption("100");
+    }
   }
 
   await ensureInboxStable(page);
@@ -729,7 +600,9 @@ async function setInboxPageSize(page) {
       null,
       { timeout: 10000 }
     );
-  } catch { await page.waitForTimeout(250); }
+  } catch {
+    await page.waitForTimeout(250);
+  }
 
   info(`📬setPageSize(100) options=[${options.join(",") || "unknown"}]`);
 }
@@ -742,24 +615,52 @@ async function getPackLinksFromPage(page) {
   return hrefs;
 }
 
+async function clickNextInboxPage(page) {
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => {});
+  await ensureInboxStable(page);
+
+  const nextLi = page.locator("#LeadTable_next");
+  if (await nextLi.count()) {
+    const cls = (await nextLi.getAttribute("class")) || "";
+    if (/\bdisabled\b/i.test(cls)) {
+      info("📬next disabled (last page)");
+      return { advanced: false, changed: false };
+    }
+  }
+
+  const prevInfo = await getInboxInfoText(page);
+  const nextA = page.locator("#LeadTable_next a");
+  await nextA.click({ timeout: 5000 }).catch(() => {});
+  await ensureInboxStable(page);
+
+  let changed = true;
+  try {
+    await waitInboxInfoChange(page, prevInfo);
+  } catch {
+    await page.keyboard.press("Escape").catch(() => {});
+    try {
+      await waitInboxInfoChange(page, prevInfo);
+    } catch {
+      changed = false;
+    }
+  }
+
+  if (changed) info("➡️Go to next page");
+  return { advanced: changed, changed };
+}
+
 async function collectPaginated(page, max) {
   await setInboxPageSize(page);
 
   const allSet = new Set();
   let pageNum = 1;
 
-  // baseline info
-  let infoTxt = await getInboxInfoText(page);
-  let counts = parseInfoCounts(infoTxt);
-  const totalEntries = counts?.total || undefined;
-  const perPage = 100;
-  const totalPages = totalEntries ? Math.max(1, Math.ceil(totalEntries / perPage)) : undefined;
-
   for (;;) {
-    infoTxt = await getInboxInfoText(page);
-    counts = parseInfoCounts(infoTxt);
+    const infoTxt = await getInboxInfoText(page);
+    const counts = parseInfoCounts(infoTxt);
+    const totalEntries = counts?.total || undefined;
 
-    info(`📬page ${pageNum}${totalPages ? ` of ${totalPages}` : ""}`);
+    info(`📬page ${pageNum}${totalEntries ? ` of ~${Math.ceil(totalEntries / 100)}` : ""}`);
 
     const hrefs = await getPackLinksFromPage(page);
     hrefs.forEach((h) => allSet.add(h));
@@ -767,30 +668,15 @@ async function collectPaginated(page, max) {
 
     if (max && allSet.size >= max) break;
 
-    // done?
-    if (totalPages && pageNum >= totalPages) break;
+    const { advanced, changed } = await clickNextInboxPage(page);
+    if (!advanced || !changed) break;
 
-    // Prefer page-number click: go to (pageNum + 1)
-    const target = pageNum + 1;
-    let advanced = false;
-
-    if (totalPages && target <= totalPages) {
-      advanced = await gotoPageByNumber(page, target);
-    }
-
-    if (!advanced) {
-      const res = await clickNextInboxPage(page);
-      advanced = res.advanced && res.changed;
-    }
-
-    if (!advanced) {
-      info("📬pagination stalled; stopping");
-      break;
-    }
+    const postTxt = await getInboxInfoText(page);
+    const postCounts = parseInfoCounts(postTxt);
+    if (postCounts && postCounts.to >= postCounts.total) break;
 
     pageNum += 1;
   }
-
   const all = Array.from(allSet);
   return max ? all.slice(0, max) : all;
 }
@@ -813,7 +699,10 @@ export async function scrapePlanet(opts = {}) {
     info("browser: ready");
 
     info("login: starting");
-    await login(page, { username, password }).catch((e) => { reportError(e); throw e; });
+    await login(page, { username, password }).catch((e) => {
+      reportError(e);
+      throw e;
+    });
     info("login: ok");
 
     await goToAllLeads(page);
@@ -823,7 +712,13 @@ export async function scrapePlanet(opts = {}) {
     const toVisit = max ? packlinks.slice(0, max) : packlinks;
     if (!toVisit.length) {
       info("No leads found in inbox.");
-      return { ok: true, leads: [], clickToCall: [], policyPhones: [], meta: { ts: nowIso(), leadCount: 0 } };
+      return {
+        ok: true,
+        leads: [],
+        clickToCall: [],
+        policyPhones: [],
+        meta: { ts: nowIso(), leadCount: 0 },
+      };
     }
 
     const clickToCallRows = [];
@@ -849,7 +744,9 @@ export async function scrapePlanet(opts = {}) {
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      const c2cDigits = new Set((c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || "")));
+      const c2cDigits = new Set(
+        (c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || ""))
+      );
       const policyPhonesExtra = (detail.policyRows || []).filter((r) => {
         const k = r.rawDigits || onlyDigits(r.phone || r.original || "");
         return k && !c2cDigits.has(k);
@@ -868,7 +765,9 @@ export async function scrapePlanet(opts = {}) {
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
 
       const validDigits = new Set();
-      const accValid = (r) => { if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits); };
+      const accValid = (r) => {
+        if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits);
+      };
       (c2c || []).forEach(accValid);
       (policyPhonesExtra || []).forEach(accValid);
 
@@ -908,6 +807,9 @@ export async function scrapePlanet(opts = {}) {
     reportError(err);
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
-    try { emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null }); } catch {}
+    try {
+      // Always emit 'done' so tests and dashboards don't hang.
+      emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null });
+    } catch {}
   }
 }
