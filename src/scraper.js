@@ -649,6 +649,7 @@ async function clickNextInboxPage(page) {
   return { advanced: changed, changed };
 }
 
+/* ------------- FIXED: always collect on the page you're on ------------- */
 async function collectPaginated(page, max) {
   await setInboxPageSize(page);
 
@@ -656,27 +657,32 @@ async function collectPaginated(page, max) {
   let pageNum = 1;
 
   for (;;) {
+    // 1) Read counts for the CURRENT page
     const infoTxt = await getInboxInfoText(page);
     const counts = parseInfoCounts(infoTxt);
     const totalEntries = counts?.total || undefined;
 
     info(`📬page ${pageNum}${totalEntries ? ` of ~${Math.ceil(totalEntries / 100)}` : ""}`);
 
+    // 2) Collect links from the CURRENT page
     const hrefs = await getPackLinksFromPage(page);
     hrefs.forEach((h) => allSet.add(h));
     info(`📬collected ${hrefs.length} links on page ${pageNum}, total ${allSet.size}`);
 
+    // Respect max if provided
     if (max && allSet.size >= max) break;
 
+    // 3) If we're already on the LAST page, stop AFTER collecting it
+    if (counts && counts.to >= counts.total) {
+      break; // last page already gathered
+    }
+
+    // 4) Otherwise, advance to the next page and loop
     const { advanced, changed } = await clickNextInboxPage(page);
-    if (!advanced || !changed) break;
-
-    const postTxt = await getInboxInfoText(page);
-    const postCounts = parseInfoCounts(postTxt);
-    if (postCounts && postCounts.to >= postCounts.total) break;
-
+    if (!advanced || !changed) break; // failed to advance; stop
     pageNum += 1;
   }
+
   const all = Array.from(allSet);
   return max ? all.slice(0, max) : all;
 }
