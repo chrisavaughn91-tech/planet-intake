@@ -13,21 +13,21 @@ const __dirname  = path.dirname(__filename);
 const app  = express();
 const PORT = process.env.PORT || 8080;
 
-// Trust Codespaces proxy
+// trust Codespaces proxy
 app.set("trust proxy", true);
 
-// Parse bodies
+// parse bodies
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Static (serves /login, /live by filename)
+// static files (serves /login and /live)
 app.use(express.static(path.join(__dirname, "public"), { extensions: ["html"] }));
 
-// --- health + root -------------------------------------------------
+// health + root
 app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 app.get("/", (_req, res) => res.redirect(302, "/login"));
 
-// --- in-memory SSE hub keyed by jobId ------------------------------
+// --- tiny in-memory SSE hub keyed by jobId ---------------------
 const streams = new Map(); // Map<jobId, Set<res>>
 
 function sseWrite(res, { event = "info", data = {} }) {
@@ -36,13 +36,11 @@ function sseWrite(res, { event = "info", data = {} }) {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   } catch { /* ignore broken pipes */ }
 }
-
 function broadcast(jobId, payload) {
   const set = streams.get(jobId);
   if (!set || set.size === 0) return;
   for (const res of set) sseWrite(res, payload);
 }
-
 function makeEmitter(jobId) {
   return (event, data = {}) => {
     const payload = typeof data === "string" ? { msg: data } : (data || {});
@@ -50,12 +48,11 @@ function makeEmitter(jobId) {
   };
 }
 
-// --- SSE endpoint ---------------------------------------------------
+// --- SSE endpoint: accept ?job= or ?jobId= ---------------------
 app.get("/events", (req, res) => {
-  const jobId = String(req.query.job || "").trim();
-  if (!jobId) return res.status(400).json({ ok: false, error: "missing job" });
+  const jobId = String(req.query.job || req.query.jobId || "").trim();
+  if (!jobId) return res.status(400).json({ ok: false, error: "missing job (use ?job=...)" });
 
-  // SSE headers
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -63,7 +60,6 @@ app.get("/events", (req, res) => {
   if (!streams.has(jobId)) streams.set(jobId, new Set());
   streams.get(jobId).add(res);
 
-  // greet + heartbeat
   sseWrite(res, { event: "info", data: { msg: "stream: connected" } });
   const ping = setInterval(() => sseWrite(res, { event: "ping", data: {} }), 15000);
 
@@ -77,23 +73,22 @@ app.get("/events", (req, res) => {
   });
 });
 
-// --- pages ----------------------------------------------------------
+// --- serve pages ------------------------------------------------
 app.get("/login", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "login.html"));
 });
-
 app.get("/live", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
 });
 
-// --- run a scrape ---------------------------------------------------
+// --- run a scrape ----------------------------------------------
 app.post("/run", async (req, res) => {
   try {
     const {
       username = "",
       password = "",
       email = "",
-      max,
+      max
     } = req.body || {};
 
     const jobId = `job${Math.random().toString(36).slice(2, 7)}-${Date.now().toString().slice(-5)}`;
@@ -101,7 +96,7 @@ app.post("/run", async (req, res) => {
 
     emit("start", { job: jobId, max: max ? Number(max) : null });
 
-    // fire-and-forget
+    // fire-and-forget so we can immediately respond/redirect
     (async () => {
       try {
         await scrapePlanet({
@@ -110,7 +105,7 @@ app.post("/run", async (req, res) => {
           reportEmail: email,
           max: max ? Number(max) : undefined,
           jobId,
-          emit, // wire scraper logs to /events?job=...
+          emit, // <— wire scraper logs to this job’s SSE channel
         });
         emit("done", { ok: true, job: jobId });
       } catch (e) {
@@ -119,18 +114,19 @@ app.post("/run", async (req, res) => {
       }
     })();
 
-    // If browser submitted form, bounce them to their private live view
+    // Browser form? send them to their private live view
     if ((req.headers.accept || "").includes("text/html")) {
       return res.redirect(303, `/live?job=${encodeURIComponent(jobId)}`);
     }
-    // Otherwise, JSON for programmatic callers
+
+    // Programmatic caller
     res.json({ ok: true, job: jobId, live: `/live?job=${encodeURIComponent(jobId)}` });
   } catch (e) {
     res.status(500).json({ ok: false, error: e?.message || String(e) });
   }
 });
 
-// --- start ----------------------------------------------------------
+// --- start ------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`Server listening on ${PORT}`);
 });

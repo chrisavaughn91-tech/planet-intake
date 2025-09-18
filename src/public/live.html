@@ -5,97 +5,120 @@
   <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{color-scheme:dark light}
-    body{margin:0;background:#0b0f14;color:#e7eef7;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
-    .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #1f2a37;background:#0f1620;position:sticky;top:0}
-    .title{font-weight:700}
-    .controls{display:flex;gap:10px;align-items:center}
-    .btn{border:1px solid #2a3a4d;background:#111a24;color:#e7eef7;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px}
-    .rows{padding:10px 18px}
-    .row{display:grid;grid-template-columns:100px 80px 1fr;gap:14px;padding:10px 0;border-bottom:1px dashed #1f2a37}
-    .ts{opacity:.7}
-    .type{opacity:.85}
-    .msg a{color:#93c5fd}
+    :root{color-scheme:dark; font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial;}
+    body{margin:0; background:#0f1620; color:#e7eef7;}
+    header{position:sticky; top:0; background:#0f1620; border-bottom:1px solid #1f2a37; padding:10px 14px; display:flex; gap:12px; align-items:center;}
+    header .meta{margin-left:auto; opacity:.8; font-size:12px}
+    .btn{background:#111a24; color:#e7eef7; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12px; border:1px dashed #1f2a37;}
+    .row{display:grid; grid-template-columns:84px 84px 1fr; gap:10px; padding:4px 10px; border-bottom:1px dashed #1f2a37;}
+    .row .ts{opacity:.7}
+    .row.info  .type{color:#8ab4ff}
+    .row.start .type{color:#b6f09c}
+    .row.lead  .type{color:#ffd166}
+    .row.error .type{color:#ff6b6b}
+    .indent{padding-left:18px}
+    #log{padding-bottom:60vh}
+    a{color:#8ab4ff}
   </style>
 </head>
 <body>
-  <div class="bar">
-    <div class="title">Planet Lead Pull — Live</div>
-    <div class="controls">
-      <input id="filter" class="btn" placeholder="Filter text (e.g. autorun, sheet:url, jobId)..." />
-      <button id="clear" class="btn">Clear</button>
-      <label class="btn"><input id="auto" type="checkbox" checked /> auto-scroll</label>
-      <button id="copy" class="btn">Copy last 200</button>
-    </div>
-  </div>
+  <header>
+    <input id="filter" placeholder="Filter text (e.g. start, lead, sheet, error)" class="btn" style="flex:1" />
+    <label class="btn"><input id="auto" type="checkbox" checked /> auto-scroll</label>
+    <button id="clear" class="btn">Clear</button>
+    <button id="copy"  class="btn">Copy last 200</button>
+    <div id="meta" class="meta"></div>
+  </header>
 
-  <div class="rows" id="rows"></div>
+  <div id="log" role="log" aria-live="polite"></div>
 
   <script>
+    // --- helpers ---
     const $ = sel => document.querySelector(sel);
-    const rows = $("#rows");
-    const url = new URL(location.href);
-    const job = url.searchParams.get("job") || "";
+    const filterEl = $('#filter');
+    const autoEl   = $('#auto');
+    const logEl    = $('#log');
+    const metaEl   = $('#meta');
 
-    const startedAt = Date.now();
-    const pad = n => String(n).padStart(2, "0");
-    const elapsed = () => {
-      const ms = Date.now() - startedAt;
-      const s = Math.floor(ms/1000);
-      return `${pad(Math.floor(s/3600))}:${pad(Math.floor((s%3600)/60))}:${pad(s%60)}`;
-    };
+    const params = new URLSearchParams(location.search);
+    // Accept either ?job= or ?jobId=, but normalize to job
+    const jobId = params.get('job') || params.get('jobId') || '';
 
-    function addRow(type, msg) {
-      const f = $("#filter").value.trim().toLowerCase();
-      if (f && !JSON.stringify(msg).toLowerCase().includes(f)) return;
+    let startAt = performance.now();
+    let lastLeadGroup = null;
 
-      const row = document.createElement("div");
-      row.className = "row";
-      row.innerHTML = `
-        <div class="ts">${elapsed()}</div>
-        <div class="type">${type}</div>
-        <div class="msg"></div>
-      `;
-      const cell = row.querySelector(".msg");
-
-      if (msg && msg.sheetUrl) {
-        const a = document.createElement("a");
-        a.href = msg.sheetUrl; a.target = "_blank"; a.rel = "noopener";
-        a.textContent = msg.sheetUrl;
-        cell.appendChild(document.createTextNode("sheeturl: "));
-        cell.appendChild(a);
-      } else if (typeof msg === "string") {
-        cell.textContent = msg;
-      } else {
-        cell.textContent = msg && msg.msg ? msg.msg : JSON.stringify(msg || {});
-      }
-
-      rows.appendChild(row);
-      if ($("#auto").checked) row.scrollIntoView({ block: "end" });
+    function fmt(t){
+      const ms = Math.max(0, t - startAt);
+      const s  = Math.floor(ms/1000);
+      const hh = String(Math.floor(s/3600)).padStart(2,'0');
+      const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+      const ss = String(s%60).padStart(2,'0');
+      return `${hh}:${mm}:${ss}`;
+    }
+    function passesFilter(text){
+      const f = filterEl.value.trim().toLowerCase();
+      return !f || text.toLowerCase().includes(f);
+    }
+    function maybeScroll(){
+      if (autoEl.checked) logEl.lastElementChild?.scrollIntoView({behavior:'smooth', block:'end'});
     }
 
-    $("#filter").addEventListener("input", () => { rows.innerHTML = ""; });
-    $("#clear").addEventListener("click", () => { rows.innerHTML = ""; });
-    $("#copy").addEventListener("click", async () => {
-      const text = [...rows.querySelectorAll(".row")].slice(-200).map(r => r.innerText).join("\n");
-      try { await navigator.clipboard.writeText(text); } catch {}
+    function makeRow(type, text, cls=''){
+      const row = document.createElement('div');
+      row.className = `row ${type} ${cls}`.trim();
+      const ts = document.createElement('div'); ts.className='ts';   ts.textContent = fmt(performance.now());
+      const ty = document.createElement('div'); ty.className='type'; ty.textContent = type;
+      const msg = document.createElement('div'); msg.className='msg'; msg.textContent = text;
+      row.append(ts,ty,msg);
+      return row;
+    }
+    function addRow(type, text, cls=''){
+      if (!passesFilter(`${type} ${text}`)) return;
+      const row = makeRow(type, text, cls);
+      if (type === 'lead') {
+        lastLeadGroup = row;
+        logEl.appendChild(row);
+      } else if (lastLeadGroup) {
+        const wrap = document.createElement('div');
+        wrap.className = 'indent';
+        wrap.appendChild(row);
+        logEl.appendChild(wrap);
+      } else {
+        logEl.appendChild(row);
+      }
+      maybeScroll();
+    }
+
+    $('#clear').addEventListener('click', ()=>{ logEl.innerHTML=''; lastLeadGroup=null; });
+    $('#copy').addEventListener('click', ()=>{
+      const nodes = Array.from(logEl.children).slice(-200);
+      const text = nodes.map(n => n.innerText.replace(/\n+/g,'  ')).join('\n');
+      navigator.clipboard.writeText(text).catch(()=>{});
     });
 
-    const es = new EventSource(`/events?job=${encodeURIComponent(job)}`, { withCredentials: false });
-    es.addEventListener("info",    e => addRow("info",    JSON.parse(e.data||"{}")));
-    es.addEventListener("start",   e => addRow("start",   JSON.parse(e.data||"{}")));
-    es.addEventListener("lead",    e => addRow("lead",    JSON.parse(e.data||"{}")));
-    es.addEventListener("numbers", e => addRow("numbers", JSON.parse(e.data||"{}")));
-    es.addEventListener("badge",   e => addRow("badge",   JSON.parse(e.data||"{}")));
-    es.addEventListener("sheet",   e => addRow("sheet",   JSON.parse(e.data||"{}")));
-    es.addEventListener("done",    e => addRow("done",    JSON.parse(e.data||"{}")));
-    es.addEventListener("error",   e => addRow("error",   JSON.parse(e.data||"{}")));
-    es.addEventListener("ping",    _ => {/* heartbeat */});
-    es.onerror = () => addRow("error", { msg: "stream: disconnected" });
-    es.onopen  = () => addRow("info",  { msg: "client: connected" });
+    metaEl.textContent = jobId ? `Live stream for job ${jobId}` : `Live stream (no job — showing all events)`;
 
-    addRow("info", job ? { msg: `Live stream for job ${job}` } :
-                       { msg: "Live stream (no jobId provided — showing all events)" });
+    // *** IMPORTANT: use ?job= (not ?jobId=). We still accept jobId on the server, but normalize here. ***
+    const es = new EventSource(`/events${jobId ? `?job=${encodeURIComponent(jobId)}` : ''}`);
+
+    es.addEventListener('open',  ()=> addRow('info','stream: connected','ok'));
+    es.addEventListener('error', ()=> addRow('error','stream: disconnected','err'));
+
+    const handlers = {
+      info:   d => addRow('info',   d.msg ?? JSON.stringify(d)),
+      start:  d => addRow('start',  d.msg ?? JSON.stringify(d)),
+      lead:   d => addRow('lead',   d.msg ?? (d.company ? `${d.company} — ${d.contact || ''}` : JSON.stringify(d))),
+      sheet:  d => addRow('sheet',  d.url ? `Sheet created: ${d.url}` : JSON.stringify(d)),
+      done:   d => addRow('done',   JSON.stringify(d), 'ok'),
+      error:  d => addRow('error',  d.msg ?? JSON.stringify(d), 'err'),
+    };
+
+    for (const t of Object.keys(handlers)) {
+      es.addEventListener(t, ev => {
+        try { handlers[t](JSON.parse(ev.data||'{}')); }
+        catch { addRow('error', `bad event data for ${t}`); }
+      });
+    }
   </script>
 </body>
 </html>
