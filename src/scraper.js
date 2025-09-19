@@ -359,13 +359,13 @@ async function harvestClickToCall(page) {
 
   if (!callBtn) return rows;
 
-  // capture BEFORE snapshot from the whole page
+  // BEFORE snapshot
   const before = new Set(await gatherVisibleNumberTokens(page));
 
   await callBtn.scrollIntoViewIfNeeded().catch(() => {});
   await callBtn.click().catch(() => {});
 
-  // allow the row list to render; poll a few times
+  // let numbers render; poll a few times
   let after = new Set();
   for (let i = 0; i < 8; i++) {
     await page.waitForTimeout(300);
@@ -427,7 +427,7 @@ async function expandAllPolicies(page) {
     .catch(() => {});
 }
 
-/* Strict policy extractor: only "Ph:" and "Sec Ph:" */
+/* Strict policy extractor: only "Ph:" and "Sec Ph:" (fixed: use .push, not .add) */
 async function extractPolicyPhonesStrict(page) {
   return await page.evaluate((reSrc) => {
     const DIGIT_RE = new RegExp(reSrc, "gi");
@@ -449,13 +449,13 @@ async function extractPolicyPhonesStrict(page) {
 
         node.querySelectorAll("a, span, button").forEach((el) => {
           const href = el.getAttribute("href") || "";
-          if (/^tel:/i.test(href)) out.add(href);
+          if (/^tel:/i.test(href)) out.push(href);
           const oc = el.getAttribute("onclick") || "";
-          if (/\d{7,}/.test(oc)) out.add(oc);
+          if (/\d{7,}/.test(oc)) out.push(oc);
           const dp = el.getAttribute("data-phone") || "";
-          if (/\d{7,}/.test(dp)) out.add(dp);
+          if (/\d{7,}/.test(dp)) out.push(dp);
           const tx = clean(el.textContent || "");
-          if (/\d{7,}/.test(tx)) out.add(tx);
+          if (/\d{7,}/.test(tx)) out.push(tx);
         });
       };
 
@@ -795,7 +795,7 @@ export async function scrapePlanet(opts = {}) {
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
-      // click-to-call (restored page-wide diff)
+      // click-to-call (page-wide diff)
       const c2c = await harvestClickToCall(page);
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
