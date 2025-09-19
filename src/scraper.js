@@ -279,33 +279,40 @@ async function goToAllLeads(page) {
 }
 
 /* =========================
-   Tokenization + parsing
+   Tokenization (scoped) + parsing
    ========================= */
 const TOKEN_RE =
   /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
-async function gatherVisibleNumberTokens(page) {
-  return await page.evaluate((reSrc) => {
+/* Strict extractor: gather numbers only inside a given element */
+async function gatherNumbersInContainer(page, containerLocator) {
+  const tokens = await containerLocator.evaluateAll((nodes, reSrc) => {
     const re = new RegExp(reSrc, "gi");
-    const toks = new Set();
-    const walk = (root) => {
-      const els = root.querySelectorAll("*");
-      for (const el of els) {
-        if (!el.offsetParent && getComputedStyle(el).position !== "fixed") continue;
-        const t = (el.textContent || "").trim();
-        let m;
-        while ((m = re.exec(t))) toks.add(m[0]);
-        const href = el.getAttribute && el.getAttribute("href");
-        if (href && /tel:/i.test(href)) toks.add(href);
-        const oc = el.getAttribute && el.getAttribute("onclick");
-        if (oc && /\d{7,}/.test(oc)) toks.add(oc);
-        const dp = el.getAttribute && el.getAttribute("data-phone");
-        if (dp && /\d{7,}/.test(dp)) toks.add(dp);
-      }
+    const out = new Set();
+
+    const collectFromEl = (el) => {
+      const txt = (el.textContent || "").trim();
+      let m;
+      while ((m = re.exec(txt))) out.add(m[0]);
+
+      const href = el.getAttribute && el.getAttribute("href");
+      if (href && /tel:/i.test(href)) out.add(href);
+
+      const oc = el.getAttribute && el.getAttribute("onclick");
+      if (oc && /\d{7,}/.test(oc)) out.add(oc);
+
+      const dp = el.getAttribute && el.getAttribute("data-phone");
+      if (dp && /\d{7,}/.test(dp)) out.add(dp);
+
+      const kids = el.querySelectorAll("*");
+      for (const k of kids) collectFromEl(k);
     };
-    walk(document.body);
-    return Array.from(toks);
+
+    for (const n of nodes) collectFromEl(n);
+    return Array.from(out);
   }, TOKEN_RE.source);
+
+  return tokens || [];
 }
 
 async function harvestClickToCall(page) {
@@ -319,20 +326,25 @@ async function harvestClickToCall(page) {
 
   if (!callBtn) return rows;
 
-  const before = new Set(await gatherVisibleNumberTokens(page));
+  await callBtn.scrollIntoViewIfNeeded().catch(() => {});
   await callBtn.click().catch(() => {});
+  await page.waitForTimeout(350);
 
-  let after = new Set();
-  for (let i = 0; i < 6; i++) {
-    await page.waitForTimeout(300);
-    after = new Set(await gatherVisibleNumberTokens(page));
-    if (after.size > before.size) break;
+  // Try common dropdown/popup containers near the Call UI
+  const menu = page.locator(
+    '.dropdown-menu:visible, .dropdown.open .dropdown-menu, .popover:visible, [role="dialog"], [role="menu"]'
+  );
+  let tokens = [];
+  if (await menu.count()) {
+    tokens = await gatherNumbersInContainer(page, menu);
+  } else {
+    // Fallback: a short-time diff (safer than broad full-page scan)
+    const after = await gatherNumbersInContainer(page, page.locator("body"));
+    tokens = after;
   }
 
-  const diff = Array.from(after).filter((s) => !before.has(s));
-
   const seen = new Set();
-  for (const token of diff) {
+  for (const token of tokens) {
     const norm = normalizePhoneCandidate(token, "ClickToCall");
     if (!norm) continue;
     const key = `${norm.rawDigits || norm.original}-${norm.extension || ""}`;
@@ -357,10 +369,12 @@ async function harvestClickToCall(page) {
   return uniqBy(rows, (r) => `${r.rawDigits || r.original}-${r.extension || ""}`);
 }
 
+/* Ensure all policy blocks are visible */
 async function expandAllPolicies(page) {
   for (let i = 0; i < 12; i++) {
     const more = await firstVisible(page.locator('button:has-text("More"), a:has-text("More")'));
     if (!more) break;
+    await more.scrollIntoViewIfNeeded().catch(() => {});
     await more.click().catch(() => {});
     await sleep(350);
     const anotherMore = await firstVisible(
@@ -368,36 +382,118 @@ async function expandAllPolicies(page) {
     );
     if (!anotherMore) break;
   }
+  // scroll through the page to force lazy content to render
+  await page.evaluate(async () => {
+    let y = 0;
+    for (let i = 0; i < 6; i++) {
+      y += Math.round(window.innerHeight * 0.8);
+      window.scrollTo(0, y);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }).catch(() => {});
 }
 
-async function getPrimaryNameFromHeader(page) {
-  const name = await page.evaluate(() => {
-    const back = Array.from(document.querySelectorAll("a,button")).find((el) =>
-      /(^|\b)back\b/i.test(el.textContent || "")
-    );
-    const backBottom = back ? back.getBoundingClientRect().bottom : 0;
-    const zoneTop = backBottom;
-    const zoneBottom = backBottom + 220;
-    const zoneRight = window.innerWidth * 0.55;
-    const bad = /^(BACK|DETAIL|CALL|APPT\.?|COMMENTS|RESOLVE|VIEWING\s+\d+\s*\/\s*\d+)$/i;
+/* Strict policy extractor: only "Ph:" and "Sec Ph:" fields from each block */
+async function extractPolicyPhonesStrict(page) {
+  return await page.evaluate((reSrc) => {
+    const DIGIT_RE = new RegExp(reSrc, "gi");
 
-    const cands = [];
-    document.querySelectorAll("body *").forEach((el) => {
-      const rect = el.getBoundingClientRect();
-      if (rect.top < zoneTop || rect.top > zoneBottom) return;
-      if (rect.left > zoneRight) return;
-      const txt = (el.textContent || "").trim();
-      if (!txt) return;
-      if (bad.test(txt)) return;
-      if (/\d{3,}/.test(txt)) return;
-      if (/[a-z]/.test(txt)) return;
-      if (!/[A-Z]/.test(txt)) return;
-      cands.push({ t: txt, y: rect.top, x: rect.left });
+    const isDNC = (s) => /\b(dnc|do\s*not\s*call)\b/i.test(String(s || ""));
+    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+
+    // Find label nodes whose text is exactly "Ph:" or "Sec Ph:" (case-insensitive)
+    const labelNodes = Array.from(document.querySelectorAll("body *")).filter((el) => {
+      const t = clean(el.textContent);
+      return /^ph:$/i.test(t) || /^sec\s*ph:$/i.test(t);
     });
-    cands.sort((a, b) => a.y - b.y || a.x - b.x);
-    return cands.length ? cands[0].t : null;
-  });
-  return name || null;
+
+    const pullNeighborStrings = (labelEl) => {
+      const out = [];
+
+      const harvestFrom = (node) => {
+        const txt = clean(node.textContent || "");
+        if (txt) out.push(txt);
+
+        // look for tel links etc.
+        node.querySelectorAll("a, span, button").forEach((el) => {
+          const href = el.getAttribute("href") || "";
+          if (/^tel:/i.test(href)) out.push(href);
+          const oc = el.getAttribute("onclick") || "";
+          if (/\d{7,}/.test(oc)) out.push(oc);
+          const dp = el.getAttribute("data-phone") || "";
+          if (/\d{7,}/.test(dp)) out.push(dp);
+          const tx = clean(el.textContent || "");
+          if (/\d{7,}/.test(tx)) out.push(tx);
+        });
+      };
+
+      // Table row case: value is in the next cell
+      const tr = labelEl.closest("tr");
+      if (tr) {
+        const cells = Array.from(tr.children);
+        const idx = cells.findIndex((c) => c.contains(labelEl));
+        if (idx >= 0 && idx + 1 < cells.length) harvestFrom(cells[idx + 1]);
+      } else {
+        // Generic layout: try the nextElementSibling, or same parent following siblings
+        if (labelEl.nextElementSibling) harvestFrom(labelEl.nextElementSibling);
+        let sib = labelEl.parentElement;
+        if (sib) {
+          let n = sib.nextElementSibling;
+          if (n) harvestFrom(n);
+        }
+      }
+
+      // As a fallback, grab any inline tel links adjacent to label
+      const inline = labelEl.parentElement || labelEl;
+      inline.querySelectorAll('a[href^="tel:"]').forEach((a) => out.push(a.getAttribute("href")));
+
+      // Dedup
+      const uniq = [];
+      const seen = new Set();
+      for (const s of out.map(clean)) {
+        if (!s || isDNC(s)) continue;
+        let m;
+        DIGIT_RE.lastIndex = 0;
+        while ((m = DIGIT_RE.exec(s))) {
+          if (!seen.has(m[0])) {
+            seen.add(m[0]);
+            uniq.push(m[0]);
+          }
+        }
+      }
+      return uniq;
+    };
+
+    const results = [];
+    for (const labelEl of labelNodes) {
+      const labelTxt = clean(labelEl.textContent);
+      const strings = pullNeighborStrings(labelEl);
+      results.push({ label: labelTxt, strings });
+    }
+    return results;
+  }, TOKEN_RE.source);
+}
+
+/* =========================
+   Lapsed & detail parsing
+   ========================= */
+function daysBetween(a, b) {
+  return Math.floor((a - b) / 86400000);
+}
+
+function cushionForMode(modeLc) {
+  if (!modeLc) return 60; // fallback
+  if (modeLc.startsWith("annual")) return 366;
+  if (modeLc.startsWith("quarter")) return 92; // ✅ quarterly cushion per spec
+  if (modeLc.startsWith("month")) return 31;   // ✅ monthly cushion per spec
+  return 60;
+}
+
+function normalizeDueDay(dueDayRaw, today) {
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const d = Number(dueDayRaw);
+  if (!Number.isFinite(d) || d <= 0 || d > 31) return last; // treat 00/invalid as EOM
+  return Math.min(Math.max(d, 1), last);
 }
 
 async function parseLeadDetail(page) {
@@ -413,7 +509,7 @@ async function parseLeadDetail(page) {
     policyBlockCount++;
     const block = rawBlock.slice(0, 2500);
 
-    let isLapsed =
+    const isLapsed =
       /\bLAPSED\s+POLICY\b/i.test(block) ||
       /^\s*Lapsed\b/i.test(block) ||
       /\bStat:\s*99\b/i.test(block);
@@ -425,17 +521,17 @@ async function parseLeadDetail(page) {
       if (!Number.isNaN(n)) specialMonthly = n;
     }
 
-    let active = !isLapsed;
-
+    // Mode + PaidTo (+ DueDay info if present)
     const modeM = block.match(/\bMode\s+([A-Za-z]+)/i);
-    const dueM = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2})\b/i);
+    const dueM = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2}|00)\b/i);
     const paidM = block.match(
       /\bPolicy\s+Paid\s+To\s+([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2})\b/i
     );
-    const mode = modeM ? modeM[1].toLowerCase() : null;
-    const dueDay = dueM ? parseInt(dueM[1], 10) : null;
 
+    const mode = modeM ? modeM[1].toLowerCase() : null;
+    const today = new Date();
     let paidTo = null;
+
     if (paidM) {
       const s = paidM[1];
       const parts = s.includes("-") ? s.split("-").map(Number) : s.split("/").map(Number);
@@ -447,24 +543,20 @@ async function parseLeadDetail(page) {
       }
     }
 
+    let active = !isLapsed;
     if (active && paidTo) {
-      const today = new Date();
-      if (mode === "annual") {
-        const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 366;
-      } else if (dueDay) {
-        const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-        const anchor = new Date(
-          today.getFullYear(),
-          today.getMonth(),
-          Math.min(Math.max(dueDay, 1), last)
-        );
-        const delta = Math.floor((anchor - paidTo) / 86400000);
-        active = delta <= 60;
-      } else {
-        const diff = Math.floor((today - paidTo) / 86400000);
-        active = diff <= 60;
-      }
+      const cushion = cushionForMode(mode || "");
+      const diff = daysBetween(today, paidTo);
+      active = diff <= cushion;
+
+      // keep Due Day normalization around for logging / potential future logic
+      const dueDay = dueM ? parseInt(dueM[1], 10) : NaN;
+      const normalizedDueDay = normalizeDueDay(dueDay, today);
+      emit("info", {
+        msg: `lapse: mode=${mode || "unknown"} cushion=${cushion}d dueDay=${
+          Number.isFinite(dueDay) ? dueDay : "N/A"
+        } → norm=${normalizedDueDay}`,
+      });
     }
 
     if (active && specialMonthly > 0) monthlyTotalActive += specialMonthly;
@@ -473,26 +565,26 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
+  // ✅ STRICT policy phones
+  const policyPairs = await extractPolicyPhonesStrict(page);
   const policyRows = [];
   const seen = new Set();
-  const pushPolicyNumber = (token, label, primaryName) => {
-    const norm = normalizePhoneCandidate(token, label);
+  const pushPolicy = (rawToken, label, primaryName) => {
+    const norm = normalizePhoneCandidate(rawToken, /sec/i.test(label) ? "Secondary" : "Policy");
     if (!norm) return;
-    const key = `${norm.rawDigits || norm.original}-${norm.extension || ""}`;
+
+    // Only allow 10-digit or 7-digit (needs area code) that came from policy fields
+    if (!norm.rawDigits) return;
+    if (!(norm.rawDigits.length === 10 || norm.rawDigits.length === 7)) return;
+
+    const key = `${norm.rawDigits}-${norm.extension || ""}-policy`;
     if (seen.has(key)) return;
     seen.add(key);
+
     policyRows.push({
       primaryName,
       source: "policy",
-      lineType: /sec/i.test(label)
-        ? "Secondary"
-        : /cell/i.test(label)
-        ? "Cell"
-        : /home/i.test(label)
-        ? "Home"
-        : /work/i.test(label)
-        ? "Work"
-        : "Policy",
+      lineType: /sec/i.test(label) ? "Secondary" : "Policy",
       original: norm.original,
       rawDigits: norm.rawDigits,
       phone: norm.phone,
@@ -504,66 +596,8 @@ async function parseLeadDetail(page) {
     });
   };
 
-  const blockTokenReSrc = TOKEN_RE.source;
-  for (const rawBlock of blocks) {
-    const labelSpanRe =
-      /(Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone)\s*:?\s*([()\-\s.\d+xext#]{7,})/gi;
-    let m;
-    while ((m = labelSpanRe.exec(rawBlock))) {
-      const label = m[1];
-      const span = m[2] || "";
-      const tokRe = new RegExp(blockTokenReSrc, "gi");
-      let t;
-      while ((t = tokRe.exec(span))) pushPolicyNumber(t[0], label, primaryNameHeader || null);
-    }
-  }
-
-  const domPairs = await page.evaluate(() => {
-    const out = [];
-    const labelRe =
-      /^(?:Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone|Cell|Home|Work)\s*:?$/i;
-
-    const harvest = (labelEl, valueEl) => {
-      const label = (labelEl.textContent || "").trim();
-      const strings = [];
-
-      const valTxt = (valueEl.textContent || "").trim();
-      if (/\d{7,}/.test(valTxt)) strings.push(valTxt);
-
-      valueEl.querySelectorAll("a, button, span").forEach((el) => {
-        const href = el.getAttribute("href") || "";
-        if (href.startsWith("tel:")) strings.push(href);
-        const oc = el.getAttribute("onclick") || "";
-        if (/\d{7,}/.test(oc)) strings.push(oc);
-        const dp = el.getAttribute("data-phone") || "";
-        if (/\d{7,}/.test(dp)) strings.push(dp);
-        const txt = el.textContent || "";
-        if (/\d{7,}/.test(txt)) strings.push(txt);
-      });
-
-      if (strings.length) out.push({ label, strings });
-    };
-
-    document.querySelectorAll("table").forEach((tbl) => {
-      tbl.querySelectorAll("tr").forEach((tr) => {
-        const cells = Array.from(tr.children);
-        for (let i = 0; i < cells.length - 1; i++) {
-          const key = (cells[i].textContent || "").trim();
-          if (labelRe.test(key)) harvest(cells[i], cells[i + 1]);
-        }
-      });
-    });
-
-    return out;
-  });
-
-  const tokenRe = new RegExp(TOKEN_RE.source, "gi");
-  for (const { label, strings } of domPairs) {
-    for (const s of strings) {
-      tokenRe.lastIndex = 0;
-      let m;
-      while ((m = tokenRe.exec(s))) pushPolicyNumber(m[0], label, primaryNameHeader || null);
-    }
+  for (const { label, strings } of policyPairs) {
+    for (const s of strings) pushPolicy(s, label, primaryNameHeader || null);
   }
 
   return {
@@ -649,7 +683,7 @@ async function clickNextInboxPage(page) {
   return { advanced: changed, changed };
 }
 
-/* ------------- FIXED: always collect on the page you're on ------------- */
+/* collect links on every page (incl last) */
 async function collectPaginated(page, max) {
   await setInboxPageSize(page);
 
@@ -657,29 +691,21 @@ async function collectPaginated(page, max) {
   let pageNum = 1;
 
   for (;;) {
-    // 1) Read counts for the CURRENT page
     const infoTxt = await getInboxInfoText(page);
     const counts = parseInfoCounts(infoTxt);
     const totalEntries = counts?.total || undefined;
 
     info(`📬page ${pageNum}${totalEntries ? ` of ~${Math.ceil(totalEntries / 100)}` : ""}`);
 
-    // 2) Collect links from the CURRENT page
     const hrefs = await getPackLinksFromPage(page);
     hrefs.forEach((h) => allSet.add(h));
     info(`📬collected ${hrefs.length} links on page ${pageNum}, total ${allSet.size}`);
 
-    // Respect max if provided
     if (max && allSet.size >= max) break;
+    if (counts && counts.to >= counts.total) break; // last page collected
 
-    // 3) If we're already on the LAST page, stop AFTER collecting it
-    if (counts && counts.to >= counts.total) {
-      break; // last page already gathered
-    }
-
-    // 4) Otherwise, advance to the next page and loop
     const { advanced, changed } = await clickNextInboxPage(page);
-    if (!advanced || !changed) break; // failed to advance; stop
+    if (!advanced || !changed) break;
     pageNum += 1;
   }
 
@@ -743,13 +769,16 @@ export async function scrapePlanet(opts = {}) {
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
+      // ✅ click-to-call: container-scoped
       const c2c = await harvestClickToCall(page);
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
+      // ✅ policy phones: strict Ph/Sec Ph only
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
+      // Keep policy rows strictly those not already in click-to-call
       const c2cDigits = new Set(
         (c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || ""))
       );
