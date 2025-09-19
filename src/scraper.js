@@ -451,13 +451,13 @@ async function extractPolicyPhonesStrict(page) {
         // look for tel links etc.
         node.querySelectorAll("a, span, button").forEach((el) => {
           const href = el.getAttribute("href") || "";
-          if (/^tel:/i.test(href)) out.add(href);
+          if (/^tel:/i.test(href)) out.push(href);            // FIXED
           const oc = el.getAttribute("onclick") || "";
-          if (/\d{7,}/.test(oc)) out.add(oc);
+          if (/\d{7,}/.test(oc)) out.push(oc);                 // FIXED
           const dp = el.getAttribute("data-phone") || "";
-          if (/\d{7,}/.test(dp)) out.add(dp);
+          if (/\d{7,}/.test(dp)) out.push(dp);                 // FIXED
           const tx = clean(el.textContent || "");
-          if (/\d{7,}/.test(tx)) out.add(tx);
+          if (/\d{7,}/.test(tx)) out.push(tx);                 // FIXED
         });
       };
 
