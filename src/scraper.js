@@ -279,7 +279,7 @@ async function goToAllLeads(page) {
 }
 
 /* =========================
-   Name extraction (before uses)
+   Name extraction (placed BEFORE uses)
    ========================= */
 async function getPrimaryNameFromHeader(page) {
   const name = await page.evaluate(() => {
@@ -313,42 +313,41 @@ async function getPrimaryNameFromHeader(page) {
 }
 
 /* =========================
-   Tokenization + scoped helpers
+   Tokenization (scoped) + parsing
    ========================= */
 const TOKEN_RE =
   /(?:\+?1[\s-]?)?(?:\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}|\b\d{7}\b)(?:\s*(?:x|ext\.?|#)\s*\d{2,6})?/gi;
 
-/* Gather numbers inside a container (used for click-to-call dropdowns) */
-async function gatherNumbersInContainer(page, containerLocator) {
-  const tokens = await containerLocator.evaluateAll((nodes, reSrc) => {
+/* Gather visible number-ish tokens from the WHOLE page */
+async function gatherVisibleNumberTokens(page) {
+  return await page.evaluate((reSrc) => {
     const re = new RegExp(reSrc, "gi");
-    const out = new Set();
+    const toks = new Set();
+    const walk = (root) => {
+      const els = root.querySelectorAll("*");
+      for (const el of els) {
+        // visible or fixed
+        if (!el.offsetParent && getComputedStyle(el).position !== "fixed") continue;
+        const t = (el.textContent || "").trim();
+        let m;
+        while ((m = re.exec(t))) toks.add(m[0]);
 
-    const collectFromEl = (el) => {
-      const txt = (el.textContent || "").trim();
-      let m;
-      while ((m = re.exec(txt))) out.add(m[0]);
+        const href = el.getAttribute && el.getAttribute("href");
+        if (href && /tel:/i.test(href)) toks.add(href);
 
-      const href = el.getAttribute && el.getAttribute("href");
-      if (href && /tel:/i.test(href)) out.add(href);
+        const oc = el.getAttribute && el.getAttribute("onclick");
+        if (oc && /\d{7,}/.test(oc)) toks.add(oc);
 
-      const oc = el.getAttribute && el.getAttribute("onclick");
-      if (oc && /\d{7,}/.test(oc)) out.add(oc);
-
-      const dp = el.getAttribute && el.getAttribute("data-phone");
-      if (dp && /\d{7,}/.test(dp)) out.add(dp);
-
-      const kids = el.querySelectorAll("*");
-      for (const k of kids) collectFromEl(k);
+        const dp = el.getAttribute && el.getAttribute("data-phone");
+        if (dp && /\d{7,}/.test(dp)) toks.add(dp);
+      }
     };
-
-    for (const n of nodes) collectFromEl(n);
-    return Array.from(out);
+    walk(document.body);
+    return Array.from(toks);
   }, TOKEN_RE.source);
-
-  return tokens || [];
 }
 
+/* Restore robust click-to-call harvesting using page-wide diff */
 async function harvestClickToCall(page) {
   const rows = [];
 
@@ -360,23 +359,24 @@ async function harvestClickToCall(page) {
 
   if (!callBtn) return rows;
 
+  // capture BEFORE snapshot from the whole page
+  const before = new Set(await gatherVisibleNumberTokens(page));
+
   await callBtn.scrollIntoViewIfNeeded().catch(() => {});
   await callBtn.click().catch(() => {});
-  await page.waitForTimeout(350);
 
-  const menu = page.locator(
-    '.dropdown-menu:visible, .dropdown.open .dropdown-menu, .popover:visible, [role="dialog"], [role="menu"]'
-  );
-  let tokens = [];
-  if (await menu.count()) {
-    tokens = await gatherNumbersInContainer(page, menu);
-  } else {
-    const after = await gatherNumbersInContainer(page, page.locator("body"));
-    tokens = after;
+  // allow the row list to render; poll a few times
+  let after = new Set();
+  for (let i = 0; i < 8; i++) {
+    await page.waitForTimeout(300);
+    after = new Set(await gatherVisibleNumberTokens(page));
+    if (after.size > before.size) break;
   }
 
+  const diff = Array.from(after).filter((s) => !before.has(s));
+
   const seen = new Set();
-  for (const token of tokens) {
+  for (const token of diff) {
     const norm = normalizePhoneCandidate(token, "ClickToCall");
     if (!norm) continue;
     const key = `${norm.rawDigits || norm.original}-${norm.extension || ""}`;
@@ -414,39 +414,116 @@ async function expandAllPolicies(page) {
     );
     if (!anotherMore) break;
   }
-  await page.evaluate(async () => {
-    let y = 0;
-    for (let i = 0; i < 6; i++) {
-      y += Math.round(window.innerHeight * 0.8);
-      window.scrollTo(0, y);
-      await new Promise((r) => setTimeout(r, 150));
+  // light scroll to force any lazy content
+  await page
+    .evaluate(async () => {
+      let y = 0;
+      for (let i = 0; i < 6; i++) {
+        y += Math.round(window.innerHeight * 0.8);
+        window.scrollTo(0, y);
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    })
+    .catch(() => {});
+}
+
+/* Strict policy extractor: only "Ph:" and "Sec Ph:" */
+async function extractPolicyPhonesStrict(page) {
+  return await page.evaluate((reSrc) => {
+    const DIGIT_RE = new RegExp(reSrc, "gi");
+    const isDNC = (s) => /\b(dnc|do\s*not\s*call)\b/i.test(String(s || ""));
+    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+
+    // find exact "Ph:" / "Sec Ph:"
+    const labelNodes = Array.from(document.querySelectorAll("body *")).filter((el) => {
+      const t = clean(el.textContent);
+      return /^ph:$/i.test(t) || /^sec\s*ph:$/i.test(t);
+    });
+
+    const pullNeighborStrings = (labelEl) => {
+      const out = [];
+
+      const harvestFrom = (node) => {
+        const txt = clean(node.textContent || "");
+        if (txt) out.push(txt);
+
+        node.querySelectorAll("a, span, button").forEach((el) => {
+          const href = el.getAttribute("href") || "";
+          if (/^tel:/i.test(href)) out.add(href);
+          const oc = el.getAttribute("onclick") || "";
+          if (/\d{7,}/.test(oc)) out.add(oc);
+          const dp = el.getAttribute("data-phone") || "";
+          if (/\d{7,}/.test(dp)) out.add(dp);
+          const tx = clean(el.textContent || "");
+          if (/\d{7,}/.test(tx)) out.add(tx);
+        });
+      };
+
+      const tr = labelEl.closest("tr");
+      if (tr) {
+        const cells = Array.from(tr.children);
+        const idx = cells.findIndex((c) => c.contains(labelEl));
+        if (idx >= 0 && idx + 1 < cells.length) harvestFrom(cells[idx + 1]);
+      } else {
+        if (labelEl.nextElementSibling) harvestFrom(labelEl.nextElementSibling);
+        let sib = labelEl.parentElement;
+        if (sib) {
+          let n = sib.nextElementSibling;
+          if (n) harvestFrom(n);
+        }
+      }
+
+      const inline = labelEl.parentElement || labelEl;
+      inline.querySelectorAll('a[href^="tel:"]').forEach((a) => out.push(a.getAttribute("href")));
+
+      const uniq = [];
+      const seen = new Set();
+      for (const s of out.map(clean)) {
+        if (!s || isDNC(s)) continue;
+        let m;
+        DIGIT_RE.lastIndex = 0;
+        while ((m = DIGIT_RE.exec(s))) {
+          if (!seen.has(m[0])) {
+            seen.add(m[0]);
+            uniq.push(m[0]);
+          }
+        }
+      }
+      return uniq;
+    };
+
+    const results = [];
+    for (const labelEl of labelNodes) {
+      const labelTxt = clean(labelEl.textContent);
+      const strings = pullNeighborStrings(labelEl);
+      results.push({ label: labelTxt, strings });
     }
-  }).catch(() => {});
+    return results;
+  }, TOKEN_RE.source);
 }
 
 /* =========================
-   Lapsed helpers
+   Lapsed & detail parsing
    ========================= */
 function daysBetween(a, b) {
   return Math.floor((a - b) / 86400000);
 }
+
 function cushionForMode(modeLc) {
-  if (!modeLc) return 60;
+  if (!modeLc) return 60;       // fallback
   if (modeLc.startsWith("annual")) return 366;
-  if (modeLc.startsWith("quarter")) return 92;
-  if (modeLc.startsWith("month")) return 31;
+  if (modeLc.startsWith("quarter")) return 92; // quarterly cushion
+  if (modeLc.startsWith("month")) return 31;   // monthly cushion
   return 60;
 }
+
 function normalizeDueDay(dueDayRaw, today) {
   const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const d = Number(dueDayRaw);
-  if (!Number.isFinite(d) || d <= 0 || d > 31) return last; // treat 00 as EOM
+  if (!Number.isFinite(d) || d <= 0 || d > 31) return last; // treat 00/invalid as EOM
   return Math.min(Math.max(d, 1), last);
 }
 
-/* =========================
-   Lead detail parsing (HYBRID)
-   ========================= */
 async function parseLeadDetail(page) {
   await expandAllPolicies(page);
 
@@ -514,88 +591,15 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
-  // === HYBRID POLICY NUMBER HARVEST ===
-
-  // A) DOM-based (broader labels; table or sibling layouts)
-  const domPairs = await page.evaluate(() => {
-    const out = [];
-    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
-    const labelRe =
-      /^(?:Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone)\s*:?\s*$/i;
-
-    const harvestFrom = (labelEl, valueEl) => {
-      const label = clean(labelEl.textContent);
-      const strings = [];
-
-      // inline text
-      const valTxt = clean(valueEl.textContent || "");
-      if (/\d{7,}/.test(valTxt)) strings.push(valTxt);
-
-      // links/buttons/spans that carry digits
-      valueEl.querySelectorAll("a, button, span").forEach((el) => {
-        const href = el.getAttribute("href") || "";
-        if (/^tel:/i.test(href)) strings.push(href);
-        const oc = el.getAttribute("onclick") || "";
-        if (/\d{7,}/.test(oc)) strings.push(oc);
-        const dp = el.getAttribute("data-phone") || "";
-        if (/\d{7,}/.test(dp)) strings.push(dp);
-        const txt = clean(el.textContent || "");
-        if (/\d{7,}/.test(txt)) strings.push(txt);
-      });
-
-      if (strings.length) out.push({ label, strings });
-    };
-
-    // Tables
-    document.querySelectorAll("table").forEach((tbl) => {
-      tbl.querySelectorAll("tr").forEach((tr) => {
-        const cells = Array.from(tr.children);
-        for (let i = 0; i < cells.length - 1; i++) {
-          const key = clean(cells[i].textContent || "");
-          if (labelRe.test(key)) harvestFrom(cells[i], cells[i + 1]);
-        }
-      });
-    });
-
-    // Generic label/value siblings
-    const all = Array.from(document.querySelectorAll("body *"));
-    for (const el of all) {
-      const key = clean(el.textContent || "");
-      if (!labelRe.test(key)) continue;
-      if (el.nextElementSibling) {
-        harvestFrom(el, el.nextElementSibling);
-      } else if (el.parentElement && el.parentElement.nextElementSibling) {
-        harvestFrom(el, el.parentElement.nextElementSibling);
-      }
-    }
-
-    return out;
-  });
-
-  // B) Text-block fallback inside each policy block
-  const tokenReSrc = TOKEN_RE.source;
-  const blockPairs = [];
-  for (const rawBlock of blocks) {
-    const labelSpanRe =
-      /(Ph|Phone|Sec(?:ond(?:ary)?)?\s*Ph|Second(?:ary)?\s*Phone)\s*:?\s*([()\-\s.\d+xext#]{7,})/gi;
-    let m;
-    while ((m = labelSpanRe.exec(rawBlock))) {
-      const label = m[1];
-      const span = m[2] || "";
-      const tokRe = new RegExp(tokenReSrc, "gi");
-      let t;
-      while ((t = tokRe.exec(span))) blockPairs.push({ label, token: t[0] });
-    }
-  }
-
-  // Build policy rows
+  // STRICT policy phones
+  const policyPairs = await extractPolicyPhonesStrict(page);
   const policyRows = [];
   const seen = new Set();
   const pushPolicy = (rawToken, label, primaryName) => {
-    const norm = normalizePhoneCandidate(rawToken, label);
+    const norm = normalizePhoneCandidate(rawToken, /sec/i.test(label) ? "Secondary" : "Policy");
     if (!norm) return;
 
-    // Only allow 10-digit or 7-digit (needs AC) from policy fields
+    // allow 10-digit or 7-digit (needs area code) that came from policy fields
     if (!norm.rawDigits) return;
     if (!(norm.rawDigits.length === 10 || norm.rawDigits.length === 7)) return;
 
@@ -606,15 +610,7 @@ async function parseLeadDetail(page) {
     policyRows.push({
       primaryName,
       source: "policy",
-      lineType: /sec/i.test(label)
-        ? "Secondary"
-        : /cell/i.test(label)
-        ? "Cell"
-        : /home/i.test(label)
-        ? "Home"
-        : /work/i.test(label)
-        ? "Work"
-        : "Policy",
+      lineType: /sec/i.test(label) ? "Secondary" : "Policy",
       original: norm.original,
       rawDigits: norm.rawDigits,
       phone: norm.phone,
@@ -626,11 +622,8 @@ async function parseLeadDetail(page) {
     });
   };
 
-  for (const { label, strings } of domPairs) {
+  for (const { label, strings } of policyPairs) {
     for (const s of strings) pushPolicy(s, label, primaryNameHeader || null);
-  }
-  for (const { label, token } of blockPairs) {
-    pushPolicy(token, label, primaryNameHeader || null);
   }
 
   return {
@@ -735,7 +728,7 @@ async function collectPaginated(page, max) {
     info(`📬collected ${hrefs.length} links on page ${pageNum}, total ${allSet.size}`);
 
     if (max && allSet.size >= max) break;
-    if (counts && counts.to >= counts.total) break;
+    if (counts && counts.to >= counts.total) break; // last page collected
 
     const { advanced, changed } = await clickNextInboxPage(page);
     if (!advanced || !changed) break;
@@ -757,7 +750,7 @@ export async function scrapePlanet(opts = {}) {
   emit("start", { username, maxLeads: max, jobId: jobId || null });
   let browser, context, page;
   let leadCount = 0;
-  let sumAllLeadsMonthly = 0;
+  let sumAllLeadsMonthly = 0; // INTERNAL only
 
   try {
     ({ browser, context, page } = await launch());
@@ -802,13 +795,16 @@ export async function scrapePlanet(opts = {}) {
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
+      // click-to-call (restored page-wide diff)
       const c2c = await harvestClickToCall(page);
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
+      // policy phones: strict Ph/Sec Ph only
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
+      // Keep policy rows strictly those not already in click-to-call
       const c2cDigits = new Set(
         (c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || ""))
       );
@@ -873,6 +869,7 @@ export async function scrapePlanet(opts = {}) {
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
     try {
+      // Always emit 'done' so tests and dashboards don't hang.
       emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null });
     } catch {}
   }
