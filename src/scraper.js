@@ -279,6 +279,40 @@ async function goToAllLeads(page) {
 }
 
 /* =========================
+   Name extraction (placed BEFORE uses)
+   ========================= */
+async function getPrimaryNameFromHeader(page) {
+  const name = await page.evaluate(() => {
+    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+    const back = Array.from(document.querySelectorAll("a,button")).find((el) =>
+      /(^|\b)back\b/i.test(clean(el.textContent))
+    );
+    const backBottom = back ? back.getBoundingClientRect().bottom : 0;
+    const zoneTop = backBottom;
+    const zoneBottom = backBottom + 220;
+    const zoneRight = window.innerWidth * 0.55;
+    const bad = /^(BACK|DETAIL|CALL|APPT\.?|COMMENTS|RESOLVE|VIEWING\s+\d+\s*\/\s*\d+)$/i;
+
+    const cands = [];
+    document.querySelectorAll("body *").forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < zoneTop || rect.top > zoneBottom) return;
+      if (rect.left > zoneRight) return;
+      const txt = clean(el.textContent);
+      if (!txt) return;
+      if (bad.test(txt)) return;
+      if (/\d{3,}/.test(txt)) return;
+      if (/[a-z]/.test(txt)) return;
+      if (!/[A-Z]/.test(txt)) return;
+      cands.push({ t: txt, y: rect.top, x: rect.left });
+    });
+    cands.sort((a, b) => a.y - b.y || a.x - b.x);
+    return cands.length ? cands[0].t : null;
+  });
+  return name || null;
+}
+
+/* =========================
    Tokenization (scoped) + parsing
    ========================= */
 const TOKEN_RE =
@@ -338,7 +372,7 @@ async function harvestClickToCall(page) {
   if (await menu.count()) {
     tokens = await gatherNumbersInContainer(page, menu);
   } else {
-    // Fallback: a short-time diff (safer than broad full-page scan)
+    // Fallback: scoped to body after click (short window)
     const after = await gatherNumbersInContainer(page, page.locator("body"));
     tokens = after;
   }
@@ -417,13 +451,13 @@ async function extractPolicyPhonesStrict(page) {
         // look for tel links etc.
         node.querySelectorAll("a, span, button").forEach((el) => {
           const href = el.getAttribute("href") || "";
-          if (/^tel:/i.test(href)) out.push(href);
+          if (/^tel:/i.test(href)) out.add(href);
           const oc = el.getAttribute("onclick") || "";
-          if (/\d{7,}/.test(oc)) out.push(oc);
+          if (/\d{7,}/.test(oc)) out.add(oc);
           const dp = el.getAttribute("data-phone") || "";
-          if (/\d{7,}/.test(dp)) out.push(dp);
+          if (/\d{7,}/.test(dp)) out.add(dp);
           const tx = clean(el.textContent || "");
-          if (/\d{7,}/.test(tx)) out.push(tx);
+          if (/\d{7,}/.test(tx)) out.add(tx);
         });
       };
 
@@ -484,8 +518,8 @@ function daysBetween(a, b) {
 function cushionForMode(modeLc) {
   if (!modeLc) return 60; // fallback
   if (modeLc.startsWith("annual")) return 366;
-  if (modeLc.startsWith("quarter")) return 92; // ✅ quarterly cushion per spec
-  if (modeLc.startsWith("month")) return 31;   // ✅ monthly cushion per spec
+  if (modeLc.startsWith("quarter")) return 92; // quarterly cushion
+  if (modeLc.startsWith("month")) return 31;   // monthly cushion
   return 60;
 }
 
@@ -549,7 +583,7 @@ async function parseLeadDetail(page) {
       const diff = daysBetween(today, paidTo);
       active = diff <= cushion;
 
-      // keep Due Day normalization around for logging / potential future logic
+      // DueDay normalization kept for logging / safeguard
       const dueDay = dueM ? parseInt(dueM[1], 10) : NaN;
       const normalizedDueDay = normalizeDueDay(dueDay, today);
       emit("info", {
@@ -565,7 +599,7 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
-  // ✅ STRICT policy phones
+  // STRICT policy phones
   const policyPairs = await extractPolicyPhonesStrict(page);
   const policyRows = [];
   const seen = new Set();
@@ -769,12 +803,12 @@ export async function scrapePlanet(opts = {}) {
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
-      // ✅ click-to-call: container-scoped
+      // click-to-call: container-scoped
       const c2c = await harvestClickToCall(page);
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
-      // ✅ policy phones: strict Ph/Sec Ph only
+      // policy phones: strict Ph/Sec Ph only
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
