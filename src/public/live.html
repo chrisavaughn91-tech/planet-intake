@@ -9,8 +9,7 @@
       --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8; --border:#222;
       --pill:#1e1f27; --pill-b:#2a2c38;
       --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
-      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
-      --accent:#6aa8ff;
+      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9; --accent:#6aa8ff;
     }
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
@@ -26,8 +25,7 @@
     .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
     .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
     .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
-    .dot.error{background:var(--err)} .dot.done{background:var(--done)}
-    .dot.client{background:#aaa}
+    .dot.error{background:var(--err)} .dot.done{background:var(--done)} .dot.client{background:#aaa}
     .right{margin-left:auto;display:flex;gap:8px;align-items:center}
     .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
     .button:hover{border-color:#3a3c48}
@@ -35,7 +33,7 @@
     .legend{margin-top:6px;font-size:12px;color:var(--muted)}
     .banner{position:sticky;top:64px;background:#201b0b;color:#ffdd99;border-bottom:1px solid #3a2d12;padding:6px 12px;display:none}
     .container{padding:12px 12px 20px}
-    .row{display:grid;grid-template-columns:100px 120px 86px 1fr;gap:10px;align-items:start;
+    .row{display:grid;grid-template-columns:100px 120px 1fr;gap:10px;align-items:start;
       padding:7px 0;border-bottom:1px dashed #232323}
     .time{color:#bbb;font-variant-numeric:tabular-nums}
     .type{display:inline-flex;align-items:center;gap:6px}
@@ -56,7 +54,6 @@
   <header>
     <div class="brand">Planet Intake — Live</div>
     <div class="toolbar" id="toolbar">
-      <!-- filter chips -->
       <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
       <div class="chip" data-key="start" data-on="true"><span class="dot start"></span>start</div>
       <div class="chip" data-key="lead" data-on="true"><span class="dot lead"></span>lead</div>
@@ -67,7 +64,7 @@
       <div class="chip" data-key="done" data-on="true"><span class="dot done"></span>done</div>
       <div class="chip" data-key="client" data-on="false"><span class="dot client"></span>client</div>
       <div class="right">
-        <input id="q" class="input" placeholder="Filter text (e.g. autorun, sheet:url, jobId)" />
+        <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
         <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
         <button id="clearBtn" class="button" title="Clear log view">Clear</button>
         <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
@@ -88,7 +85,10 @@
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
 
-    // --- filter state -------------------------------------------------------
+    // --- helpers ------------------------------------------------------------
+    const params = new URLSearchParams(location.search);
+    const jobId = params.get('job') || null;
+
     const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
@@ -111,7 +111,7 @@
     inputQ.addEventListener('input', ()=> refilter());
 
     // --- elapsed time baseline ---------------------------------------------
-    let t0 = null; // set on first 'start' event; fallback to first event if needed
+    let t0 = null;
     const now = () => performance.now();
     const fmtHMS = (ms) => {
       const s = Math.max(0, Math.floor(ms/1000));
@@ -121,15 +121,9 @@
       const pad = (n)=> String(n).padStart(2,'0');
       return `${pad(h)}:${pad(m)}:${pad(ss)}`;
     };
+    function elapsed() { return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
 
-    function elapsed() {
-      if (!t0) return '00:00:00';
-      return fmtHMS(now() - t0);
-    }
-
-    // --- rendering ----------------------------------------------------------
     function addRow(level, msg, meta = {}) {
-      // filtering (by type and query)
       if (!filters.get(level)) return;
 
       const q = inputQ.value.trim().toLowerCase();
@@ -142,7 +136,6 @@
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       const badge = document.createElement('span'); badge.className = 'pill muted';
 
-      // infer job badge
       const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
                      (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
       if (level === 'start' || source) {
@@ -179,23 +172,20 @@
 
     function refilter(){
       [...logEl.children].forEach(row=>{
-        const level = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
         const text = row.innerText.toLowerCase();
         const q = inputQ.value.trim().toLowerCase();
-        const typeText = level ? level.textContent : 'info';
-        const showType = filters.get(typeText);
         const showText = !q || text.includes(q);
-        row.style.display = (showType && showText) ? '' : 'none';
+        row.style.display = showText ? '' : 'none';
       });
     }
 
-    // --- SSE setup ----------------------------------------------------------
+    // --- SSE setup (JOB-SCOPED) --------------------------------------------
     function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
 
-    const es = new EventSource('/events');
+    const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
     es.addEventListener('open', () => {
       showBanner(false);
-      addRow('info', 'stream: connected');
+      addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
     });
     es.addEventListener('error', () => {
       showBanner(true);
@@ -214,17 +204,13 @@
       client:(d)=> addRow('client', d.msg || '')
     };
 
-    // subscribe to known event types
     ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
       es.addEventListener(type, (e)=>{
         try{
           const data = JSON.parse(e.data || '{}');
-          if (!t0 && type !== 'info') t0 = now(); // fallback baseline if no explicit 'start'
+          if (!t0 && type !== 'info') t0 = now();
           (handlers[type] || handlers.info)(data);
-        }catch(err){
-          addRow('error', 'parse error');
-          console.error(err, e.data);
-        }
+        }catch{ /* ignore */ }
       });
     });
   </script>
