@@ -1,3 +1,9 @@
+## 2025-09-21 — Change 1B: Blocking modal overlay handling
+- Add `closeBlockingOverlays(page)` to detect/dismiss `.modal-backdrop`, `body.modal-open`, and ARIA dialogs.
+- Invoke overlay clearing after navigation, before click-to-call, and at the start of detail parsing.
+- Add a guarded retry in click-to-call if the dropdown was blocked.
+- No behavior change when no modal is present.
+
 ## 2025-09-21 — Change 1A: Due Day "00" hardening (no behavior change)
 - Feed raw token (e.g., `"00"`) directly into `normalizeDueDay(...)` in `parseLeadDetail`.
 - Log now shows `dueDay` raw and normalized day explicitly (e.g., `dueDay=00 → norm=31`).

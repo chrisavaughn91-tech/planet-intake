@@ -130,6 +130,68 @@ async function firstVisible(locator) {
 }
 
 /* =========================
+   Overlay handling
+   ========================= */
+async function isOverlayPresent(page) {
+  return await page.evaluate(() => {
+    const hasBackdrop = !!document.querySelector(".modal-backdrop");
+    const modalOpen = document.body.classList.contains("modal-open");
+    const visibleDialog = !!document.querySelector('[role="dialog"][aria-modal="true"], .modal.show, .modal-dialog');
+    return hasBackdrop || modalOpen || visibleDialog;
+  });
+}
+
+async function closeBlockingOverlays(page) {
+  // Try a few times to be resilient to animations or chained modals.
+  let closedAny = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const present = await isOverlayPresent(page);
+    if (!present) break;
+
+    let clicked = false;
+    const closeSelectors = [
+      '[data-dismiss="modal"]',
+      '[aria-label="Close"]',
+      '.modal-header .close',
+      'button:has-text("Close")',
+      'button:has-text("Dismiss")',
+      'a:has-text("Close")',
+      // very common soft-confirm buttons (last resort)
+      'button:has-text("Got it")',
+      'button:has-text("I Understand")',
+      'button:has-text("OK")',
+    ];
+
+    for (const sel of closeSelectors) {
+      const btn = await firstVisible(page.locator(sel));
+      if (btn) {
+        try {
+          await btn.scrollIntoViewIfNeeded();
+          await btn.click({ timeout: 1500 });
+          clicked = true;
+          break;
+        } catch {}
+      }
+    }
+
+    if (!clicked) {
+      // Fallback to Escape
+      await page.keyboard.press("Escape").catch(() => {});
+    }
+
+    // Give it a moment to settle, then verify it actually cleared
+    await page.waitForTimeout(200);
+    const cleared = !(await isOverlayPresent(page));
+    if (cleared) {
+      closedAny = true;
+      emit("info", { msg: "overlay: closed" });
+      break;
+    }
+  }
+  return closedAny;
+}
+
+/* =========================
    Inbox helpers
    ========================= */
 async function ensureInboxStable(page) {
@@ -351,6 +413,9 @@ async function gatherVisibleNumberTokens(page) {
 async function harvestClickToCall(page) {
   const rows = [];
 
+  // Make sure nothing is blocking the UI
+  await closeBlockingOverlays(page).catch(() => {});
+
   const callBtn =
     (await firstVisible(page.locator('div:has(button:has-text("Appt.")) >> button:has-text("Call")'))) ||
     (await firstVisible(page.getByRole("button", { name: /^Call$/ }))) ||
@@ -371,6 +436,17 @@ async function harvestClickToCall(page) {
     await page.waitForTimeout(300);
     after = new Set(await gatherVisibleNumberTokens(page));
     if (after.size > before.size) break;
+  }
+
+  // If blocked, try once more after clearing overlay
+  if (after.size <= before.size && (await isOverlayPresent(page))) {
+    await closeBlockingOverlays(page).catch(() => {});
+    await callBtn.click().catch(() => {});
+    for (let i = 0; i < 6; i++) {
+      await page.waitForTimeout(300);
+      after = new Set(await gatherVisibleNumberTokens(page));
+      if (after.size > before.size) break;
+    }
   }
 
   const diff = Array.from(after).filter((s) => !before.has(s));
@@ -531,6 +607,9 @@ function normalizeDueDay(dueDayRaw, today) {
 }
 
 async function parseLeadDetail(page) {
+  // ensure any surprise overlay that appeared after navigation is gone
+  await closeBlockingOverlays(page).catch(() => {});
+
   await expandAllPolicies(page);
 
   const pageText = await page.evaluate(() => document.body.innerText || "");
@@ -582,7 +661,6 @@ async function parseLeadDetail(page) {
       const diff = daysBetween(today, paidTo);
       active = diff <= cushion;
 
-      // 🔧 Change 1A: feed raw token into normalizer; log raw vs normalized for clarity
       const dueDayRaw = dueM ? dueM[1] : null;
       const normalizedDueDay = normalizeDueDay(dueDayRaw, today);
       emit("info", {
@@ -797,8 +875,14 @@ export async function scrapePlanet(opts = {}) {
       await page.goto(absUrl, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
+      // 🔒 Clear any blocking overlay immediately after navigation
+      await closeBlockingOverlays(page).catch(() => {});
+
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
+
+      // Ensure no overlays before click-to-call
+      await closeBlockingOverlays(page).catch(() => {});
 
       // click-to-call (page-wide diff)
       const c2c = await harvestClickToCall(page);
