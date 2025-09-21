@@ -517,6 +517,12 @@ function cushionForMode(modeLc) {
   return 60;
 }
 
+/**
+ * Normalize a "Due Day" token.
+ * - Accepts raw tokens like "00", "7", 7, etc.
+ * - Returns a day-of-month (1..last) integer.
+ * - "00" / invalid / out-of-range -> last day of the current month.
+ */
 function normalizeDueDay(dueDayRaw, today) {
   const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const d = Number(dueDayRaw);
@@ -576,12 +582,11 @@ async function parseLeadDetail(page) {
       const diff = daysBetween(today, paidTo);
       active = diff <= cushion;
 
-      const dueDay = dueM ? parseInt(dueM[1], 10) : NaN;
-      const normalizedDueDay = normalizeDueDay(dueDay, today);
+      // 🔧 Change 1A: feed raw token into normalizer; log raw vs normalized for clarity
+      const dueDayRaw = dueM ? dueM[1] : null;
+      const normalizedDueDay = normalizeDueDay(dueDayRaw, today);
       emit("info", {
-        msg: `lapse: mode=${mode || "unknown"} cushion=${cushion}d dueDay=${
-          Number.isFinite(dueDay) ? dueDay : "N/A"
-        } → norm=${normalizedDueDay}`,
+        msg: `lapse: mode=${mode || "unknown"} cushion=${cushion}d dueDay=${dueDayRaw ?? "N/A"} → norm=${normalizedDueDay}`,
       });
     }
 
