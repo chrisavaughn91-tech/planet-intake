@@ -142,7 +142,6 @@ async function isOverlayPresent(page) {
 }
 
 async function closeBlockingOverlays(page) {
-  // Try a few times to be resilient to animations or chained modals.
   let closedAny = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     const present = await isOverlayPresent(page);
@@ -156,7 +155,6 @@ async function closeBlockingOverlays(page) {
       'button:has-text("Close")',
       'button:has-text("Dismiss")',
       'a:has-text("Close")',
-      // very common soft-confirm buttons (last resort)
       'button:has-text("Got it")',
       'button:has-text("I Understand")',
       'button:has-text("OK")',
@@ -175,11 +173,9 @@ async function closeBlockingOverlays(page) {
     }
 
     if (!clicked) {
-      // Fallback to Escape
       await page.keyboard.press("Escape").catch(() => {});
     }
 
-    // Give it a moment to settle, then verify it actually cleared
     await page.waitForTimeout(200);
     const cleared = !(await isOverlayPresent(page));
     if (cleared) {
@@ -299,7 +295,6 @@ async function login(page, creds) {
     submit.click(),
   ]);
 
-  // sanity: ensure we’re past login
   const url = page.url();
   if (/Account\/Login/i.test(url)) {
     reportError("LOGIN: still on login page — check PLANET_USER/PLANET_PASS");
@@ -388,7 +383,6 @@ async function gatherVisibleNumberTokens(page) {
     const walk = (root) => {
       const els = root.querySelectorAll("*");
       for (const el of els) {
-        // visible or fixed
         if (!el.offsetParent && getComputedStyle(el).position !== "fixed") continue;
         const t = (el.textContent || "").trim();
         let m;
@@ -409,11 +403,68 @@ async function gatherVisibleNumberTokens(page) {
   }, TOKEN_RE.source);
 }
 
+/* =============== New: “Listed #” header fallback =============== */
+async function harvestHeaderListedNumbers(page) {
+  const tokens = await page.evaluate((reSrc) => {
+    const re = new RegExp(reSrc, "gi");
+    const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+
+    const back = Array.from(document.querySelectorAll("a,button")).find((el) =>
+      /(^|\b)back\b/i.test(clean(el.textContent))
+    );
+    const backBottom = back ? back.getBoundingClientRect().bottom : 0;
+    const zoneTop = backBottom;
+    const zoneBottom = backBottom + 260;
+    const zoneRight = window.innerWidth * 0.55;
+
+    const found = new Set();
+    document.querySelectorAll("body *").forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < zoneTop || rect.top > zoneBottom) return;
+      if (rect.left > zoneRight) return;
+
+      const txt = clean(el.textContent || "");
+      let m;
+      re.lastIndex = 0;
+      while ((m = re.exec(txt))) found.add(m[0]);
+
+      const href = el.getAttribute && el.getAttribute("href");
+      if (href && /^tel:/i.test(href)) found.add(href);
+    });
+
+    return Array.from(found);
+  }, TOKEN_RE.source);
+
+  const rows = [];
+  const seen = new Set();
+  for (const token of tokens) {
+    const norm = normalizePhoneCandidate(token, "HeaderListed");
+    if (!norm) continue;
+    const key = `${norm.rawDigits || norm.original}-${norm.extension || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    rows.push({
+      primaryName: null,
+      source: "header",
+      lineType: "ListedHeader",
+      original: norm.original,
+      rawDigits: norm.rawDigits,
+      phone: norm.phone,
+      extension: norm.extension || null,
+      tollFree: !!norm.tollFree,
+      international: !!norm.international,
+      valid: !!norm.valid,
+      flag: norm.flags.join(", "),
+    });
+  }
+  return uniqBy(rows, (r) => `${r.rawDigits || r.original}-${r.extension || ""}`);
+}
+
 /* Restore robust click-to-call harvesting using page-wide diff */
 async function harvestClickToCall(page) {
   const rows = [];
 
-  // Make sure nothing is blocking the UI
   await closeBlockingOverlays(page).catch(() => {});
 
   const callBtn =
@@ -424,13 +475,11 @@ async function harvestClickToCall(page) {
 
   if (!callBtn) return rows;
 
-  // BEFORE snapshot
   const before = new Set(await gatherVisibleNumberTokens(page));
 
   await callBtn.scrollIntoViewIfNeeded().catch(() => {});
   await callBtn.click().catch(() => {});
 
-  // let numbers render; poll a few times
   let after = new Set();
   for (let i = 0; i < 8; i++) {
     await page.waitForTimeout(300);
@@ -438,7 +487,6 @@ async function harvestClickToCall(page) {
     if (after.size > before.size) break;
   }
 
-  // If blocked, try once more after clearing overlay
   if (after.size <= before.size && (await isOverlayPresent(page))) {
     await closeBlockingOverlays(page).catch(() => {});
     await callBtn.click().catch(() => {});
@@ -450,7 +498,6 @@ async function harvestClickToCall(page) {
   }
 
   const diff = Array.from(after).filter((s) => !before.has(s));
-
   const seen = new Set();
   for (const token of diff) {
     const norm = normalizePhoneCandidate(token, "ClickToCall");
@@ -490,7 +537,6 @@ async function expandAllPolicies(page) {
     );
     if (!anotherMore) break;
   }
-  // light scroll to force any lazy content
   await page
     .evaluate(async () => {
       let y = 0;
@@ -503,14 +549,13 @@ async function expandAllPolicies(page) {
     .catch(() => {});
 }
 
-/* Strict policy extractor: only "Ph:" and "Sec Ph:" (fixed: use .push, not .add) */
+/* Strict policy extractor: only "Ph:" and "Sec Ph:" */
 async function extractPolicyPhonesStrict(page) {
   return await page.evaluate((reSrc) => {
     const DIGIT_RE = new RegExp(reSrc, "gi");
     const isDNC = (s) => /\b(dnc|do\s*not\s*call)\b/i.test(String(s || ""));
     const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
 
-    // find exact "Ph:" / "Sec Ph:"
     const labelNodes = Array.from(document.querySelectorAll("body *")).filter((el) => {
       const t = clean(el.textContent);
       return /^ph:$/i.test(t) || /^sec\s*ph:$/i.test(t);
@@ -586,10 +631,10 @@ function daysBetween(a, b) {
 }
 
 function cushionForMode(modeLc) {
-  if (!modeLc) return 60;       // fallback
+  if (!modeLc) return 60;
   if (modeLc.startsWith("annual")) return 366;
-  if (modeLc.startsWith("quarter")) return 92; // quarterly cushion
-  if (modeLc.startsWith("month")) return 31;   // monthly cushion
+  if (modeLc.startsWith("quarter")) return 92;
+  if (modeLc.startsWith("month")) return 31;
   return 60;
 }
 
@@ -602,14 +647,12 @@ function cushionForMode(modeLc) {
 function normalizeDueDay(dueDayRaw, today) {
   const last = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const d = Number(dueDayRaw);
-  if (!Number.isFinite(d) || d <= 0 || d > 31) return last; // treat 00/invalid as EOM
+  if (!Number.isFinite(d) || d <= 0 || d > 31) return last;
   return Math.min(Math.max(d, 1), last);
 }
 
 async function parseLeadDetail(page) {
-  // ensure any surprise overlay that appeared after navigation is gone
   await closeBlockingOverlays(page).catch(() => {});
-
   await expandAllPolicies(page);
 
   const pageText = await page.evaluate(() => document.body.innerText || "");
@@ -674,7 +717,6 @@ async function parseLeadDetail(page) {
 
   const primaryNameHeader = await getPrimaryNameFromHeader(page);
 
-  // STRICT policy phones
   const policyPairs = await extractPolicyPhonesStrict(page);
   const policyRows = [];
   const seen = new Set();
@@ -682,7 +724,6 @@ async function parseLeadDetail(page) {
     const norm = normalizePhoneCandidate(rawToken, /sec/i.test(label) ? "Secondary" : "Policy");
     if (!norm) return;
 
-    // allow 10-digit or 7-digit (needs area code) that came from policy fields
     if (!norm.rawDigits) return;
     if (!(norm.rawDigits.length === 10 || norm.rawDigits.length === 7)) return;
 
@@ -792,7 +833,6 @@ async function clickNextInboxPage(page) {
   return { advanced: changed, changed };
 }
 
-/* collect links on every page (incl last) */
 async function collectPaginated(page, max) {
   await setInboxPageSize(page);
 
@@ -811,7 +851,7 @@ async function collectPaginated(page, max) {
     info(`📬collected ${hrefs.length} links on page ${pageNum}, total ${allSet.size}`);
 
     if (max && allSet.size >= max) break;
-    if (counts && counts.to >= counts.total) break; // last page collected
+    if (counts && counts.to >= counts.total) break;
 
     const { advanced, changed } = await clickNextInboxPage(page);
     if (!advanced || !changed) break;
@@ -833,7 +873,7 @@ export async function scrapePlanet(opts = {}) {
   emit("start", { username, maxLeads: max, jobId: jobId || null });
   let browser, context, page;
   let leadCount = 0;
-  let sumAllLeadsMonthly = 0; // INTERNAL only
+  let sumAllLeadsMonthly = 0;
 
   try {
     ({ browser, context, page } = await launch());
@@ -875,25 +915,39 @@ export async function scrapePlanet(opts = {}) {
       await page.goto(absUrl, { waitUntil: "domcontentloaded" });
       await sleep(350);
 
-      // 🔒 Clear any blocking overlay immediately after navigation
       await closeBlockingOverlays(page).catch(() => {});
 
       let primaryName = await getPrimaryNameFromHeader(page);
       emit("lead", { index: i + 1, total, leadName: primaryName, jobId: jobId || null });
 
-      // Ensure no overlays before click-to-call
       await closeBlockingOverlays(page).catch(() => {});
 
-      // click-to-call (page-wide diff)
-      const c2c = await harvestClickToCall(page);
+      // 1) Try normal click-to-call
+      let c2c = await harvestClickToCall(page);
+
+      // 2) Fallback: if nothing came back, go harvest from header (without clicking Call again)
+      if ((c2c || []).length === 0) {
+        const onDetail = /Lead\/InboxDetail/i.test(page.url());
+        if (!onDetail) {
+          await page.goto(absUrl, { waitUntil: "domcontentloaded" }).catch(() => {});
+          await sleep(250);
+        }
+        await closeBlockingOverlays(page).catch(() => {});
+        const headerFallback = await harvestHeaderListedNumbers(page);
+        if (headerFallback.length) {
+          headerFallback.forEach((r) => (r.primaryName = primaryName || r.primaryName));
+          c2c = headerFallback;
+          emit("info", { msg: "listed#: header fallback used" });
+        }
+      }
+
       c2c.forEach((r) => (r.primaryName = primaryName || r.primaryName));
       clickToCallRows.push(...c2c);
 
-      // policy phones: strict Ph/Sec Ph only
+      // Policy phones
       const detail = await parseLeadDetail(page);
       if (!primaryName && detail.primaryNameHeader) primaryName = detail.primaryNameHeader || primaryName;
 
-      // Keep policy rows strictly those not already in click-to-call
       const c2cDigits = new Set(
         (c2c || []).map((r) => r.rawDigits || onlyDigits(r.phone || r.original || ""))
       );
@@ -958,7 +1012,6 @@ export async function scrapePlanet(opts = {}) {
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
     try {
-      // Always emit 'done' so tests and dashboards don't hang.
       emit("done", { processed: 0, ms: Date.now() - startTime, jobId: jobId || null });
     } catch {}
   }
