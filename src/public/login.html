@@ -5,6 +5,7 @@
   <title>Planet Lead Pull — Mission Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+<<<<<<< Updated upstream
     :root{
       /* Command Center palette */
       --bg0:#0a0f0a;       /* deep ops room */
@@ -128,9 +129,116 @@
       <div>
         <div class="ttl">OP: PLANET LEAD PULL</div>
         <div class="sub">Mission Login • Restricted Access</div>
+=======
+    /* ======= Command Center (military/HUD) ======= */
+    :root{
+      --bg:#0b0f0c;
+      --panel:#0e1511;
+      --panel-2:#0b120e;
+      --grid:#101511;
+      --scan:#0c130f;
+      --line:#1c2a21;
+      --muted:#87a38f;
+      --text:#e9f4ec;
+      --accent:#b7ff62;        /* night-vision green */
+      --amber:#f3c76b;         /* warning amber */
+      --chip:#162119;
+      --input:#0c1410;
+      --shadow:0 18px 50px rgba(0,0,0,.45), inset 0 0 0 1px #142018;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; display:grid; place-items:center; padding:28px; color:var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, "Noto Sans";
+      background:
+        radial-gradient(1200px 800px at 15% -10%, rgba(183,255,98,.08), transparent 60%),
+        radial-gradient(1000px 900px at 110% 120%, rgba(243,199,107,.05), transparent 60%),
+        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px),
+        linear-gradient(180deg, #0a0f0c, #0b110d 45%, #0c120f);
+      position:relative;
+      overflow:hidden;
+    }
+    /* grid overlay */
+    body::before{
+      content:""; pointer-events:none; position:absolute; inset:0;
+      background:
+        linear-gradient(0deg, transparent 31px, var(--grid) 32px),
+        linear-gradient(90deg, transparent 31px, var(--grid) 32px);
+      background-size:32px 32px, 32px 32px;
+      mix-blend-mode:soft-light; opacity:.55;
+    }
+    /* slow radar sweep */
+    body::after{
+      content:""; position:absolute; inset:-30%;
+      background: conic-gradient(from 0deg, rgba(183,255,98,.12), transparent 35%);
+      animation:sweep 9s linear infinite;
+      mix-blend-mode:soft-light; pointer-events:none; opacity:.23;
+    }
+    @keyframes sweep{ to { transform: rotate(360deg); } }
+
+    .card{
+      width:100%; max-width:620px; background:linear-gradient(180deg, var(--panel), var(--panel-2));
+      border:1px solid var(--line); border-radius:16px; padding:24px 22px 20px; box-shadow:var(--shadow);
+      position:relative; overflow:hidden;
+    }
+    .card::before{
+      content:"MISSION BRIEFING"; position:absolute; top:10px; right:12px; font-size:11px; letter-spacing:.12em;
+      color:var(--muted); opacity:.5;
+    }
+    h1{ margin:2px 0 6px; font-size:22px; letter-spacing:.2px }
+    .subtitle{ margin:0 0 16px; color:var(--muted); font-size:13px }
+    label{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px }
+    input, select{
+      width:100%; padding:11px 12px; color:var(--text); background:var(--input);
+      border:1px solid var(--line); border-radius:10px; outline:none;
+    }
+    input:focus, select:focus{ border-color:var(--accent); box-shadow:0 0 0 2px rgba(183,255,98,.15) inset }
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
+    .actions{ display:flex; align-items:center; gap:12px; margin-top:16px }
+    button{
+      padding:10px 14px; border-radius:10px; border:1px solid var(--line);
+      background:linear-gradient(180deg,#111b14,#0d1712); color:var(--text); cursor:pointer;
+    }
+    button:hover{ border-color:var(--accent) }
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:var(--chip); border:1px solid var(--line); font-size:12px }
+    .dot{ width:8px; height:8px; border-radius:999px; background:var(--accent); box-shadow:0 0 8px rgba(183,255,98,.55) }
+    .note{ font-size:12px; color:var(--muted) }
+    .ok{ color:var(--accent) } .err{ color:#ff8b8b }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Planet Lead Pull — Start a Scrape</h1>
+    <p class="subtitle">Authenticate to begin. A private live feed and mission sheet will be created.</p>
+
+    <form id="f" autocomplete="on">
+      <label>Username</label>
+      <input id="u" autocomplete="username" required />
+
+      <label>Password</label>
+      <input id="p" type="password" autocomplete="current-password" required />
+
+      <label>Report email (where the sheet is shared)</label>
+      <input id="e" type="email" autocomplete="email" required />
+
+      <div class="row">
+        <div>
+          <label>Max leads (optional)</label>
+          <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
+        </div>
+        <div>
+          <label>Start immediately</label>
+          <select id="s">
+            <option value="true" selected>Yes</option>
+            <option value="false">No (just open live)</option>
+          </select>
+        </div>
+>>>>>>> Stashed changes
       </div>
     </div>
 
+<<<<<<< Updated upstream
     <div class="section">
       <h2>Credentials</h2>
       <form id="f">
@@ -169,6 +277,16 @@
       <h2>Mission Brief</h2>
       <div class="note">After submit, you’ll be redirected to your private <code>/live?job=…</code> feed.</div>
     </div>
+=======
+      <div class="actions">
+        <span class="pill"><span class="dot"></span>Ready</span>
+        <button type="submit">Start Run</button>
+        <span id="status" class="note"></span>
+      </div>
+    </form>
+
+    <div class="note" style="margin-top:12px">After submit, you’ll be redirected to your private <code>/live?job=…</code>.</div>
+>>>>>>> Stashed changes
   </main>
 
   <script>
@@ -195,7 +313,7 @@
           body: JSON.stringify(payload)
         });
         if (!res.ok) throw new Error(await res.text().catch(()=>('HTTP '+res.status)));
-        const data = await res.json(); // { ok, jobId, liveUrl }
+        const data = await res.json();
         const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(data.jobId)}`;
 
         status.innerHTML = '<span class="ok">Job created.</span> Opening live…';

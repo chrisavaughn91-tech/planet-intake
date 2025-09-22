@@ -12,15 +12,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Accept both JSON and HTML-form form posts
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* =========================
    Static + basic routes
    ========================= */
 app.use("/static", express.static(path.join(__dirname, "public")));
-app.get("/live", (_req, res) => {
+
+const sendLive = (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "live.html"));
-});
+};
+const sendLogin = (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+};
+
+// Explicit page routes
+app.get("/live", sendLive);
+app.get("/live.html", sendLive);
+app.get("/login", sendLogin);
+app.get("/login.html", sendLogin);
+
+// Default landing
 app.get("/", (_req, res) => res.redirect("/live"));
 
 /* =========================
@@ -63,12 +78,15 @@ function pickCreds(body) {
     max: body?.max ? Number(body.max) : undefined,
   };
 }
-
+function parseAuto(v) {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
 function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-// --- NEW: lazy-load scraper on demand
+// Lazy-load scraper
 async function getScrapePlanet() {
   const mod = await import("./scraper.js");
   if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
@@ -76,7 +94,6 @@ async function getScrapePlanet() {
 }
 
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
-  // lazy import here, right before first use
   const scrapePlanet = await getScrapePlanet();
 
   const result = await scrapePlanet({ username, password, max, jobId });
@@ -85,29 +102,23 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
     return;
   }
 
-  // === Sheets step ===
   try {
     let sheet;
     let sig = "object:{email,result}";
-
     try {
-      // matches sheets.js signature
       sheet = await createSheetAndShare({ email, result });
     } catch (_e1) {
-      // Optional back-compat path, if older sheets.js ever appears
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
 
     const url = sheet?.url || null;
     const ok  = url ? true : (sheet?.ok === true && !!sheet?.url);
-
     if (ok && url) {
       emit("sheet", { url, jobId });
       emit("info", { msg: `sheet:url ${url}`, jobId });
     } else {
-      const errMsg = sheet?.error || "unknown";
-      emit("error", { msg: `sheet: failed (${errMsg}) [sig=${sig}]`, jobId });
+      emit("error", { msg: `sheet: failed (${sheet?.error || "unknown"}) [sig=${sig}]`, jobId });
     }
   } catch (e) {
     emit("error", { msg: "sheet: exception " + (e?.message || e), jobId });
@@ -115,7 +126,33 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
 }
 
 /* =========================
-   Run endpoints
+   Login page flow: create session
+   ========================= */
+app.post("/session", async (req, res) => {
+  const { username, password, email, max } = pickCreds(req.body || {});
+  const autoStart = parseAuto(req.body?.autoStart);
+  const jobId = mkJobId();
+  const liveUrl = `/live?job=${encodeURIComponent(jobId)}`;
+
+  emit("info", { msg: `session: job created (${jobId})`, jobId });
+
+  if (autoStart) {
+    emit("info", { msg: `session: autoStart (job ${jobId})`, jobId });
+    (async () => {
+      try {
+        await runScrapeAndSheet({ username, password, email, max, jobId });
+        emit("info", { msg: `session: end (job ${jobId})`, jobId });
+      } catch (e) {
+        emit("error", { msg: "session: exception " + (e?.message || e), jobId });
+      }
+    })().catch((e) => emit("error", { msg: "session: exception " + (e?.message || e), jobId }));
+  }
+
+  res.json({ ok: true, jobId, liveUrl });
+});
+
+/* =========================
+   Run endpoints (compat)
    ========================= */
 app.get("/scrape", async (req, res) => {
   const wantsSSE = String(req.headers.accept || "").includes("text/event-stream");

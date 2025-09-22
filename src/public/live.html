@@ -2,10 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+<<<<<<< Updated upstream
   <title>Planet Intake — Command Center Live</title>
+=======
+  <title>Planet Intake — Command Center (Live)</title>
+>>>>>>> Stashed changes
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* ======= Command Center HUD ======= */
     :root{
+<<<<<<< Updated upstream
       --bg0:#0a0f0a; --bg1:#0f1610; --panel:#111911; --border:#2c3a2f;
       --text:#e8f3ea; --muted:#9aa69f; --steel:#2e3a31;
       --radar:#8fffa0; --amber:#ffd27a; --err:#ff7b7b; --info:#86b7ff;
@@ -105,10 +111,87 @@
     .stickyNew .button{ background:#122845; border-color:#204a86 }
 
     .muted{ color:#909090 }
+=======
+      --bg:#050807; --fg:#e8f3ec; --muted:#90a99a; --border:#1a2a22;
+      --pill:#0f1914; --pill-b:#22382c;
+      --ok:#b7ff62; --warn:#f3c76b; --err:#ff8b8b; --info:#8fbaff; --sheet:#9ff2ff;
+      --lead:#c8ff86; --badge:#f6b4ff; --done:#8ef0c9;
+      --accent:#b7ff62;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;background:var(--bg);color:var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    }
+    /* subtle grid + scanlines + sweep */
+    body::before{
+      content:""; position:fixed; inset:0; pointer-events:none;
+      background:
+        linear-gradient(0deg, transparent 31px, rgba(26,42,34,.6) 32px),
+        linear-gradient(90deg, transparent 31px, rgba(26,42,34,.6) 32px),
+        repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px);
+      background-size:32px 32px,32px 32px, auto;
+      mix-blend-mode:soft-light; opacity:.45;
+    }
+    body::after{
+      content:""; position:fixed; inset:-30%; pointer-events:none;
+      background: conic-gradient(from 0deg, rgba(183,255,98,.10), transparent 35%);
+      animation:sweep 10s linear infinite; opacity:.18; mix-blend-mode:soft-light;
+    }
+    @keyframes sweep{ to{ transform:rotate(360deg);} }
+
+    header{
+      position:sticky; top:0; z-index:10;
+      background:rgba(7,11,9,.9); backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--border); padding:10px 12px;
+      box-shadow:0 8px 24px rgba(0,0,0,.35);
+    }
+    .brand{ font-weight:700; letter-spacing:.3px }
+    .brand .tag{ margin-left:8px; padding:2px 8px; border-radius:999px; font-size:12px;
+      background: var(--pill); border:1px solid var(--pill-b); color: var(--accent)}
+    .toolbar{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center }
+    .chip{
+      display:inline-flex; gap:6px; align-items:center; padding:4px 10px; border-radius:999px;
+      background:var(--pill); border:1px solid var(--pill-b); font-size:12px; cursor:pointer; user-select:none
+    }
+    .chip[data-on="false"]{ opacity:.35 }
+    .chip .dot{ width:8px; height:8px; border-radius:999px }
+    .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
+    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
+    .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
+    .dot.error{background:var(--err)} .dot.done{background:var(--done)}
+    .dot.client{background:#aaa}
+    .right{ margin-left:auto; display:flex; gap:8px; align-items:center }
+    .button{ padding:4px 10px; border-radius:8px; border:1px solid var(--pill-b); background:var(--pill); cursor:pointer }
+    .button:hover{ border-color:#335b47 }
+    .input{ padding:5px 9px; border-radius:8px; border:1px solid var(--pill-b); background:#08110d; color:var(--fg); min-width:220px }
+    .legend{ margin-top:6px; font-size:12px; color:var(--muted) }
+
+    .banner{ position:sticky; top:64px; background:#211a0b; color:#ffdd99; border-bottom:1px solid #3a2d12; padding:6px 12px; display:none }
+    .container{ padding:12px 12px 20px }
+    .row{
+      display:grid; grid-template-columns:108px 160px 1fr; gap:12px; align-items:start;
+      padding:8px 0; border-bottom:1px dashed #1b2a23
+    }
+    .time{ color:#9ab0a2; font-variant-numeric:tabular-nums }
+    .type{ display:inline-flex; align-items:center; gap:8px }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; background:var(--pill); border:1px solid var(--pill-b); font-size:12px }
+    .msg{ white-space:pre-wrap; color:#e5efe7 }
+    .badge-AUTORUN{ color:#07110d; background:var(--warn); border-color:#f0d9a4 }
+    .badge-MANUAL{ color:#d7ebff; background:#1a2531; border-color:#32465b }
+    .level-info{ color:var(--info) } .level-start{ color:var(--warn); font-weight:600 }
+    .level-lead{ color:var(--lead) } .level-numbers{ color:var(--ok) }
+    .level-badge{ color:var(--badge) } .level-sheet{ color:var(--sheet) }
+    .level-error{ color:var(--err); font-weight:600 } .level-done{ color:var(--done); font-weight:600 }
+    .stickyNew{ position:sticky; bottom:12px; display:none; justify-content:center }
+    .stickyNew .button{ background:#11261b; border-color:#2b6b49 }
+    .muted{ color:#7f9789 }
+>>>>>>> Stashed changes
   </style>
 </head>
 <body>
   <header>
+<<<<<<< Updated upstream
     <div class="top">
       <div class="patch" aria-hidden="true"></div>
       <div class="brand">OP: PLANET INTAKE</div>
@@ -117,6 +200,9 @@
       <div class="conn"><span id="connLed" class="led warn" aria-label="connection status"></span> link</div>
     </div>
 
+=======
+    <div class="brand">Planet Intake — Live <span class="tag">COMMAND CENTER</span></div>
+>>>>>>> Stashed changes
     <div class="toolbar" id="toolbar">
       <!-- filter chips (IDs and data-keys preserved) -->
       <div class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</div>
@@ -136,7 +222,11 @@
         <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
       </div>
     </div>
+<<<<<<< Updated upstream
     <div class="legend">Elapsed times are relative to first <span class="level-start">start</span>. “Autorun/Manual” inferred client-side.</div>
+=======
+    <div class="legend">Elapsed = since first <span class="level-start">start</span>. “Autorun” vs “Manual” is inferred client-side.</div>
+>>>>>>> Stashed changes
   </header>
 
   <div class="banner" id="banner">Link degraded — attempting reconnection…</div>
@@ -149,6 +239,7 @@
   </div>
 
   <script>
+    /* === Unchanged logic; HUD styling only === */
     const logEl = document.getElementById('log');
     const toolbar = document.getElementById('toolbar');
     const banner = document.getElementById('banner');
@@ -157,7 +248,6 @@
     const autoScrollChip = document.getElementById('autoScroll');
     const connLed = document.getElementById('connLed');
 
-    // --- filter state -------------------------------------------------------
     const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
@@ -179,23 +269,21 @@
     };
     inputQ.addEventListener('input', ()=> refilter());
 
-    // --- elapsed time baseline ---------------------------------------------
-    let t0 = null; // set on first 'start' event; fallback to first event if needed
+    let t0 = null;
     const now = () => performance.now();
     const fmtHMS = (ms) => {
       const s = Math.max(0, Math.floor(ms/1000));
-      const h = Math.floor(s/3600);
-      const m = Math.floor((s%3600)/60);
-      const ss = s%60;
-      const pad = (n)=> String(n).padStart(2,'0');
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+      const pad = (n)=> String(n).padStart(2,'0'); return `${pad(h)}:${pad(m)}:${pad(ss)}`;
     };
     function elapsed(){ return t0 ? fmtHMS(now()-t0) : '00:00:00'; }
 
+<<<<<<< Updated upstream
     // --- rendering ----------------------------------------------------------
+=======
+>>>>>>> Stashed changes
     function addRow(level, msg, meta = {}) {
       if (!filters.get(level)) return;
-
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
@@ -206,15 +294,19 @@
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       const badge = document.createElement('span'); badge.className = 'pill muted';
 
-      // infer job badge
       const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
                      (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
       if (level === 'start' || source) {
         badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
         badge.classList.add(source ? `badge-${source}` : 'badge-MANUAL');
+<<<<<<< Updated upstream
       } else {
         badge.style.display = 'none';
       }
+=======
+      } else badge.style.display='none';
+
+>>>>>>> Stashed changes
       ty.append(lvl, badge);
 
       const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
@@ -222,40 +314,33 @@
       row.append(t, ty, m);
       logEl.appendChild(row);
 
-      if (autoScrollChip.dataset.on === 'true') {
-        row.scrollIntoView({behavior:'smooth', block:'end'});
-        stickyNew.style.display = 'none';
-      } else {
-        maybeShowNew();
-      }
+      if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); stickyNew.style.display='none'; }
+      else { maybeShowNew(); }
     }
 
     function maybeShowNew(){
       const atBottom = Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 4;
       stickyNew.style.display = (autoScrollChip.dataset.on === 'false' && !atBottom) ? 'flex' : 'none';
     }
-    function scrollToEnd(force=false){
-      logEl.scrollTop = logEl.scrollHeight;
-      if (force) stickyNew.style.display = 'none';
-    }
+    function scrollToEnd(force=false){ logEl.scrollTop = logEl.scrollHeight; if (force) stickyNew.style.display='none'; }
     logEl.addEventListener('scroll', ()=> maybeShowNew());
 
     function refilter(){
       [...logEl.children].forEach(row=>{
-        const level = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
         const text = row.innerText.toLowerCase();
         const q = inputQ.value.trim().toLowerCase();
-        const typeText = level ? level.textContent : 'info';
+        const levelNode = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
+        const typeText = levelNode ? levelNode.textContent : 'info';
         const showType = filters.get(typeText);
         const showText = !q || text.includes(q);
         row.style.display = (showType && showText) ? '' : 'none';
       });
     }
 
-    // --- SSE setup ----------------------------------------------------------
     function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
 
     const es = new EventSource('/events');
+<<<<<<< Updated upstream
     es.addEventListener('open', () => {
       showBanner(false);
       connLed.className = 'led ok';
@@ -266,16 +351,20 @@
       connLed.className = 'led err';
       addRow('error', 'stream: error (trying to reconnect…)');
     });
+=======
+    es.addEventListener('open', () => { showBanner(false); addRow('info', 'stream: connected'); });
+    es.addEventListener('error', () => { showBanner(true);  addRow('error', 'stream: error (trying to reconnect…)'); });
+>>>>>>> Stashed changes
 
     const handlers = {
-      info:  (d)=> addRow('info', d.msg || ''),
-      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-      lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
+      info:(d)=> addRow('info', d.msg || ''),
+      start:(d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      lead:(d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
       numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-      badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet: (d)=> addRow('sheet', d.url || d.msg || ''),
-      error: (d)=> addRow('error', d.msg || ''),
-      done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
+      badge:(d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
+      sheet:(d)=> addRow('sheet', d.url || d.msg || ''),
+      error:(d)=> addRow('error', d.msg || ''),
+      done:(d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
       client:(d)=> addRow('client', d.msg || '')
     };
 
@@ -286,9 +375,13 @@
           if (!t0 && type !== 'info') t0 = now();
           (handlers[type] || handlers.info)(data);
         }catch(err){
+<<<<<<< Updated upstream
           connLed.className = 'led err';
           addRow('error', 'parse error');
           console.error(err, e.data);
+=======
+          addRow('error', 'parse error'); console.error(err, e.data);
+>>>>>>> Stashed changes
         }
       });
     });
