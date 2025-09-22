@@ -27,3 +27,8 @@ MAX_LEADS_DEFAULT: 200
 ## Notes
 - e2e timeout increased; test waits up to 600s.
 - Restored Codespace; env points to this Web App URL.
+
+### 2025-09-18
+- Web App URL: https://script.google.com/macros/s/XXXXX/exec
+- Deployment ID: XXXXXX
+- Notes: No server changes needed; paginator fix was Node-side only.
