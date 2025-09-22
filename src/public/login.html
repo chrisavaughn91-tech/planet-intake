@@ -2,77 +2,184 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Lead Pull — Sign in to Start Scrape</title>
+  <title>Planet Lead Pull — Mission Login</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --bg:#0d0f14; --card:#151a22; --muted:#8b98a5; --text:#e7eef7; --chip:#2b3544; --good:#7dffa0; --bad:#ff7d7d; }
-    * { box-sizing:border-box; }
-    html, body { height:100%; }
-    body {
-      margin:0; padding:24px;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial;
-      background: linear-gradient(180deg, #0b0e13, #0d1118 40%, #0d0f14);
-      color:var(--text); display:grid; place-items:center;
+    :root{
+      /* Command Center palette */
+      --bg0:#0a0f0a;       /* deep ops room */
+      --bg1:#0d140e;       /* panel base */
+      --panel:#121a13;     /* console card */
+      --steel:#2e3a31;     /* borders */
+      --muted:#9aa69f;     /* secondary text */
+      --text:#e7f3ea;      /* primary text */
+      --radar:#8fffa0;     /* primary accent (OK) */
+      --amber:#ffd27a;     /* warning / action */
+      --red:#ff7b7b;       /* error */
+      --blue:#86b7ff;      /* info */
+      --chip:#19241b;      /* chip/bg */
+      --chip-b:#2a3a2d;
+
+      --radius:14px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial;
     }
-    .card { width:100%; max-width:560px; background:var(--card); border:1px solid var(--chip); border-radius:14px; padding:22px; box-shadow:0 20px 50px rgba(0,0,0,.35); }
-    h1 { font-size:20px; margin:0 0 8px; }
-    p { margin:0 0 18px; color:var(--muted); }
-    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
-    input, select { width:100%; padding:10px 12px; background:#121821; border:1px solid var(--chip); border-radius:10px; color:var(--text); font-size:14px; }
-    .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-    .actions { display:flex; gap:10px; align-items:center; margin-top:16px; }
-    button { padding:10px 14px; border-radius:10px; border:1px solid var(--chip); background:#0f141d; color:var(--text); cursor:pointer; font-size:14px; }
-    .note { font-size:12px; color:var(--muted); }
-    .ok { color:var(--good); } .err { color:var(--bad); }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; padding:28px;
+      font-family:var(--sans);
+      color:var(--text);
+      background:
+        /* scanlines */
+        linear-gradient(180deg, rgba(255,255,255,.03) 1px, transparent 1px) 0 0/100% 3px,
+        /* grid */
+        repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.025) 23px),
+        radial-gradient(1200px 700px at 20% 0%, rgba(143,255,160,.06), transparent 60%),
+        radial-gradient(900px 600px at 80% 100%, rgba(134,183,255,.05), transparent 60%),
+        var(--bg0);
+      display:grid; place-items:center;
+    }
+
+    .frame{
+      width:100%; max-width:620px;
+      background:var(--panel);
+      border:1px solid var(--steel);
+      border-radius:var(--radius);
+      box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.02);
+      padding:22px;
+      position:relative;
+      overflow:hidden;
+    }
+    /* subtle sweeping scan */
+    .frame::after{
+      content:"";
+      position:absolute; inset:-40% -60%;
+      background:conic-gradient(from 180deg at 50% 50%, rgba(143,255,160,.07), transparent 35%, transparent);
+      filter:blur(18px);
+      mix-blend-mode:screen;
+      animation:sweep 12s linear infinite;
+      pointer-events:none;
+    }
+    @keyframes sweep { to { transform: rotate(360deg); } }
+
+    .hdr{
+      display:flex; align-items:center; gap:10px; margin-bottom:10px;
+    }
+    .patch{
+      width:14px; height:14px; border-radius:3px;
+      background:linear-gradient(135deg, #1d2a20, #253627);
+      border:1px solid #2b3b2e;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
+    }
+    .ttl{ font-weight:700; letter-spacing:.6px; font-size:18px; }
+    .sub{ color:var(--muted); font-size:12px; margin-top:2px; }
+
+    .section{
+      background:#0e150f;
+      border:1px solid var(--steel);
+      border-radius:12px;
+      padding:14px;
+      margin-top:12px;
+    }
+    .section h2{
+      margin:0 0 10px; font-size:12px; letter-spacing:.1em; text-transform:uppercase;
+      color:var(--amber); font-family:var(--mono);
+    }
+
+    label{ display:block; font-size:12px; color:var(--muted); margin:8px 0 6px; }
+    input, select{
+      width:100%; padding:10px 12px; font-size:14px; color:var(--text);
+      background:#0b120c; border:1px solid var(--chip-b); border-radius:10px;
+      outline:none;
+    }
+    input:focus, select:focus{ border-color:#3d5b45; box-shadow:0 0 0 2px rgba(143,255,160,.15); }
+
+    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+    .actions{ display:flex; align-items:center; gap:12px; margin-top:14px; }
+    button{
+      padding:10px 16px; border-radius:10px; border:1px solid #2f4233;
+      background:linear-gradient(#142016, #0c160f);
+      color:var(--text); cursor:pointer; font-size:14px; font-weight:600; letter-spacing:.3px;
+    }
+    button:hover{ border-color:#3d5a44; }
+
+    .led{
+      width:10px; height:10px; border-radius:50%;
+      box-shadow:0 0 0 2px #203225, 0 0 12px rgba(143,255,160,.0);
+      background:#2a3a2e; display:inline-block;
+    }
+    .led.ok{ background:var(--radar); box-shadow:0 0 0 2px #203225, 0 0 16px rgba(143,255,160,.65); }
+    .led.busy{ background:var(--amber); box-shadow:0 0 0 2px #3b2f12, 0 0 14px rgba(255,210,122,.55); }
+    .led.err{ background:var(--red); box-shadow:0 0 0 2px #3a1e1e, 0 0 14px rgba(255,123,123,.55); }
+
+    .note{ font-size:12px; color:var(--muted); }
+    .ok{ color:var(--radar); } .err{ color:var(--red); }
+
+    code{ font-family:var(--mono); padding:2px 6px; background:#101810; border:1px solid #273627; border-radius:6px; }
   </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Planet Lead Pull — Start a Scrape</h1>
-    <p>Enter your credentials for this run. You’ll get a private live stream and your own sheet.</p>
-
-    <form id="f">
-      <label>Username</label>
-      <input id="u" autocomplete="username" required />
-
-      <label style="margin-top:12px;">Password</label>
-      <input id="p" type="password" autocomplete="current-password" required />
-
-      <label style="margin-top:12px;">Report email (where the sheet is shared)</label>
-      <input id="e" type="email" autocomplete="email" required />
-
-      <div class="row" style="margin-top:12px;">
-        <div>
-          <label>Max leads (optional)</label>
-          <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
-        </div>
-        <div>
-          <label>Start immediately</label>
-          <select id="s">
-            <option value="true" selected>Yes</option>
-            <option value="false">No (just open live)</option>
-          </select>
-        </div>
+  <main class="frame">
+    <div class="hdr">
+      <div class="patch" aria-hidden="true"></div>
+      <div>
+        <div class="ttl">OP: PLANET LEAD PULL</div>
+        <div class="sub">Mission Login • Restricted Access</div>
       </div>
+    </div>
 
-      <div class="actions">
-        <button type="submit">Start Run</button>
-        <span id="status" class="note"></span>
-      </div>
-    </form>
+    <div class="section">
+      <h2>Credentials</h2>
+      <form id="f">
+        <label for="u">Username</label>
+        <input id="u" autocomplete="username" required />
 
-    <div class="note" style="margin-top:10px;">
-      After submit, you’ll be redirected to your private <code>/live?job=…</code>.
+        <label for="p">Password</label>
+        <input id="p" type="password" autocomplete="current-password" required />
+
+        <label for="e">Report email (share target)</label>
+        <input id="e" type="email" autocomplete="email" required />
+
+        <div class="row">
+          <div>
+            <label for="m">Max leads (optional)</label>
+            <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
+          </div>
+          <div>
+            <label for="s">Start immediately</label>
+            <select id="s">
+              <option value="true" selected>Yes</option>
+              <option value="false">No (open live only)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Execute</button>
+          <span id="status" class="note"></span>
+          <span id="led" class="led" title="job status indicator" aria-label="status indicator"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="section" style="margin-top:12px;">
+      <h2>Mission Brief</h2>
+      <div class="note">After submit, you’ll be redirected to your private <code>/live?job=…</code> feed.</div>
     </div>
   </main>
 
   <script>
     const $ = s => document.querySelector(s);
     const status = $('#status');
+    const led = $('#led');
 
     $('#f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       status.textContent = 'Creating job…';
+      led.className = 'led busy';
       try {
         const payload = {
           username: $('#u').value.trim(),
@@ -82,7 +189,6 @@
           autoStart: $('#s').value === 'true'
         };
 
-        // Create a per-run job and get its private live URL (with token)
         const res = await fetch('/session', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
@@ -93,10 +199,12 @@
         const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(data.jobId)}`;
 
         status.innerHTML = '<span class="ok">Job created.</span> Opening live…';
+        led.className = 'led ok';
         setTimeout(() => location.href = liveUrl, 350);
       } catch (err) {
         console.error(err);
         status.innerHTML = `<span class="err">Error:</span> ${err.message || err}`;
+        led.className = 'led err';
       }
     });
   </script>
