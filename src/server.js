@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import { emit, onClientConnect, removeClient } from "./events.js";
 import { createSheetAndShare } from "./sheets.js";
 
+// Lazy-load scraper when first needed
 async function getScrapePlanet() {
   const mod = await import("./scraper.js");
   if (!mod?.scrapePlanet) throw new Error("scraper module missing export: scrapePlanet");
@@ -14,25 +15,27 @@ async function getScrapePlanet() {
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const app = express();
+
+// Accept both JSON and HTML-form posts
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* =========================
    Static + pages
    ========================= */
-app.use(express.static(PUBLIC_DIR));             // <— serve /public at /
-app.use("/static", express.static(PUBLIC_DIR));  // <— also available at /static
 
-app.get("/login", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "login.html"));
-});
+// serve /public at / and also /static
+app.use(express.static(PUBLIC_DIR));
+app.use("/static", express.static(PUBLIC_DIR));
 
-app.get("/live", (_req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "live.html"));
-});
+// explicit page routes (so /login and /live always work)
+const send = (name) => (_req, res) => res.sendFile(path.join(PUBLIC_DIR, name));
+app.get("/login", send("login.html"));
+app.get("/live",  send("live.html"));
 
 app.get("/", (_req, res) => res.redirect("/live"));
 
@@ -47,16 +50,21 @@ app.get("/events", (req, res) => {
   };
   res.writeHead(200, headers);
 
+  // accept ?jobId=... (preferred) or ?job=... (fallback)
   const jobId = (req.query.jobId ?? req.query.job ?? null) || null;
   const clientId = onClientConnect(res, jobId);
+
   emit("info", { msg: "client: connected", clientId, jobId });
+
   req.on("close", () => removeClient(clientId));
 });
 
 /* =========================
    Health + status
    ========================= */
-app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
 app.get("/status", (_req, res) => {
   res.json({ ok: true, clients: global.__SSE_CLIENTS ? global.__SSE_CLIENTS.length : 0 });
 });
@@ -76,11 +84,17 @@ function pickCreds(body) {
     max:      body?.max != null ? Number(body.max) : undefined,
   };
 }
-
+function parseAuto(v) {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "on";
+}
 function mkJobId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/* =========================
+   Run + Sheets
+   ========================= */
 async function runScrapeAndSheet({ username, password, email, max, jobId }) {
   const scrapePlanet = await getScrapePlanet();
 
@@ -90,12 +104,15 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
     return;
   }
 
+  // Google Sheets step
   try {
     let sheet;
     let sig = "object:{email,result}";
     try {
+      // preferred signature
       sheet = await createSheetAndShare({ email, result });
     } catch (_e1) {
+      // fallback for older sheets.js
       sig = "fallback:(leads,email)";
       sheet = await createSheetAndShare(result.leads, email);
     }
@@ -120,11 +137,8 @@ async function runScrapeAndSheet({ username, password, email, max, jobId }) {
    ========================= */
 app.post("/session", async (req, res) => {
   try {
-    const { username, password, email, max, autoStart } = {
-      ...pickCreds(req.body || {}),
-      autoStart: req.body?.autoStart === true || req.body?.autoStart === "true",
-    };
-
+    const { username, password, email, max } = pickCreds(req.body || {});
+    const autoStart = parseAuto(req.body?.autoStart);
     const jobId = mkJobId();
     const liveUrl = `/live?job=${encodeURIComponent(jobId)}`;
 

@@ -2,67 +2,138 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Intake — Live Stream</title>
+  <title>Planet Intake — Command Center (Live)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <style>
+    /* ======= Command Center HUD ======= */
     :root{
-      --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8; --border:#222;
+      --bg0:#0a0f0a; --bg1:#0f1610; --panel:#111911; --border:#2c3a2f;
+      --text:#e8f3ea; --muted:#9aa69f; --steel:#2e3a31;
+      --radar:#8fffa0; --amber:#ffd27a; --err:#ff7b7b; --info:#86b7ff;
+      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
+      --chip:#162116; --chip-b:#263a28;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial;
+      --radius: 12px;
+      --bg:#0b0b0c; --fg:#eaeaea;
       --pill:#1e1f27; --pill-b:#2a2c38;
-      --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
-      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9; --accent:#6aa8ff;
+      --ok:#9be7a5; --warn:#ffd27a; --sheet:#9ff2ff;
+      --accent:#6aa8ff;
     }
+
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-    header{position:sticky;top:0;background:rgba(11,11,12,.9);backdrop-filter:blur(6px);
-      border-bottom:1px solid var(--border);padding:10px 12px;z-index:10}
-    .brand{font-weight:700;letter-spacing:.3px}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
-    .chip{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:999px;
-      background:var(--pill);border:1px solid var(--pill-b);font-size:12px;cursor:pointer;user-select:none}
-    .chip[data-on="false"]{opacity:.35}
-    .chip .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
-    .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
-    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
+    html,body{margin:0;padding:0;height:100%;background:var(--bg0);color:var(--text);font-family:var(--sans);}
+
+    /* Ops-room background */
+    body::before{
+      content:"";
+      position:fixed; inset:0;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.03) 1px, transparent 1px) 0 0/100% 3px,
+        repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.025) 23px),
+        radial-gradient(1200px 700px at 15% 10%, rgba(143,255,160,.06), transparent 60%),
+        radial-gradient(900px 600px at 85% 90%, rgba(134,183,255,.05), transparent 60%),
+        var(--bg0);
+      pointer-events:none;
+    }
+
+    header{
+      position:sticky; top:0; z-index:20;
+      background:rgba(15,22,16,.92); backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--border);
+      padding:10px 12px;
+      box-shadow:0 6px 14px rgba(0,0,0,.25);
+    }
+    .top{ display:flex; align-items:center; gap:10px; }
+    .patch{ width:14px;height:14px;border-radius:3px;background:linear-gradient(135deg,#1d2a20,#253627);border:1px solid #2b3b2e; }
+    .brand{ font-weight:800; letter-spacing:.6px; }
+    .ops{ font-family:var(--mono); font-size:12px; color:var(--muted); }
+    .spacer{ flex:1; }
+    .conn{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+    .led{ width:10px;height:10px;border-radius:50%; background:#2a3a2e; box-shadow:0 0 0 2px #203225; }
+    .led.ok{ background:var(--radar); box-shadow:0 0 0 2px #203225, 0 0 14px rgba(143,255,160,.6); }
+    .led.warn{ background:var(--amber); box-shadow:0 0 0 2px #3b2f12, 0 0 12px rgba(255,210,122,.5); }
+    .led.err{ background:var(--err); box-shadow:0 0 0 2px #3a1e1e, 0 0 12px rgba(255,123,123,.5); }
+
+    .toolbar{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center }
+    .chip{
+      display:inline-flex; gap:6px; align-items:center; padding:5px 10px; border-radius:8px;
+      background:var(--chip); border:1px solid var(--chip-b); font-size:12px; cursor:pointer; user-select:none;
+      text-transform:uppercase; letter-spacing:.04em; font-family:var(--mono);
+    }
+    .chip[data-on="false"]{ opacity:.35; filter:saturate(.6); }
+    .chip .dot{ width:8px;height:8px;border-radius:999px;display:inline-block }
+    .dot.info{background:var(--info)} .dot.start{background:var(--amber)}
+    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--radar)}
     .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
-    .dot.error{background:var(--err)} .dot.done{background:var(--done)} .dot.client{background:#aaa}
-    .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-    .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
-    .button:hover{border-color:#3a3c48}
-    .input{padding:5px 9px;border-radius:8px;border:1px solid var(--pill-b);background:#0e0f13;color:var(--fg);min-width:220px}
-    .legend{margin-top:6px;font-size:12px;color:var(--muted)}
-    .banner{position:sticky;top:64px;background:#201b0b;color:#ffdd99;border-bottom:1px solid #3a2d12;padding:6px 12px;display:none}
-    .container{padding:12px 12px 20px}
-    .row{display:grid;grid-template-columns:100px 120px 1fr;gap:10px;align-items:start;
-      padding:7px 0;border-bottom:1px dashed #232323}
-    .time{color:#bbb;font-variant-numeric:tabular-nums}
-    .type{display:inline-flex;align-items:center;gap:6px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px}
-    .msg{white-space:pre-wrap;color:#e5e7eb}
-    .badge-AUTORUN{color:#222;background:#ffd27a;border-color:#ffde9b}
-    .badge-MANUAL{color:#d7ebff;background:#243247;border-color:#3d4f6b}
-    .level-info{color:var(--info)} .level-start{color:var(--warn);font-weight:600}
-    .level-lead{color:var(--lead)} .level-numbers{color:var(--ok)}
-    .level-badge{color:var(--badge)} .level-sheet{color:var(--sheet)}
-    .level-error{color:var(--err);font-weight:600} .level-done{color:var(--done);font-weight:600}
-    .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
-    .stickyNew .button{background:#122845;border-color:#204a86}
-    .muted{color:#909090}
+    .dot.error{background:var(--err)} .dot.done{background:var(--done)}
+    .dot.client{background:#aaa}
+
+    .right{ margin-left:auto; display:flex; gap:8px; align-items:center }
+    .button{ padding:6px 12px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; }
+    .button:hover{ border-color:#3d5a44 }
+    .input{
+      padding:8px 10px; border-radius:8px; border:1px solid var(--chip-b); background:#0e150f; color:var(--text); min-width:260px;
+      font-family:var(--mono);
+    }
+    .legend{ margin-top:6px; font-size:12px; color:var(--muted); }
+
+    .banner{ position:sticky; top:64px; background:#2b220f; color:#ffdd99; border-bottom:1px solid #3a2d12; padding:6px 12px; display:none }
+
+    .wrap{ padding:12px 12px 20px }
+    .panel{
+      border:1px solid var(--steel);
+      border-radius:var(--radius);
+      background:linear-gradient(180deg, #0d140e, #0a120c);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.03);
+      padding:8px 12px;
+    }
+    .container{ }
+    .row{
+      display:grid; grid-template-columns:110px 140px 1fr; gap:10px; align-items:start;
+      padding:7px 0; border-bottom:1px dashed #263427;
+    }
+    .row:last-child{ border-bottom:none; }
+    .time{ color:#b7c1bb; font-variant-numeric:tabular-nums; font-family:var(--mono); }
+    .type{ display:flex; align-items:center; gap:8px; font-family:var(--mono); text-transform:uppercase; }
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; background:var(--chip); border:1px solid var(--chip-b); font-size:11px; color:var(--muted); }
+    .msg{ white-space:pre-wrap; color:#e5e7eb }
+
+    .badge-AUTORUN{ color:#202; background:#ffd27a; border-color:#ffde9b; }
+    .badge-MANUAL{ color:#d7ebff; background:#243247; border-color:#3d4f6b; }
+    .level-info{ color:var(--info) } .level-start{ color:var(--amber); font-weight:600 }
+    .level-lead{ color:var(--lead) } .level-numbers{ color:var(--radar) }
+    .level-badge{ color:var(--badge) } .level-sheet{ color:var(--sheet) }
+    .level-error{ color:var(--err); font-weight:600 } .level-done{ color:var(--done); font-weight:600 }
+
+    .stickyNew{ position:sticky; bottom:12px; display:none; justify-content:center }
+    .stickyNew .button{ background:#122845; border-color:#204a86 }
+
+    .muted{ color:#909090 }
   </style>
 </head>
 <body>
   <header>
-    <div class="brand">Planet Intake — Live</div>
+    <div class="top">
+      <div class="patch" aria-hidden="true"></div>
+      <div class="brand">OP: PLANET INTAKE</div>
+      <div class="ops">Sector: Live Feed</div>
+      <div class="spacer"></div>
+      <div class="conn"><span id="connLed" class="led warn" aria-label="connection status"></span> link</div>
+    </div>
+
     <div class="toolbar" id="toolbar">
-      <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
-      <div class="chip" data-key="start" data-on="true"><span class="dot start"></span>start</div>
-      <div class="chip" data-key="lead" data-on="true"><span class="dot lead"></span>lead</div>
+      <div class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</div>
+      <div class="chip" data-key="start"   data-on="true"><span class="dot start"></span>start</div>
+      <div class="chip" data-key="lead"    data-on="true"><span class="dot lead"></span>lead</div>
       <div class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</div>
-      <div class="chip" data-key="badge" data-on="true"><span class="dot badge"></span>badge</div>
-      <div class="chip" data-key="sheet" data-on="true"><span class="dot sheet"></span>sheet</div>
-      <div class="chip" data-key="error" data-on="true"><span class="dot error"></span>error</div>
-      <div class="chip" data-key="done" data-on="true"><span class="dot done"></span>done</div>
-      <div class="chip" data-key="client" data-on="false"><span class="dot client"></span>client</div>
+      <div class="chip" data-key="badge"   data-on="true"><span class="dot badge"></span>badge</div>
+      <div class="chip" data-key="sheet"   data-on="true"><span class="dot sheet"></span>sheet</div>
+      <div class="chip" data-key="error"   data-on="true"><span class="dot error"></span>error</div>
+      <div class="chip" data-key="done"    data-on="true"><span class="dot done"></span>done</div>
+      <div class="chip" data-key="client"  data-on="false"><span class="dot client"></span>client</div>
+
       <div class="right">
         <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
         <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
@@ -70,25 +141,34 @@
         <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
       </div>
     </div>
-    <div class="legend">Timestamps show elapsed time since run start (first <span class="level-start">start</span> event). “Autorun” vs “Manual” is inferred client-side.</div>
+
+    <div class="legend">Elapsed = since first <span class="level-start">start</span>. “Autorun” vs “Manual” is inferred client-side.</div>
   </header>
 
-  <div class="banner" id="banner">Reconnecting…</div>
-  <div class="container" id="log"></div>
-  <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
+  <div class="banner" id="banner">Link degraded — attempting reconnection…</div>
+
+  <div class="wrap">
+    <div class="panel">
+      <div class="container" id="log"></div>
+      <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
+    </div>
+  </div>
 
   <script>
+    // UI refs
     const logEl = document.getElementById('log');
     const toolbar = document.getElementById('toolbar');
     const banner = document.getElementById('banner');
     const stickyNew = document.getElementById('stickyNew');
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
+    const connLed = document.getElementById('connLed');
 
-    // --- helpers ------------------------------------------------------------
+    // helpers
     const params = new URLSearchParams(location.search);
     const jobId = params.get('job') || null;
 
+    // filter chips state
     const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
@@ -110,22 +190,19 @@
     };
     inputQ.addEventListener('input', ()=> refilter());
 
-    // --- elapsed time baseline ---------------------------------------------
+    // elapsed baseline
     let t0 = null;
     const now = () => performance.now();
     const fmtHMS = (ms) => {
       const s = Math.max(0, Math.floor(ms/1000));
-      const h = Math.floor(s/3600);
-      const m = Math.floor((s%3600)/60);
-      const ss = s%60;
-      const pad = (n)=> String(n).padStart(2,'0');
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+      const pad = (n)=> String(n).padStart(2,'0'); return `${pad(h)}:${pad(m)}:${pad(ss)}`;
     };
     function elapsed() { return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
 
+    // render
     function addRow(level, msg, meta = {}) {
       if (!filters.get(level)) return;
-
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
@@ -144,7 +221,6 @@
       } else {
         badge.style.display = 'none';
       }
-
       ty.append(lvl, badge);
 
       const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
@@ -152,55 +228,54 @@
       row.append(t, ty, m);
       logEl.appendChild(row);
 
-      if (autoScrollChip.dataset.on === 'true') {
-        row.scrollIntoView({behavior:'smooth', block:'end'});
-        stickyNew.style.display = 'none';
-      } else {
-        maybeShowNew();
-      }
+      if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); stickyNew.style.display='none'; }
+      else { maybeShowNew(); }
     }
 
     function maybeShowNew(){
       const atBottom = Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 4;
       stickyNew.style.display = (autoScrollChip.dataset.on === 'false' && !atBottom) ? 'flex' : 'none';
     }
-    function scrollToEnd(force=false){
-      logEl.scrollTop = logEl.scrollHeight;
-      if (force) stickyNew.style.display = 'none';
-    }
+    function scrollToEnd(force=false){ logEl.scrollTop = logEl.scrollHeight; if (force) stickyNew.style.display='none'; }
     logEl.addEventListener('scroll', ()=> maybeShowNew());
 
     function refilter(){
       [...logEl.children].forEach(row=>{
         const text = row.innerText.toLowerCase();
         const q = inputQ.value.trim().toLowerCase();
+        const levelNode = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
+        const typeText = levelNode ? levelNode.textContent : 'info';
+        const showType = filters.get(typeText);
         const showText = !q || text.includes(q);
-        row.style.display = showText ? '' : 'none';
+        row.style.display = (showType && showText) ? '' : 'none';
       });
     }
 
-    // --- SSE setup (JOB-SCOPED) --------------------------------------------
+    // SSE
     function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
-
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
+
     es.addEventListener('open', () => {
       showBanner(false);
+      if (connLed) connLed.className = 'led ok';
       addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
     });
+
     es.addEventListener('error', () => {
       showBanner(true);
+      if (connLed) connLed.className = 'led err';
       addRow('error', 'stream: error (trying to reconnect…)');
     });
 
     const handlers = {
-      info:  (d)=> addRow('info', d.msg || ''),
-      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-      lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
+      info:(d)=> addRow('info', d.msg || ''),
+      start:(d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      lead:(d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
       numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-      badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet: (d)=> addRow('sheet', d.url || d.msg || ''),
-      error: (d)=> addRow('error', d.msg || ''),
-      done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
+      badge:(d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
+      sheet:(d)=> addRow('sheet', d.url || d.msg || ''),
+      error:(d)=> addRow('error', d.msg || ''),
+      done:(d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
       client:(d)=> addRow('client', d.msg || '')
     };
 
@@ -210,7 +285,10 @@
           const data = JSON.parse(e.data || '{}');
           if (!t0 && type !== 'info') t0 = now();
           (handlers[type] || handlers.info)(data);
-        }catch{ /* ignore */ }
+        }catch(err){
+          addRow('error', 'parse error');
+          console.error(err, e?.data);
+        }
       });
     });
   </script>
