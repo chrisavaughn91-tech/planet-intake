@@ -2,327 +2,175 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Lead Pull — Mission Login</title>
+  <title>Planet Intake — Command Center (Login)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-<<<<<<< Updated upstream
+    /* ======= Command Center HUD ======= */
     :root{
-      /* Command Center palette */
-      --bg0:#0a0f0a;       /* deep ops room */
-      --bg1:#0d140e;       /* panel base */
-      --panel:#121a13;     /* console card */
-      --steel:#2e3a31;     /* borders */
-      --muted:#9aa69f;     /* secondary text */
-      --text:#e7f3ea;      /* primary text */
-      --radar:#8fffa0;     /* primary accent (OK) */
-      --amber:#ffd27a;     /* warning / action */
-      --red:#ff7b7b;       /* error */
-      --blue:#86b7ff;      /* info */
-      --chip:#19241b;      /* chip/bg */
-      --chip-b:#2a3a2d;
-
-      --radius:14px;
+      --bg:#050807; --fg:#e8f3ec; --muted:#90a99a; --border:#1a2a22;
+      --pill:#0f1914; --pill-b:#22382c;
+      --ok:#b7ff62; --warn:#f3c76b; --err:#ff8b8b; --info:#8fbaff; --sheet:#9ff2ff;
+      --lead:#c8ff86; --badge:#f6b4ff; --done:#8ef0c9; --accent:#b7ff62;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial;
-    }
-
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; padding:28px;
-      font-family:var(--sans);
-      color:var(--text);
-      background:
-        /* scanlines */
-        linear-gradient(180deg, rgba(255,255,255,.03) 1px, transparent 1px) 0 0/100% 3px,
-        /* grid */
-        repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.025) 23px),
-        radial-gradient(1200px 700px at 20% 0%, rgba(143,255,160,.06), transparent 60%),
-        radial-gradient(900px 600px at 80% 100%, rgba(134,183,255,.05), transparent 60%),
-        var(--bg0);
-      display:grid; place-items:center;
-    }
-
-    .frame{
-      width:100%; max-width:620px;
-      background:var(--panel);
-      border:1px solid var(--steel);
-      border-radius:var(--radius);
-      box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.02);
-      padding:22px;
-      position:relative;
-      overflow:hidden;
-    }
-    /* subtle sweeping scan */
-    .frame::after{
-      content:"";
-      position:absolute; inset:-40% -60%;
-      background:conic-gradient(from 180deg at 50% 50%, rgba(143,255,160,.07), transparent 35%, transparent);
-      filter:blur(18px);
-      mix-blend-mode:screen;
-      animation:sweep 12s linear infinite;
-      pointer-events:none;
-    }
-    @keyframes sweep { to { transform: rotate(360deg); } }
-
-    .hdr{
-      display:flex; align-items:center; gap:10px; margin-bottom:10px;
-    }
-    .patch{
-      width:14px; height:14px; border-radius:3px;
-      background:linear-gradient(135deg, #1d2a20, #253627);
-      border:1px solid #2b3b2e;
-      box-shadow:inset 0 0 0 1px rgba(255,255,255,.04);
-    }
-    .ttl{ font-weight:700; letter-spacing:.6px; font-size:18px; }
-    .sub{ color:var(--muted); font-size:12px; margin-top:2px; }
-
-    .section{
-      background:#0e150f;
-      border:1px solid var(--steel);
-      border-radius:12px;
-      padding:14px;
-      margin-top:12px;
-    }
-    .section h2{
-      margin:0 0 10px; font-size:12px; letter-spacing:.1em; text-transform:uppercase;
-      color:var(--amber); font-family:var(--mono);
-    }
-
-    label{ display:block; font-size:12px; color:var(--muted); margin:8px 0 6px; }
-    input, select{
-      width:100%; padding:10px 12px; font-size:14px; color:var(--text);
-      background:#0b120c; border:1px solid var(--chip-b); border-radius:10px;
-      outline:none;
-    }
-    input:focus, select:focus{ border-color:#3d5b45; box-shadow:0 0 0 2px rgba(143,255,160,.15); }
-
-    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-
-    .actions{ display:flex; align-items:center; gap:12px; margin-top:14px; }
-    button{
-      padding:10px 16px; border-radius:10px; border:1px solid #2f4233;
-      background:linear-gradient(#142016, #0c160f);
-      color:var(--text); cursor:pointer; font-size:14px; font-weight:600; letter-spacing:.3px;
-    }
-    button:hover{ border-color:#3d5a44; }
-
-    .led{
-      width:10px; height:10px; border-radius:50%;
-      box-shadow:0 0 0 2px #203225, 0 0 12px rgba(143,255,160,.0);
-      background:#2a3a2e; display:inline-block;
-    }
-    .led.ok{ background:var(--radar); box-shadow:0 0 0 2px #203225, 0 0 16px rgba(143,255,160,.65); }
-    .led.busy{ background:var(--amber); box-shadow:0 0 0 2px #3b2f12, 0 0 14px rgba(255,210,122,.55); }
-    .led.err{ background:var(--red); box-shadow:0 0 0 2px #3a1e1e, 0 0 14px rgba(255,123,123,.55); }
-
-    .note{ font-size:12px; color:var(--muted); }
-    .ok{ color:var(--radar); } .err{ color:var(--red); }
-
-    code{ font-family:var(--mono); padding:2px 6px; background:#101810; border:1px solid #273627; border-radius:6px; }
-  </style>
-</head>
-<body>
-  <main class="frame">
-    <div class="hdr">
-      <div class="patch" aria-hidden="true"></div>
-      <div>
-        <div class="ttl">OP: PLANET LEAD PULL</div>
-        <div class="sub">Mission Login • Restricted Access</div>
-=======
-    /* ======= Command Center (military/HUD) ======= */
-    :root{
-      --bg:#0b0f0c;
-      --panel:#0e1511;
-      --panel-2:#0b120e;
-      --grid:#101511;
-      --scan:#0c130f;
-      --line:#1c2a21;
-      --muted:#87a38f;
-      --text:#e9f4ec;
-      --accent:#b7ff62;        /* night-vision green */
-      --amber:#f3c76b;         /* warning amber */
-      --chip:#162119;
-      --input:#0c1410;
-      --shadow:0 18px 50px rgba(0,0,0,.45), inset 0 0 0 1px #142018;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+      --radius: 12px;
     }
     *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; display:grid; place-items:center; padding:28px; color:var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, "Noto Sans";
-      background:
-        radial-gradient(1200px 800px at 15% -10%, rgba(183,255,98,.08), transparent 60%),
-        radial-gradient(1000px 900px at 110% 120%, rgba(243,199,107,.05), transparent 60%),
-        repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px),
-        linear-gradient(180deg, #0a0f0c, #0b110d 45%, #0c120f);
-      position:relative;
-      overflow:hidden;
-    }
-    /* grid overlay */
+    html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);font-family:var(--sans)}
+    /* subtle grid + scan lines + radar sweep */
     body::before{
-      content:""; pointer-events:none; position:absolute; inset:0;
+      content:""; position:fixed; inset:0; pointer-events:none;
       background:
-        linear-gradient(0deg, transparent 31px, var(--grid) 32px),
-        linear-gradient(90deg, transparent 31px, var(--grid) 32px);
-      background-size:32px 32px, 32px 32px;
-      mix-blend-mode:soft-light; opacity:.55;
+        linear-gradient(0deg, transparent 31px, rgba(26,42,34,.6) 32px),
+        linear-gradient(90deg, transparent 31px, rgba(26,42,34,.6) 32px),
+        repeating-linear-gradient(180deg, rgba(255,255,255,.035) 0 1px, transparent 1px 3px);
+      background-size:32px 32px,32px 32px, auto;
+      mix-blend-mode:soft-light; opacity:.45;
     }
-    /* slow radar sweep */
     body::after{
-      content:""; position:absolute; inset:-30%;
-      background: conic-gradient(from 0deg, rgba(183,255,98,.12), transparent 35%);
-      animation:sweep 9s linear infinite;
-      mix-blend-mode:soft-light; pointer-events:none; opacity:.23;
+      content:""; position:fixed; inset:-30%; pointer-events:none;
+      background: conic-gradient(from 0deg, rgba(183,255,98,.10), transparent 35%);
+      animation:sweep 10s linear infinite; opacity:.18; mix-blend-mode:soft-light;
     }
-    @keyframes sweep{ to { transform: rotate(360deg); } }
+    @keyframes sweep{ to{ transform:rotate(360deg);} }
+
+    header{
+      position:sticky; top:0; z-index:10;
+      background:rgba(7,11,9,.9); backdrop-filter:blur(6px);
+      border-bottom:1px solid var(--border); padding:10px 12px;
+      box-shadow:0 8px 24px rgba(0,0,0,.35);
+    }
+    .brand{ font-weight:700; letter-spacing:.3px }
+    .brand .tag{ margin-left:8px; padding:2px 8px; border-radius:999px; font-size:12px;
+      background: var(--pill); border:1px solid var(--pill-b); color: var(--accent)}
+
+    main{ max-width:920px; margin:28px auto; padding:0 12px; display:grid; gap:18px; grid-template-columns: 1fr 280px }
+    @media (max-width: 900px){ main{ grid-template-columns:1fr } }
 
     .card{
-      width:100%; max-width:620px; background:linear-gradient(180deg, var(--panel), var(--panel-2));
-      border:1px solid var(--line); border-radius:16px; padding:24px 22px 20px; box-shadow:var(--shadow);
-      position:relative; overflow:hidden;
+      background:linear-gradient(180deg, #0e1612, #0b1410);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.03), 0 8px 30px rgba(0,0,0,.35);
+      padding:14px 16px;
     }
-    .card::before{
-      content:"MISSION BRIEFING"; position:absolute; top:10px; right:12px; font-size:11px; letter-spacing:.12em;
-      color:var(--muted); opacity:.5;
-    }
-    h1{ margin:2px 0 6px; font-size:22px; letter-spacing:.2px }
-    .subtitle{ margin:0 0 16px; color:var(--muted); font-size:13px }
-    label{ display:block; font-size:12px; color:var(--muted); margin:10px 0 6px }
+    h1{margin:0 0 12px;font-size:28px;line-height:1.2}
+    h1 .bar{display:block;font-weight:700}
+    h1 .sub{display:block;font-weight:600;color:var(--muted)}
+    .subtitle{margin:6px 0 14px;color:var(--muted)}
+
+    form .row{ display:grid; grid-template-columns: 140px 1fr; gap:10px; align-items:center; padding:6px 0 }
+    form label{ color:var(--muted); font-size:13px }
     input, select{
-      width:100%; padding:11px 12px; color:var(--text); background:var(--input);
-      border:1px solid var(--line); border-radius:10px; outline:none;
+      width:100%; padding:10px 12px; border-radius:10px;
+      background:#0b1410; color:var(--fg);
+      border:1px solid var(--pill-b); outline:none;
+      font-family:var(--mono);
     }
-    input:focus, select:focus{ border-color:var(--accent); box-shadow:0 0 0 2px rgba(183,255,98,.15) inset }
-    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
-    .actions{ display:flex; align-items:center; gap:12px; margin-top:16px }
+    input:focus, select:focus{ outline:2px solid rgba(183,255,98,.25) }
+    .actions{ display:flex; align-items:center; gap:12px; margin-top:10px }
     button{
-      padding:10px 14px; border-radius:10px; border:1px solid var(--line);
-      background:linear-gradient(180deg,#111b14,#0d1712); color:var(--text); cursor:pointer;
+      padding:10px 14px; border-radius:10px; cursor:pointer;
+      border:1px solid var(--pill-b); color:var(--fg);
+      background:linear-gradient(180deg,#111b14,#101712);
+      font-weight:600;
     }
-    button:hover{ border-color:var(--accent) }
-    .pill{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:var(--chip); border:1px solid var(--line); font-size:12px }
-    .dot{ width:8px; height:8px; border-radius:999px; background:var(--accent); box-shadow:0 0 8px rgba(183,255,98,.55) }
-    .note{ font-size:12px; color:var(--muted) }
-    .ok{ color:var(--accent) } .err{ color:#ff8b8b }
+    button:hover{ border-color:#2a6b49 }
+    .dot{width:8px;height:8px;border-radius:999px;background:var(--accent)}
+    .note{ font-size:12px;color:var(--muted)}
+    .note.err{ color:#ff8b8b }
+    .aside h3{ margin:0 0 8px; font-size:14px; letter-spacing:.06em; color:var(--muted)}
+    .aside p{ margin:0 0 10px; color:var(--muted); font-size:13px }
+    .aside .list{ margin:0; padding-left:18px; color:var(--muted); font-size:13px }
+
+    .pill{ display:inline-block; padding:2px 8px; border-radius:999px; background:var(--pill); border:1px solid var(--pill-b); font-size:12px }
+    .badge-AUTORUN{ color:#07110d; background:var(--warn); border-color:#f0d9a4 }
   </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Planet Lead Pull — Start a Scrape</h1>
-    <p class="subtitle">Authenticate to begin. A private live feed and mission sheet will be created.</p>
+  <header>
+    <div class="brand">Planet Lead Pull — <span class="tag">COMMAND CENTER</span></div>
+  </header>
 
-    <form id="f" autocomplete="on">
-      <label>Username</label>
-      <input id="u" autocomplete="username" required />
+  <main>
+    <!-- Left: credentials -->
+    <section class="card">
+      <h1>
+        <span class="bar">Start a Scrape</span>
+        <span class="sub">Authenticate to begin. A private live feed and mission sheet will be created.</span>
+      </h1>
 
-      <label>Password</label>
-      <input id="p" type="password" autocomplete="current-password" required />
-
-      <label>Report email (where the sheet is shared)</label>
-      <input id="e" type="email" autocomplete="email" required />
-
-      <div class="row">
-        <div>
-          <label>Max leads (optional)</label>
-          <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
-        </div>
-        <div>
-          <label>Start immediately</label>
-          <select id="s">
-            <option value="true" selected>Yes</option>
-            <option value="false">No (just open live)</option>
-          </select>
-        </div>
->>>>>>> Stashed changes
-      </div>
-    </div>
-
-<<<<<<< Updated upstream
-    <div class="section">
-      <h2>Credentials</h2>
-      <form id="f">
-        <label for="u">Username</label>
-        <input id="u" autocomplete="username" required />
-
-        <label for="p">Password</label>
-        <input id="p" type="password" autocomplete="current-password" required />
-
-        <label for="e">Report email (share target)</label>
-        <input id="e" type="email" autocomplete="email" required />
-
+      <form id="f" autocomplete="off">
         <div class="row">
-          <div>
-            <label for="m">Max leads (optional)</label>
-            <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
-          </div>
-          <div>
-            <label for="s">Start immediately</label>
-            <select id="s">
-              <option value="true" selected>Yes</option>
-              <option value="false">No (open live only)</option>
-            </select>
-          </div>
+          <label for="username">Username</label>
+          <input id="username" name="username" required />
+        </div>
+        <div class="row">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required />
+        </div>
+        <div class="row">
+          <label for="email">Report email<br><span class="note">(where the sheet is shared)</span></label>
+          <input id="email" name="email" type="email" required />
+        </div>
+        <div class="row">
+          <label for="max">Max leads (optional)</label>
+          <input id="max" name="max" type="number" min="1" placeholder="blank = default" />
+        </div>
+        <div class="row">
+          <label for="autoStart">Start immediately</label>
+          <select id="autoStart" name="autoStart">
+            <option value="true" selected>Yes</option>
+            <option value="false">No</option>
+          </select>
         </div>
 
         <div class="actions">
-          <button type="submit">Execute</button>
-          <span id="status" class="note"></span>
-          <span id="led" class="led" title="job status indicator" aria-label="status indicator"></span>
+          <button type="submit" id="goBtn"><span class="dot"></span> Execute</button>
+          <span id="err" class="note err" role="alert" style="display:none"></span>
         </div>
       </form>
-    </div>
+    </section>
 
-    <div class="section" style="margin-top:12px;">
-      <h2>Mission Brief</h2>
-      <div class="note">After submit, you’ll be redirected to your private <code>/live?job=…</code> feed.</div>
-    </div>
-=======
-      <div class="actions">
-        <span class="pill"><span class="dot"></span>Ready</span>
-        <button type="submit">Start Run</button>
-        <span id="status" class="note"></span>
-      </div>
-    </form>
-
-    <div class="note" style="margin-top:12px">After submit, you’ll be redirected to your private <code>/live?job=…</code>.</div>
->>>>>>> Stashed changes
+    <!-- Right: mission brief -->
+    <aside class="card aside">
+      <h3>MISSION BRIEFING</h3>
+      <p>After submit, you’ll be redirected to your private <span class="pill">/live?job=…</span> stream.</p>
+      <ul class="list">
+        <li><strong>Autorun</strong> shows a <span class="pill badge-AUTORUN">AUTORUN</span> badge on the feed.</li>
+        <li>Sheet URL is emitted when the run completes.</li>
+        <li>Use the filter and chips on the live page to scan activity.</li>
+      </ul>
+    </aside>
   </main>
 
   <script>
-    const $ = s => document.querySelector(s);
-    const status = $('#status');
-    const led = $('#led');
+    const form = document.getElementById('f');
+    const errEl = document.getElementById('err');
+    form.addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      errEl.style.display = 'none';
+      const fd = new FormData(form);
+      // Ensure autoStart is boolean string ("true"/"false")
+      const as = String(fd.get('autoStart') ?? 'true').toLowerCase();
+      fd.set('autoStart', (as === 'true' || as === '1' || as === 'yes' || as === 'on') ? 'true' : 'false');
 
-    $('#f').addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      status.textContent = 'Creating job…';
-      led.className = 'led busy';
-      try {
-        const payload = {
-          username: $('#u').value.trim(),
-          password: $('#p').value,
-          email:    $('#e').value.trim(),
-          max:      ($('#m').value || '').trim(),
-          autoStart: $('#s').value === 'true'
-        };
-
-        const res = await fetch('/session', {
+      try{
+        const body = new URLSearchParams(fd);
+        const r = await fetch('/session', {
           method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(payload)
+          headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+          body: body.toString()
         });
-        if (!res.ok) throw new Error(await res.text().catch(()=>('HTTP '+res.status)));
-        const data = await res.json();
-        const liveUrl = data.liveUrl || `/live?job=${encodeURIComponent(data.jobId)}`;
-
-        status.innerHTML = '<span class="ok">Job created.</span> Opening live…';
-        led.className = 'led ok';
-        setTimeout(() => location.href = liveUrl, 350);
-      } catch (err) {
-        console.error(err);
-        status.innerHTML = `<span class="err">Error:</span> ${err.message || err}`;
-        led.className = 'led err';
+        const data = await r.json();
+        if (!r.ok || !data?.ok){
+          throw new Error(data?.error || `HTTP ${r.status}`);
+        }
+        // Success: go to private live stream
+        location.href = data.liveUrl || '/live';
+      }catch(err){
+        errEl.textContent = 'Cannot POST /session (' + (err?.message || err) + ')';
+        errEl.style.display = '';
       }
     });
   </script>
