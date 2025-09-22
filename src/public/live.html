@@ -16,6 +16,8 @@
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial;
       --radius: 12px;
+
+      /* UI accents */
       --bg:#0b0b0c; --fg:#eaeaea;
       --pill:#1e1f27; --pill-b:#2a2c38;
       --ok:#9be7a5; --warn:#ffd27a; --sheet:#9ff2ff;
@@ -155,7 +157,7 @@
   </div>
 
   <script>
-    // UI refs
+    // --- UI refs -------------------------------------------------------------
     const logEl = document.getElementById('log');
     const toolbar = document.getElementById('toolbar');
     const banner = document.getElementById('banner');
@@ -164,11 +166,11 @@
     const autoScrollChip = document.getElementById('autoScroll');
     const connLed = document.getElementById('connLed');
 
-    // helpers
+    // --- helpers -------------------------------------------------------------
     const params = new URLSearchParams(location.search);
     const jobId = params.get('job') || null;
 
-    // filter chips state
+    // --- filter chips state --------------------------------------------------
     const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
@@ -190,7 +192,7 @@
     };
     inputQ.addEventListener('input', ()=> refilter());
 
-    // elapsed baseline
+    // --- elapsed baseline ----------------------------------------------------
     let t0 = null;
     const now = () => performance.now();
     const fmtHMS = (ms) => {
@@ -200,7 +202,7 @@
     };
     function elapsed() { return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
 
-    // render
+    // --- render --------------------------------------------------------------
     function addRow(level, msg, meta = {}) {
       if (!filters.get(level)) return;
       const q = inputQ.value.trim().toLowerCase();
@@ -251,8 +253,9 @@
       });
     }
 
-    // SSE
+    // --- SSE (job-scoped when ?job= is present) -----------------------------
     function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
+
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
 
     es.addEventListener('open', () => {
