@@ -2,165 +2,243 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Lead Pull — Live Feed</title>
+  <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
-    /* =========================================================
-       THEME SYSTEM (same tokens as login)
-       ========================================================= */
-    :root{
-      --bg:#0e1116; --panel:#151a22; --border:#2a2f3a; --text:#e7eef7; --muted:#8b98a5;
-      --chip:#2b3544; --pill:#1e1f27; --pill-b:#2a2c38; --accent:#6aa8ff; --shadow:0 20px 50px rgba(0,0,0,.35);
-      --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
-      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
-    }
-    .theme--modern{
-      --bg:#0d1118; --panel:#151a22; --border:#2b3441; --chip:#273141; --pill:#1e1f27; --pill-b:#2a2c38;
-      --text:#e7eef7; --muted:#8b98a5; --accent:#6aa8ff;
-    }
-    .theme--neon{
-      --bg:#0a0f0a; --panel:#111911; --border:#2c3a2f; --chip:#162116; --pill:#132018; --pill-b:#223425;
-      --text:#e8f3ea; --muted:#9aa69f; --accent:#8fffa0; --shadow:0 24px 60px rgba(0,0,0,.45);
-      --info:#86b7ff;
-    }
-    .theme--matrix{
-      --bg:#070907; --panel:#0e140f; --border:#18301e; --chip:#132016; --pill:#0f1b12; --pill-b:#1b3421;
-      --text:#e3ffe9; --muted:#95b39c; --accent:#00ff84; --shadow:0 24px 60px rgba(0,0,0,.5);
-      --info:#66ffa1;
+    /* ===== Base layout (theme-agnostic) ===== */
+    * { box-sizing: border-box }
+    html, body { height: 100% }
+    body {
+      margin: 0;
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
+      color: var(--fg);
+      background: var(--bg);
     }
 
-    *{box-sizing:border-box}
-    html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-
-    header{
-      position:sticky; top:0; z-index:10;
-      background:linear-gradient(180deg, color-mix(in srgb, var(--bg) 80%, #000 20%), var(--bg));
-      border-bottom:1px solid var(--border); padding:10px 12px; box-shadow:var(--shadow);
+    header {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--hdr-bg);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 6px 16px rgba(0,0,0,.25);
     }
-    .top{display:flex; align-items:center; gap:10px}
-    .brand{font-weight:800; letter-spacing:.3px}
-    .ops{font-size:12px; color:var(--muted)}
-    .spacer{flex:1}
-
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
-    .chip{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:999px;
-      background:var(--pill);border:1px solid var(--pill-b);font-size:12px;cursor:pointer;user-select:none}
-    .chip[data-on="false"]{opacity:.35}
-    .chip .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
-    .dot.info{background:var(--info)} .dot.start{background:var(--warn)}
-    .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
-    .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
-    .dot.error{background:var(--err)} .dot.done{background:var(--done)} .dot.client{background:#aaa}
-
-    .right{margin-left:auto;display:flex;gap:8px;align-items:center}
-    .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
-    .button:hover{border-color:var(--accent)}
-    .input{padding:6px 9px;border-radius:8px;border:1px solid var(--pill-b);background:color-mix(in srgb, var(--bg) 60%, #000 40%);color:var(--text);min-width:230px}
-    .legend{margin-top:6px;font-size:12px;color:var(--muted)}
-
-    .container{padding:12px 12px 20px}
-    .row{
-      display:grid;grid-template-columns:110px 140px 1fr;gap:10px;align-items:start;
-      padding:7px 0;border-bottom:1px dashed color-mix(in srgb, var(--border) 70%, #000 30%);
-      position:relative;
+    .top {
+      display:flex; align-items:center; gap:10px;
+      padding:10px 12px;
     }
-    .time{color:color-mix(in srgb, var(--text) 60%, #9aa 40%);font-variant-numeric:tabular-nums}
-    .type{display:inline-flex;align-items:center;gap:8px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px;color:var(--muted)}
-    .msg{white-space:pre-wrap;color:#e5e7eb}
-
-    .badge-AUTORUN{color:#222;background:#ffd27a;border-color:#ffde9b}
-    .badge-MANUAL{color:#d7ebff;background:#243247;border-color:#3d4f6b}
-    .level-info{color:var(--info)} .level-start{color:var(--warn);font-weight:600}
-    .level-lead{color:var(--lead)} .level-numbers{color:var(--ok)}
-    .level-badge{color:var(--badge)} .level-sheet{color:var(--sheet)}
-    .level-error{color:var(--err);font-weight:600} .level-done{color:var(--done);font-weight:600}
-
-    .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
-    .stickyNew .button{background:#122845;border-color:#204a86}
-
-    /* Newest row sheen/pulse – applied to .row.new only */
-    .row.new::after{
-      content:""; position:absolute; inset:0;
-      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 25%, transparent), transparent);
-      opacity:.0; animation: sheen 1.5s ease-out forwards;
-      pointer-events:none;
+    .brand { font-weight: 800; letter-spacing: .4px }
+    .ops   { font-size: 12px; color: var(--muted) }
+    .spacer{ flex:1 }
+    .pill {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border-radius: 10px; font-size: 12px;
+      border:1px solid var(--chip-b); background: var(--chip);
+      text-transform: uppercase; letter-spacing:.04em;
+      cursor: pointer; user-select: none;
     }
-    @keyframes sheen{
-      0%{ opacity:.0; transform: translateX(-30%) }
-      25%{ opacity:.7 }
-      100%{ opacity:0; transform: translateX(30%) }
+    .dot { width:8px; height:8px; border-radius:999px; background: var(--ok) }
+
+    .toolbar {
+      display:flex; flex-wrap: wrap; gap:8px; align-items:center;
+      padding: 0 12px 10px 12px;
     }
+    .chip {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:5px 10px; border-radius:8px; font-size:12px;
+      border:1px solid var(--chip-b); background:var(--chip);
+      text-transform:uppercase; letter-spacing:.04em; cursor:pointer;
+    }
+    .chip[data-on="false"] { opacity:.35; filter:saturate(.7) }
+    .chip .dot.info    { background: var(--c-info) }
+    .chip .dot.start   { background: var(--c-start) }
+    .chip .dot.lead    { background: var(--c-lead) }
+    .chip .dot.numbers { background: var(--c-num) }
+    .chip .dot.badge   { background: var(--c-badge) }
+    .chip .dot.sheet   { background: var(--c-sheet) }
+    .chip .dot.error   { background: var(--c-err) }
+    .chip .dot.done    { background: var(--c-done) }
+    .chip .dot.client  { background: var(--muted) }
+
+    .input {
+      padding:8px 10px; min-width:280px;
+      border-radius:8px; border:1px solid var(--chip-b); background: var(--input);
+      color:var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer }
+
+    /* log area */
+    .wrap { padding: 12px }
+    .panel {
+      border:1px solid var(--line);
+      border-radius:12px;
+      background: var(--panel);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      padding: 8px 12px;
+      min-height: calc(100dvh - 160px);
+    }
+    #log .row {
+      display:grid; grid-template-columns: 98px 120px 1fr; gap:12px; align-items:start;
+      padding:8px 0; border-bottom:1px dashed var(--sep);
+    }
+    #log .row:last-child { border-bottom: none }
+    .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .type { display:flex; align-items:center; gap:8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; text-transform:uppercase }
+    .pill-badge { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); color:var(--muted); font-size:11px }
+    .msg  { white-space: pre-wrap }
+
+    .level-info    { color: var(--c-info) }
+    .level-start   { color: var(--c-start); font-weight: 600 }
+    .level-lead    { color: var(--c-lead) }
+    .level-numbers { color: var(--c-num) }
+    .level-badge   { color: var(--c-badge) }
+    .level-sheet   { color: var(--c-sheet) }
+    .level-error   { color: var(--c-err); font-weight: 600 }
+    .level-done    { color: var(--c-done); font-weight: 600 }
+    .level-client  { color: var(--muted) }
+
+    a.link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
+    a.link:hover { text-decoration: underline }
+
+    /* pulse accent on newest event (uses outline to avoid layout shift) */
+    #log .row.newest { outline: 2px solid color-mix(in oklab, var(--c-info) 40%, transparent); outline-offset: 2px; animation: pulse 1600ms ease-out 1 }
+    @keyframes pulse {
+      0% { outline-color: color-mix(in oklab, var(--c-info) 55%, transparent) }
+      100% { outline-color: transparent }
+    }
+
+    /* ===== THEMES (no external file; switch by body class) ===== */
+    /* Aurora: modern dark/blue */
+    .t-aurora {
+      --bg: #0b0f12;
+      --panel: linear-gradient(180deg, #0e1317, #0b1014);
+      --hdr-bg: rgba(11,15,18,.9);
+      --fg:#e8eef6; --muted:#9fb0c2;
+      --line:#1e2a34; --sep:#20303b; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419;
+      --time:#b9c7d6;
+      --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
+    }
+    .t-aurora::before { /* subtle nebula sweep */
+      content:""; position:fixed; inset:-40%;
+      pointer-events:none; mix-blend-mode:soft-light; opacity:.3;
+      background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
+      filter: blur(20px);
+      animation: neb 14s linear infinite;
+    }
+    @keyframes neb { to { transform: rotate(360deg) } }
+
+    /* Neon HUD */
+    .t-neon {
+      --bg:#070b08; --panel: linear-gradient(180deg,#0a120e,#08100c);
+      --hdr-bg: rgba(10,18,14,.9);
+      --fg:#e7f3ea; --muted:#9aa69f; --line:#223429; --sep:#203428; --chip:#0d1611; --chip-b:#244033; --input:#0c1611; --time:#b7c5bb;
+      --c-info:#8fffa0; --c-start:#ffd27a; --c-lead:#baff7e; --c-num:#80ffd1; --c-badge:#ffd2ff; --c-sheet:#9ff2ff; --c-err:#ff8b8b; --c-done:#8ef0c9; --ok:#8fffa0;
+    }
+    .t-neon::before {
+      content:""; position:fixed; inset:0; pointer-events:none; opacity:.35;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0/100% 3px,
+        repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.028) 23px);
+    }
+
+    /* Matrix (iconic code green; fixed the banding) */
+    .t-matrix {
+      --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06);
+      --hdr-bg: rgba(6,12,7,.9);
+      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --sep:#113316; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
+      --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
+    }
+    .t-matrix::before {
+      content:""; position:fixed; inset:0; pointer-events:none; opacity:.2;
+      background:
+        radial-gradient(1200px 800px at 15% -10%, rgba(0,255,120,.10), transparent 60%),
+        radial-gradient(1000px 900px at 110% 120%, rgba(0,180,120,.07), transparent 60%),
+        repeating-linear-gradient(0deg, rgba(0,255,120,.04) 0 1px, transparent 1px 3px);
+    }
+    /* optional faint code-rain stripes (no banding) */
+    .t-matrix::after {
+      content:""; position:fixed; inset:0; pointer-events:none; opacity:.07;
+      background: repeating-linear-gradient(90deg, rgba(0,255,100,.35) 0 1px, transparent 1px 18px);
+      mix-blend-mode: soft-light;
+    }
+
+    /* Light */
+    .t-light {
+      --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc;
+      --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --sep:#e9eef3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
+      --c-info:#2563eb; --c-start:#b45309; --c-lead:#15803d; --c-num:#0e7490; --c-badge:#7c3aed; --c-sheet:#0ea5e9; --c-err:#b91c1c; --c-done:#047857; --ok:#16a34a;
+    }
+
+    /* make sure log text stays readable on all themes */
+    #log, #log .row, #log .row * { mix-blend-mode: normal; filter: none; color: var(--fg) }
   </style>
 </head>
+<body class="t-aurora">
 
-<body class="theme--modern">
   <header>
     <div class="top">
       <div class="brand">OP: PLANET LEAD PULL</div>
       <div class="ops">Live Feed</div>
       <div class="spacer"></div>
 
-      <!-- Theme switcher chip -->
-      <div id="themeChip" class="chip" title="Theme: Modern/Neon/Matrix">
-        <span class="dot info"></span>Theme
-      </div>
+      <span id="linkLed" class="pill" title="connection">
+        <span class="dot" id="connDot"></span> link
+      </span>
+
+      <button id="themeBtn" class="pill" title="toggle theme">◐ Theme</button>
     </div>
 
     <div class="toolbar" id="toolbar">
-      <div class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</div>
-      <div class="chip" data-key="start"   data-on="true"><span class="dot start"></span>start</div>
-      <div class="chip" data-key="lead"    data-on="true"><span class="dot lead"></span>lead</div>
-      <div class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</div>
-      <div class="chip" data-key="badge"   data-on="true"><span class="dot badge"></span>badge</div>
-      <div class="chip" data-key="sheet"   data-on="true"><span class="dot sheet"></span>sheet</div>
-      <div class="chip" data-key="error"   data-on="true"><span class="dot error"></span>error</div>
-      <div class="chip" data-key="done"    data-on="true"><span class="dot done"></span>done</div>
-      <div class="chip" data-key="client"  data-on="false"><span class="dot client"></span>client</div>
+      <label class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</label>
+      <label class="chip" data-key="start"   data-on="true"><span class="dot start"></span>start</label>
+      <label class="chip" data-key="lead"    data-on="true"><span class="dot lead"></span>lead</label>
+      <label class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</label>
+      <label class="chip" data-key="badge"   data-on="true"><span class="dot badge"></span>badge</label>
+      <label class="chip" data-key="sheet"   data-on="true"><span class="dot sheet"></span>sheet</label>
+      <label class="chip" data-key="error"   data-on="true"><span class="dot error"></span>error</label>
+      <label class="chip" data-key="done"    data-on="true"><span class="dot done"></span>done</label>
+      <label class="chip" data-key="client"  data-on="false"><span class="dot client"></span>client</label>
 
-      <div class="right">
-        <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
-        <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
-        <button id="clearBtn" class="button" title="Clear log view">Clear</button>
-        <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
-      </div>
+      <div class="spacer"></div>
+      <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
+      <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
+      <button id="clearBtn" class="btn">Clear</button>
     </div>
-
-    <div class="legend">Timestamps show elapsed time since first <span class="level-start">start</span>. “Autorun” vs “Manual” is inferred client-side.</div>
   </header>
 
-  <div class="container" id="log"></div>
-  <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
+  <div class="wrap">
+    <div class="panel">
+      <div id="log"></div>
+    </div>
+  </div>
 
   <script>
-    // ---------- theme persistence ----------
-    const THEME_KEY = 'plp_theme';
-    const themeClass = { modern:'theme--modern', neon:'theme--neon', matrix:'theme--matrix' };
-    const ordered = ['modern','neon','matrix'];
-    const applyTheme = (name) => {
-      document.body.classList.remove(...Object.values(themeClass));
-      document.body.classList.add(themeClass[name] || themeClass.modern);
-      localStorage.setItem(THEME_KEY, name);
-    };
-    applyTheme(localStorage.getItem(THEME_KEY) || 'modern');
-    document.getElementById('themeChip').addEventListener('click', ()=>{
-      const cur = localStorage.getItem(THEME_KEY) || 'modern';
-      const idx = (ordered.indexOf(cur)+1) % ordered.length;
-      applyTheme(ordered[idx]);
-    });
+    /* ---------- Theme toggle ---------- */
+    (function(){
+      const order = ['t-aurora','t-neon','t-matrix','t-light'];
+      const saved = localStorage.getItem('pll.theme');
+      const cur = saved && order.includes(saved) ? saved : order[0];
+      document.body.classList.remove(...order);
+      document.body.classList.add(cur);
 
-    // ---------- existing live wiring (preserves your handlers/features) ----------
+      document.getElementById('themeBtn').onclick = () => {
+        const i = order.indexOf([...document.body.classList].find(c => order.includes(c)));
+        const next = order[(i+1)%order.length];
+        document.body.classList.remove(...order);
+        document.body.classList.add(next);
+        localStorage.setItem('pll.theme', next);
+      };
+    })();
+
+    /* ---------- UI refs ---------- */
     const logEl = document.getElementById('log');
     const toolbar = document.getElementById('toolbar');
-    const stickyNew = document.getElementById('stickyNew');
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
+    const connDot = document.getElementById('connDot');
 
-    // filters (same behavior)
-    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')]
-      .map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
+    /* ---------- filters ---------- */
+    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
       if (!ch) return;
@@ -168,109 +246,148 @@
       filters.set(ch.dataset.key, ch.dataset.on === 'true');
       refilter();
     });
-    autoScrollChip.addEventListener('click', ()=>{
-      autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false':'true';
+    autoScrollChip.addEventListener('click', ()=> {
+      autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false' : 'true';
       maybeShowNew();
     });
-
-    document.getElementById('clearBtn').onclick = ()=>{ logEl.innerHTML=''; };
-    document.getElementById('copyBtn').onclick = ()=>{
-      const rows = [...logEl.querySelectorAll('.row')].slice(-200);
-      const text = rows.map(r => r.innerText.replace(/\s+\n/g,' ')).join('\n');
-      navigator.clipboard.writeText(text).catch(()=>{});
-    };
+    document.getElementById('clearBtn').onclick = () => { logEl.innerHTML=''; };
     inputQ.addEventListener('input', ()=> refilter());
 
-    // elapsed baseline
+    /* ---------- helpers ---------- */
+    const params = new URLSearchParams(location.search);
+    const jobId = params.get('job') || null;
+
     let t0 = null;
     const now = () => performance.now();
-    const fmtHMS = (ms) => {
+    const pad2 = n => String(n).padStart(2,'0');
+    const hmsFromMs = (ms) => {
       const s = Math.max(0, Math.floor(ms/1000));
       const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
-      const pad = (n)=> String(n).padStart(2,'0');
-      return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      return (h? h+'h ' : '') + (m? m+'m ' : '') + (ss? ss+'s' : '0s');
     };
-    function elapsed(){ return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
+    const elapsed = () => t0 ? `${pad2(Math.floor((now()-t0)/3600000))}:${pad2(Math.floor(((now()-t0)%3600000)/60000))}:${pad2(Math.floor(((now()-t0)%60000)/1000))}` : '00:00:00';
 
     function addRow(level, msg, meta = {}) {
+      // filter by type
       if (!filters.get(level)) return;
 
+      // filter by search
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
-      // remove "new" class from previous newest row
-      const last = logEl.lastElementChild;
-      if (last) last.classList.remove('new');
+      const row = document.createElement('div');
+      row.className = 'row newest';
 
-      const row = document.createElement('div'); row.className = 'row new';
-      const t = document.createElement('div');  t.className = 'time'; t.textContent = elapsed();
+      const t = document.createElement('div');
+      t.className = 'time'; t.textContent = elapsed();
 
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
-      const badge = document.createElement('span'); badge.className = 'pill';
-      const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
-                     (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
+      const badge = document.createElement('span'); badge.className = 'pill-badge';
+      // Autorun/MANUAL tag inference stays as-is
+      const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN'
+                    : (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
       if (level === 'start' || source) {
         badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
-        badge.classList.add(source ? `badge-${source}` : 'badge-MANUAL');
-      } else { badge.style.display = 'none'; }
+      } else {
+        badge.style.display = 'none';
+      }
       ty.append(lvl, badge);
 
-      const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
+      const m = document.createElement('div');
+      m.className = 'msg';
+      if (meta.html) { m.innerHTML = meta.html; } else { m.textContent = msg; }
+
       row.append(t, ty, m);
       logEl.appendChild(row);
 
-      if (autoScrollChip.dataset.on === 'true') {
-        row.scrollIntoView({behavior:'smooth', block:'end'});
-        stickyNew.style.display='none';
-      } else {
-        maybeShowNew();
-      }
-    }
+      // keep "newest" highlight only on the last row
+      const prev = logEl.querySelector('.row.newest');
+      if (prev && prev !== row) prev.classList.remove('newest');
 
-    function maybeShowNew(){
-      const atBottom = Math.abs(logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight) < 4;
-      stickyNew.style.display = (autoScrollChip.dataset.on === 'false' && !atBottom) ? 'flex' : 'none';
+      if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); }
     }
-    function scrollToEnd(force=false){
-      logEl.scrollTop = logEl.scrollHeight;
-      if (force) stickyNew.style.display='none';
-    }
-    logEl.addEventListener('scroll', ()=> maybeShowNew());
 
     function refilter(){
-      const q = inputQ.value.trim().toLowerCase();
       [...logEl.children].forEach(row=>{
-        const levelEl = row.querySelector('[class^="level-"]');
-        const level = levelEl ? levelEl.textContent : 'info';
-        const showType = filters.get(level);
+        const typeEl = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
+        const typeText = typeEl ? typeEl.textContent : 'info';
+        const showType = filters.get(typeText);
+        const q = inputQ.value.trim().toLowerCase();
         const showText = !q || row.innerText.toLowerCase().includes(q);
         row.style.display = (showType && showText) ? '' : 'none';
       });
     }
 
-    // SSE – job-scoped, same URL and handlers you already use :contentReference[oaicite:6]{index=6}
-    const params = new URLSearchParams(location.search);
-    const jobId = params.get('job') || null;
+    /* ---------- SSE (client-only; no server changes needed) ---------- */
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
 
     es.addEventListener('open', () => {
+      connDot.style.background = 'var(--ok)';
+      if (!t0) t0 = now();
       addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
     });
+
     es.addEventListener('error', () => {
+      connDot.style.background = 'var(--c-err)';
       addRow('error', 'stream: error (trying to reconnect…)');
     });
 
+    // keep state so we can collapse noisy tail lines
+    let lastDoneRow = null;
+    let seenSheetUrl = '';
+    let seenFinalDone = false;
+
     const handlers = {
-      info:(d)=> addRow('info', d.msg || ''),
-      start:(d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-      lead:(d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
-      numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-      badge:(d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet:(d)=> addRow('sheet', d.url || d.msg || ''),
-      error:(d)=> addRow('error', d.msg || ''),
-      done:(d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
-      client:(d)=> addRow('client', d.msg || '')
+      info: (d) => {
+        // suppress redundant "sheet:url …" info line (we will show a proper Sheet line)
+        if (d && typeof d.msg === 'string' && d.msg.toLowerCase().startsWith('sheet:url')) return;
+        addRow('info', d.msg || '');
+      },
+
+      start: (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+
+      lead: (d) => {
+        // Format as "LAST, FIRST (41 of 82)"
+        // If backend already gave name & indices, honor them; else build best effort.
+        let name = d.leadName || d.name || d.msg || '';
+        // normalize common "#41/82 NAME" shape
+        const hashMatch = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
+        if (hashMatch) {
+          const [, idx, tot, nm] = hashMatch;
+          name = `${nm.trim()} (${idx} of ${tot})`;
+        } else if (d.index && d.total && name) {
+          name = `${name} (${d.index} of ${d.total})`;
+        }
+        addRow('lead', name || (d.msg || ''));
+      },
+
+      numbers: (d) => addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
+
+      badge: (d) => addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
+
+      sheet: (d) => {
+        if (!d.url) return;
+        seenSheetUrl = d.url;
+        // show as a single link line; if we already showed a sheet link with same URL, ignore repeats
+        const html = `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>`;
+        addRow('sheet', '', { html });
+      },
+
+      error: (d) => addRow('error', d.msg || ''),
+
+      done: (d) => {
+        // skip empty noise done lines
+        if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
+
+        const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
+        const msg = `${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`;
+
+        addRow('done', msg);
+        seenFinalDone = true;
+      },
+
+      client: (d) => addRow('client', d.msg || '')
     };
 
     ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
@@ -279,7 +396,10 @@
           const data = JSON.parse(e.data || '{}');
           if (!t0 && type !== 'info') t0 = now();
           (handlers[type] || handlers.info)(data);
-        }catch{}
+        }catch(err){
+          addRow('error', 'parse error');
+          console.error(err, e?.data);
+        }
       });
     });
   </script>
