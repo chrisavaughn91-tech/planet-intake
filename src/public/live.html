@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
-    /* ===== Base layout (theme-agnostic) ===== */
     * { box-sizing: border-box }
     html, body { height: 100%; overflow-x: hidden; } /* stop flicker */
     body {
@@ -23,10 +22,7 @@
       border-bottom: 1px solid var(--line);
       box-shadow: 0 6px 16px rgba(0,0,0,.25);
     }
-    .top {
-      display:flex; align-items:center; gap:10px;
-      padding:10px 12px;
-    }
+    .top { display:flex; align-items:center; gap:10px; padding:10px 12px; }
     .brand { font-weight: 800; letter-spacing: .4px }
     .ops   { font-size: 12px; color: var(--muted) }
     .spacer{ flex:1 }
@@ -70,7 +66,7 @@
     /* rows: time | capsule | message */
     #log .row { position: relative; display:grid; grid-template-columns: 98px 110px 1fr; gap:12px; align-items:start; padding:10px 0; }
     .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
-    .type { display:none } /* hidden spare */
+    .type { display:none } /* spare */
     .msg  { white-space: pre-wrap }
 
     /* Event capsule next to each row */
@@ -85,6 +81,7 @@
     .cap.badge   { color: var(--c-badge)}
     .cap.sheet   { color: var(--c-sheet)}
     .cap.info    { color: var(--c-info) }
+    .cap.policy  { color: var(--c-info) } /* policy lines */
     .cap.error   { color: var(--c-err)  }
     .cap.done    { color: var(--c-done) }
 
@@ -230,14 +227,14 @@
     }
     function hostFor(level){
       if (level === 'lead') { startGroup(); return currentGroup; }
-      if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info')) return currentGroup;
+      if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info' || level === 'policy')) return currentGroup;
       return logEl;
     }
 
-    function makeCap(level){
+    function makeCap(level, labelOverride){
       const c = document.createElement('span');
       c.className = `cap ${level}`;
-      c.textContent = level;
+      c.textContent = (labelOverride || level).toUpperCase();
       return c;
     }
 
@@ -260,7 +257,7 @@
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       ty.append(lvl);
 
-      const cap = makeCap(level);
+      const cap = makeCap(level, meta.capLabel);
 
       const m = document.createElement('div');
       m.className = 'msg';
@@ -275,7 +272,7 @@
     /* ---------- Running totals (all badges) ---------- */
     let totalBadged = 0;        // leads that produced a 'badge' event
     const counts = { star:0, purple:0, orange:0, red:0, white:0 };
-    let premiumTotal = 0;
+    let packPremiumTotal = 0;   // cumulative across whole pack
 
     function fmtPct(n, d) { return d ? Math.round((n/d)*100) + '%' : '0%'; }
     function renderStats() {
@@ -285,7 +282,7 @@
         `🟠 ${counts.orange} (${fmtPct(counts.orange,totalBadged)}) ` +
         `🔴 ${counts.red} (${fmtPct(counts.red,totalBadged)}) ` +
         `⚪ ${counts.white} (${fmtPct(counts.white,totalBadged)})`;
-      premRunEl.textContent = `${premiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total`;
+      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total`;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -295,6 +292,12 @@
       if (/red|🔴/.test(t))        return 'red';
       if (/white|⚪|basic/.test(t))return 'white';
       return 'white';
+    }
+    function badgeEmoji(kind){
+      return kind === 'star' ? '⭐' :
+             kind === 'purple' ? '🟣' :
+             kind === 'orange' ? '🟠' :
+             kind === 'red' ? '🔴' : '⚪';
     }
 
     /* ---------- SSE ---------- */
@@ -319,6 +322,12 @@
         // hide the noisy "lead: opening" info event and sheet:url echo
         if (s.startsWith('lead: opening')) return;
         if (s.startsWith('sheet:url')) return;
+
+        // if it's a policy line ("lapse: ..."), show as POLICY capsule
+        if (s.startsWith('lapse:')) {
+          addRow('policy', d.msg || '', { capLabel: 'policy' });
+          return;
+        }
         addRow('info', d.msg || '');
       },
 
@@ -339,12 +348,15 @@
 
       badge:   (d) => {
         totalBadged += 1;
-        counts[classifyBadge(d.badge)] = (counts[classifyBadge(d.badge)] || 0) + 1;
-        if (typeof d.totalPremium === 'number') premiumTotal = d.totalPremium;
+        const kind = classifyBadge(d.badge);
+        counts[kind] = (counts[kind] || 0) + 1;
+
+        // Add this lead's totalPremium into the pack cumulative
+        const leadTotal = Number(d.totalPremium || 0);
+        packPremiumTotal += isFinite(leadTotal) ? leadTotal : 0;
         renderStats();
 
-        const amt = typeof d.totalPremium === 'number' ? d.totalPremium : premiumTotal;
-        const msg = `Total Premium: ${Number(amt || 0).toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
+        const msg = `Total Premium: ${leadTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} ${badgeEmoji(kind)}`;
         addRow('badge', msg);
 
         // end the current group after badge
