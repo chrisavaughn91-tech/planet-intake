@@ -35,12 +35,11 @@
       display:inline-flex; align-items:center; gap:6px;
       padding:6px 10px; border-radius: 10px; font-size: 12px;
       border:1px solid var(--chip-b); background: var(--chip);
-      text-transform: uppercase; letter-spacing:.04em;
       user-select: none;
     }
-    /* "Connected" look (no border, transparent) */
+    /* "Connected" look (no border, transparent, right side) */
     .pill.link {
-      border: none; background: transparent; padding: 0 2px; text-transform: none;
+      border: none; background: transparent; padding: 0 2px;
       color: var(--muted);
     }
     .pill.link strong { color: var(--fg); font-weight: 700 }
@@ -61,22 +60,6 @@
       display:flex; flex-wrap: wrap; gap:8px; align-items:center;
       padding: 0 12px 10px 12px;
     }
-    .chip {
-      display:inline-flex; align-items:center; gap:6px;
-      padding:5px 10px; border-radius:8px; font-size:12px;
-      border:1px solid var(--chip-b); background:var(--chip);
-      text-transform:uppercase; letter-spacing:.04em; cursor:pointer;
-    }
-    .chip[data-on="false"] { opacity:.35; filter:saturate(.7) }
-    .chip .dot.info    { background: var(--c-info) }
-    .chip .dot.start   { background: var(--c-start) }
-    .chip .dot.lead    { background: var(--c-lead) }
-    .chip .dot.numbers { background: var(--c-num) }
-    .chip .dot.badge   { background: var(--c-badge) }
-    .chip .dot.sheet   { background: var(--c-sheet) }
-    .chip .dot.error   { background: var(--c-err) }
-    .chip .dot.done    { background: var(--c-done) }
-    .chip .dot.client  { background: var(--muted) }
 
     .input {
       padding:8px 10px; min-width:280px;
@@ -85,12 +68,21 @@
     }
     .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; color:var(--fg); }
 
-    /* Running badge totals */
+    /* Single chip style used only for Auto-scroll (no forced caps). */
+    .chip {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:5px 10px; border-radius:8px; font-size:12px;
+      border:1px solid var(--chip-b); background:var(--chip);
+      text-transform:none; letter-spacing:.02em; cursor:pointer;
+    }
+    .chip .dot { width:8px; height:8px; border-radius:999px; }
+    .chip .dot.info { background: var(--c-info) }
+
+    /* Running badge totals (now lives in the toolbar, left) */
     .stats {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       font-size: 12px; color: var(--muted);
       display:flex; align-items:center; gap:12px;
-      padding: 0 12px 8px 12px;
     }
     .stats .sep { opacity:.35 }
     .stats strong { color: var(--fg); font-weight:600 }
@@ -98,30 +90,33 @@
     /* log area */
     .wrap { padding: 12px }
     .panel {
-      border:1px solid var(--line);
-      border-radius:12px;
+      /* remove outer border to avoid double line at bottom */
+      border:none; border-radius:12px;
       background: var(--panel);
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+      box-shadow: none;
       padding: 8px 12px;
       min-height: calc(100dvh - 160px);
     }
 
-    /* Group wrapper for each lead run: lead -> ... -> badge */
+    /* Group wrapper for each lead run: lead -> ... -> badge
+       More visible: faint outline + soft halo */
     .group {
-      margin: 6px 0 10px;
-      padding: 2px 8px 6px 8px;
-      border-radius: 10px;
-      background: linear-gradient(180deg, transparent 0, rgba(255,255,255,.02) 30%, transparent 100%);
+      margin: 6px 0 12px;
+      padding: 4px 10px 8px 10px;
+      border-radius: 12px;
+      border: 1px solid color-mix(in oklab, var(--line) 90%, transparent);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.02) 35%, transparent 100%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.015) inset, 0 6px 20px rgba(0,0,0,.25);
     }
 
     #log .row {
       position: relative;
-      display:grid; grid-template-columns: 98px 1fr; gap:12px; align-items:start; /* hide event key column */
+      display:grid; grid-template-columns: 98px 1fr; gap:12px; align-items:start;
       padding:10px 0;
     }
     .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .type { display:none } /* keep in DOM for filtering, but not visible */
-    .pill-badge { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); color:var(--muted); font-size:11px }
+    .type { display:none } /* kept hidden for potential filtering */
     .msg  { white-space: pre-wrap }
 
     a.link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
@@ -149,7 +144,7 @@
     }
 
     /* ===== THEMES (switch by body class) ===== */
-    /* Aurora: modern dark/blue with faint spinning light (no overflow) */
+    /* Aurora: modern dark/blue with faint spinning light */
     .t-aurora {
       --bg: #0b0f12;
       --panel: linear-gradient(180deg, #0e1317, #0b1014);
@@ -227,30 +222,21 @@
       </span>
     </div>
 
-    <!-- Running badge totals + premium total -->
-    <div class="stats" id="stats">
-      <span id="badgeRun">⭐ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%) ⚪ 0 (0%)</span>
-      <span class="sep">|</span>
-      <span id="premRun">$0.00 total</span>
-    </div>
-
+    <!-- Toolbar: stats (left) + search + Clear + Auto-scroll (right).
+         Event key removed. -->
     <div class="toolbar" id="toolbar">
-      <!-- chips kept for filtering; UI stays -->
-      <label class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</label>
-      <label class="chip" data-key="start"   data-on="true"><span class="dot start"></span>start</label>
-      <label class="chip" data-key="lead"    data-on="true"><span class="dot lead"></span>lead</label>
-      <label class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</label>
-      <label class="chip" data-key="badge"   data-on="true"><span class="dot badge"></span>badge</label>
-      <label class="chip" data-key="sheet"   data-on="true"><span class="dot sheet"></span>sheet</label>
-      <label class="chip" data-key="error"   data-on="true"><span class="dot error"></span>error</label>
-      <label class="chip" data-key="done"    data-on="true"><span class="dot done"></span>done</label>
-      <label class="chip" data-key="client"  data-on="false"><span class="dot client"></span>client</label>
+      <div class="stats" id="stats">
+        <span id="badgeRun">⭐ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%) ⚪ 0 (0%)</span>
+        <span class="sep">|</span>
+        <span id="premRun">$0.00 total</span>
+      </div>
 
       <div class="spacer"></div>
       <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
-      <!-- order swapped: Clear then Auto-scroll -->
       <button id="clearBtn" class="btn">Clear</button>
-      <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>Auto-scroll</label>
+      <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages">
+        <span class="dot info"></span>Auto-scroll
+      </label>
     </div>
   </header>
 
@@ -263,7 +249,6 @@
   <script>
     /* ---------- UI refs ---------- */
     const logEl = document.getElementById('log');
-    const toolbar = document.getElementById('toolbar');
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
     const connDot = document.getElementById('connDot');
@@ -273,20 +258,19 @@
     const badgeRunEl = document.getElementById('badgeRun');
     const premRunEl  = document.getElementById('premRun');
 
-    /* ---------- filters ---------- */
-    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
-    toolbar.addEventListener('click', (e)=>{
-      const ch = e.target.closest('.chip[data-key]');
-      if (!ch) return;
-      ch.dataset.on = ch.dataset.on === 'true' ? 'false' : 'true';
-      filters.set(ch.dataset.key, ch.dataset.on === 'true');
-      refilter();
-    });
+    /* ---------- simple text filter + controls ---------- */
     autoScrollChip.addEventListener('click', ()=> {
       autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false' : 'true';
     });
     document.getElementById('clearBtn').onclick = () => { logEl.innerHTML=''; currentGroup = null; };
     inputQ.addEventListener('input', ()=> refilter());
+
+    function refilter(){
+      const q = inputQ.value.trim().toLowerCase();
+      [...logEl.querySelectorAll('.row')].forEach(row=>{
+        row.style.display = !q || row.innerText.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
 
     /* ---------- helpers ---------- */
     const params = new URLSearchParams(location.search);
@@ -309,7 +293,7 @@
       return `${hh}:${mm}:${ss}`;
     };
 
-    // subtle grouping: a <div.group> that holds rows from each lead until the next lead/badge ends it
+    // grouping: a <div.group> that holds rows from each lead until the badge
     let currentGroup = null;
     function startGroup() {
       currentGroup = document.createElement('div');
@@ -317,15 +301,12 @@
       logEl.appendChild(currentGroup);
     }
     function hostFor(level){
-      // group only these: lead / numbers / badge / info (during lead)
       if (level === 'lead') { startGroup(); return currentGroup; }
       if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info')) return currentGroup;
       return logEl;
     }
 
     function addRow(level, msg, meta = {}) {
-      if (!filters.get(level)) return;
-
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
@@ -339,7 +320,7 @@
       const t = document.createElement('div');
       t.className = 'time'; t.textContent = elapsed();
 
-      // keep a hidden type span for filtering (but not visible)
+      // hidden type span (kept for potential future use)
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       ty.append(lvl);
@@ -348,21 +329,10 @@
       m.className = 'msg';
       if (meta.html) { m.innerHTML = meta.html; } else { m.textContent = msg; }
 
-      row.append(t, m, ty); /* order: time | message | (hidden type) */
+      row.append(t, m, ty); /* time | message | (hidden type) */
       hostFor(level).appendChild(row);
 
       if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); }
-    }
-
-    function refilter(){
-      [...logEl.querySelectorAll('.row')].forEach(row=>{
-        const typeEl = row.querySelector('.type .level-info, .level-start, .level-lead, .level-numbers, .level-badge, .level-sheet, .level-error, .level-done, .level-client');
-        const typeText = typeEl ? typeEl.textContent : 'info';
-        const showType = filters.get(typeText);
-        const q = inputQ.value.trim().toLowerCase();
-        const showText = !q || row.innerText.toLowerCase().includes(q);
-        row.style.display = (showType && showText) ? '' : 'none';
-      });
     }
 
     /* ---------- Running totals (all badges) ---------- */
@@ -387,7 +357,6 @@
       if (/orange|🟠/.test(t))     return 'orange';
       if (/red|🔴/.test(t))        return 'red';
       if (/white|⚪|basic/.test(t))return 'white';
-      // default: treat as white if unknown
       return 'white';
     }
 
@@ -408,55 +377,34 @@
     });
 
     const handlers = {
-      info: (d) => {
-        if (d && typeof d.msg === 'string' && d.msg.toLowerCase().startsWith('sheet:url')) return;
-        addRow('info', d.msg || '');
-      },
-
-      start: (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-
-      lead: (d) => {
+      info:    (d) => { if (d && typeof d.msg === 'string' && d.msg.toLowerCase().startsWith('sheet:url')) return; addRow('info', d.msg || ''); },
+      start:   (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      lead:    (d) => {
         let name = d.leadName || d.name || d.msg || '';
-        const hashMatch = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
-        if (hashMatch) {
-          const [, idx, tot, nm] = hashMatch;
-          name = `${nm.trim()} (${idx} of ${tot})`;
-        } else if (d.index && d.total && name) {
-          name = `${name} (${d.index} of ${d.total})`;
-        }
+        const h = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
+        if (h) { const [, i, tot, nm] = h; name = `${nm.trim()} (${i} of ${tot})`; }
+        else if (d.index && d.total && name) { name = `${name} (${d.index} of ${d.total})`; }
         addRow('lead', name || (d.msg || ''));
       },
-
       numbers: (d) => addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-
-      badge: (d) => {
+      badge:   (d) => {
         totalBadged += 1;
         counts[classifyBadge(d.badge)] = (counts[classifyBadge(d.badge)] || 0) + 1;
-
         if (typeof d.totalPremium === 'number') premiumTotal = d.totalPremium;
         renderStats();
-
         addRow('badge', `${d.badge || ''} total=${typeof d.totalPremium === 'number' ? d.totalPremium : premiumTotal}`);
-      },
-
-      sheet: (d) => {
-        if (!d.url) return;
-        const html = `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>`;
-        addRow('sheet', '', { html });
-      },
-
-      error: (d) => addRow('error', d.msg || ''),
-
-      done: (d) => {
-        if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
-        const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
-        const msg = `${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`;
-        addRow('done', msg);
-        // end a group after DONE, if one is still open
+        // end the current group after badge
         currentGroup = null;
       },
-
-      client: (d) => addRow('client', d.msg || '')
+      sheet:   (d) => { if (!d.url) return; addRow('sheet', '', { html: `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>` }); },
+      error:   (d) => addRow('error', d.msg || ''),
+      done:    (d) => {
+        if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
+        const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
+        addRow('done', `${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`);
+        currentGroup = null;
+      },
+      client:  (d) => addRow('client', d.msg || '')
     };
 
     ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
