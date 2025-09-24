@@ -78,10 +78,11 @@
       min-height: calc(100dvh - 160px);
     }
     #log .row {
+      position: relative;            /* needed for underline sheen */
       display:grid; grid-template-columns: 98px 120px 1fr; gap:12px; align-items:start;
-      padding:8px 0; border-bottom:1px dashed var(--sep);
+      padding:10px 0;                /* keep spacing */
+      /* NO separators between events (removed dashed border) */
     }
-    #log .row:last-child { border-bottom: none }
     .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .type { display:flex; align-items:center; gap:8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; text-transform:uppercase }
     .pill-badge { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); color:var(--muted); font-size:11px }
@@ -100,11 +101,26 @@
     a.link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
     a.link:hover { text-decoration: underline }
 
-    /* pulse accent on newest event (uses outline to avoid layout shift) */
-    #log .row.newest { outline: 2px solid color-mix(in oklab, var(--c-info) 40%, transparent); outline-offset: 2px; animation: pulse 1600ms ease-out 1 }
-    @keyframes pulse {
-      0% { outline-color: color-mix(in oklab, var(--c-info) 55%, transparent) }
-      100% { outline-color: transparent }
+    /* --------- Newest row sheen UNDERLINE (pulse) --------- */
+    /* (replaces the old outline pulse) */
+    #log .row.newest::after{
+      content:"";
+      position:absolute; left:0; right:0; bottom:-2px; height:2px;
+      background:
+        linear-gradient(90deg,
+          transparent 0%,
+          color-mix(in oklab, var(--c-info) 0%, transparent) 30%,
+          color-mix(in oklab, var(--c-info) 75%, transparent) 50%,
+          color-mix(in oklab, var(--c-info) 0%, transparent) 70%,
+          transparent 100%);
+      opacity:.85;
+      filter: blur(.2px);
+      animation: sheenPulse 1600ms ease-in-out infinite;
+    }
+    @keyframes sheenPulse {
+      0%   { opacity: .10; transform: translateX(-3%); }
+      50%  { opacity: .90; transform: translateX(0%); }
+      100% { opacity: .10; transform: translateX(3%); }
     }
 
     /* ===== THEMES (no external file; switch by body class) ===== */
@@ -114,13 +130,12 @@
       --panel: linear-gradient(180deg, #0e1317, #0b1014);
       --hdr-bg: rgba(11,15,18,.9);
       --fg:#e8eef6; --muted:#9fb0c2;
-      --line:#1e2a34; --sep:#20303b; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419;
+      --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419;
       --time:#b9c7d6;
       --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
-    .t-aurora::before { /* subtle nebula sweep */
-      content:""; position:fixed; inset:-40%;
-      pointer-events:none; mix-blend-mode:soft-light; opacity:.3;
+    .t-aurora::before {
+      content:""; position:fixed; inset:-40%; pointer-events:none; mix-blend-mode:soft-light; opacity:.3;
       background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
       filter: blur(20px);
       animation: neb 14s linear infinite;
@@ -131,7 +146,7 @@
     .t-neon {
       --bg:#070b08; --panel: linear-gradient(180deg,#0a120e,#08100c);
       --hdr-bg: rgba(10,18,14,.9);
-      --fg:#e7f3ea; --muted:#9aa69f; --line:#223429; --sep:#203428; --chip:#0d1611; --chip-b:#244033; --input:#0c1611; --time:#b7c5bb;
+      --fg:#e7f3ea; --muted:#9aa69f; --line:#223429; --chip:#0d1611; --chip-b:#244033; --input:#0c1611; --time:#b7c5bb;
       --c-info:#8fffa0; --c-start:#ffd27a; --c-lead:#baff7e; --c-num:#80ffd1; --c-badge:#ffd2ff; --c-sheet:#9ff2ff; --c-err:#ff8b8b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
     .t-neon::before {
@@ -141,11 +156,11 @@
         repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.028) 23px);
     }
 
-    /* Matrix (iconic code green; fixed the banding) */
+    /* Matrix (iconic code green; subtle background; no banding) */
     .t-matrix {
       --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06);
       --hdr-bg: rgba(6,12,7,.9);
-      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --sep:#113316; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
+      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
       --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
     }
     .t-matrix::before {
@@ -155,7 +170,6 @@
         radial-gradient(1000px 900px at 110% 120%, rgba(0,180,120,.07), transparent 60%),
         repeating-linear-gradient(0deg, rgba(0,255,120,.04) 0 1px, transparent 1px 3px);
     }
-    /* optional faint code-rain stripes (no banding) */
     .t-matrix::after {
       content:""; position:fixed; inset:0; pointer-events:none; opacity:.07;
       background: repeating-linear-gradient(90deg, rgba(0,255,100,.35) 0 1px, transparent 1px 18px);
@@ -165,11 +179,11 @@
     /* Light */
     .t-light {
       --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc;
-      --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --sep:#e9eef3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
+      --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
       --c-info:#2563eb; --c-start:#b45309; --c-lead:#15803d; --c-num:#0e7490; --c-badge:#7c3aed; --c-sheet:#0ea5e9; --c-err:#b91c1c; --c-done:#047857; --ok:#16a34a;
     }
 
-    /* make sure log text stays readable on all themes */
+    /* ensure readability on all themes */
     #log, #log .row, #log .row * { mix-blend-mode: normal; filter: none; color: var(--fg) }
   </style>
 </head>
@@ -268,10 +282,8 @@
     const elapsed = () => t0 ? `${pad2(Math.floor((now()-t0)/3600000))}:${pad2(Math.floor(((now()-t0)%3600000)/60000))}:${pad2(Math.floor(((now()-t0)%60000)/1000))}` : '00:00:00';
 
     function addRow(level, msg, meta = {}) {
-      // filter by type
       if (!filters.get(level)) return;
 
-      // filter by search
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
@@ -284,14 +296,10 @@
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       const badge = document.createElement('span'); badge.className = 'pill-badge';
-      // Autorun/MANUAL tag inference stays as-is
       const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN'
                     : (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
-      if (level === 'start' || source) {
-        badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
-      } else {
-        badge.style.display = 'none';
-      }
+      if (level === 'start' || source) { badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL'); }
+      else { badge.style.display = 'none'; }
       ty.append(lvl, badge);
 
       const m = document.createElement('div');
@@ -301,7 +309,7 @@
       row.append(t, ty, m);
       logEl.appendChild(row);
 
-      // keep "newest" highlight only on the last row
+      // keep "newest" only on the last row (underline sheen shows only here)
       const prev = logEl.querySelector('.row.newest');
       if (prev && prev !== row) prev.classList.remove('newest');
 
@@ -319,7 +327,7 @@
       });
     }
 
-    /* ---------- SSE (client-only; no server changes needed) ---------- */
+    /* ---------- SSE ---------- */
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
 
     es.addEventListener('open', () => {
@@ -333,14 +341,10 @@
       addRow('error', 'stream: error (trying to reconnect…)');
     });
 
-    // keep state so we can collapse noisy tail lines
-    let lastDoneRow = null;
     let seenSheetUrl = '';
-    let seenFinalDone = false;
 
     const handlers = {
       info: (d) => {
-        // suppress redundant "sheet:url …" info line (we will show a proper Sheet line)
         if (d && typeof d.msg === 'string' && d.msg.toLowerCase().startsWith('sheet:url')) return;
         addRow('info', d.msg || '');
       },
@@ -348,10 +352,7 @@
       start: (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
 
       lead: (d) => {
-        // Format as "LAST, FIRST (41 of 82)"
-        // If backend already gave name & indices, honor them; else build best effort.
         let name = d.leadName || d.name || d.msg || '';
-        // normalize common "#41/82 NAME" shape
         const hashMatch = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
         if (hashMatch) {
           const [, idx, tot, nm] = hashMatch;
@@ -369,7 +370,6 @@
       sheet: (d) => {
         if (!d.url) return;
         seenSheetUrl = d.url;
-        // show as a single link line; if we already showed a sheet link with same URL, ignore repeats
         const html = `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>`;
         addRow('sheet', '', { html });
       },
@@ -377,14 +377,10 @@
       error: (d) => addRow('error', d.msg || ''),
 
       done: (d) => {
-        // skip empty noise done lines
         if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
-
         const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
         const msg = `${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`;
-
         addRow('done', msg);
-        seenFinalDone = true;
       },
 
       client: (d) => addRow('client', d.msg || '')
