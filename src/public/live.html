@@ -7,7 +7,7 @@
 
   <style>
     * { box-sizing: border-box }
-    html, body { height: 100%; overflow-x: hidden; } /* stop flicker */
+    html, body { height: 100%; overflow-x: hidden; }
     body {
       margin: 0;
       font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
@@ -31,7 +31,6 @@
     .pill.link { border: none; background: transparent; padding: 0 2px; color: var(--muted); }
     .pill.link strong { color: var(--fg); font-weight: 700 }
     .dot { width:8px; height:8px; border-radius:999px; background: var(--ok) }
-
     #linkLed.ok .dot { animation: dotPulse 1600ms ease-in-out infinite; box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 70%, transparent); }
     @keyframes dotPulse { 0%{transform:scale(1);box-shadow:0 0 0 0 color-mix(in oklab,var(--ok)40%,transparent)}70%{transform:scale(1.15);box-shadow:0 0 0 8px transparent}100%{transform:scale(1);box-shadow:0 0 0 0 transparent} }
 
@@ -63,14 +62,13 @@
     .type { display:none }
     .msg  { white-space: pre-wrap }
 
-    /* Event capsule next to each row */
+    /* Event capsules (colored) */
     .cap {
       justify-self:start;
       display:inline-flex; align-items:center; gap:6px;
       padding:3px 10px; border-radius:999px; font-size:11px; letter-spacing:.04em;
       border:1px solid var(--chip-b); background:var(--chip); text-transform:uppercase; color:var(--muted);
     }
-    /* colored variants (tinted bg + border) */
     .cap.lead    { color: var(--c-lead);    background: color-mix(in oklab, var(--c-lead) 18%, transparent);    border-color: color-mix(in oklab, var(--c-lead) 55%, var(--chip-b)); }
     .cap.numbers { color: var(--c-num);     background: color-mix(in oklab, var(--c-num) 18%, transparent);     border-color: color-mix(in oklab, var(--c-num) 55%, var(--chip-b)); }
     .cap.badge   { color: var(--c-badge);   background: color-mix(in oklab, var(--c-badge) 18%, transparent);   border-color: color-mix(in oklab, var(--c-badge) 55%, var(--chip-b)); }
@@ -208,9 +206,11 @@
       return `${hh}:${mm}:${ss}`;
     };
 
-    // grouping: a <div.group> that holds rows from each lead until the badge
+    // grouping
     let currentGroup = null;
+    let currentPolicyIdx = 1;
     function startGroup() {
+      currentPolicyIdx = 1;
       currentGroup = document.createElement('div');
       currentGroup.className = 'group';
       logEl.appendChild(currentGroup);
@@ -226,6 +226,58 @@
       c.className = `cap ${level}`;
       c.textContent = (labelOverride || level).toUpperCase();
       return c;
+    }
+
+    /* ---------- event text transforms ---------- */
+    const ORD = (n)=>{
+      n = Number(n)||0;
+      const j=n%10,k=n%100;
+      if(j===1 && k!==11) return n+'st';
+      if(j===2 && k!==12) return n+'nd';
+      if(j===3 && k!==13) return n+'rd';
+      return n+'th';
+    };
+
+    function transformInfoText(raw){
+      const s = (raw||'').trim();
+
+      // 1) login: ok  -> ✅Login
+      if (/^login:\s*ok$/i.test(s)) return '✅Login';
+
+      // 2) Go to All Leads -> ➡️All Leads
+      if (/^go to all leads$/i.test(s)) return '➡️All Leads';
+
+      // 3) inbox loaded -> 📬Pack Loaded
+      if (/^inbox loaded$/i.test(s)) return '📬Pack Loaded';
+
+      // 4) setPageSize(100) options=... -> 📬Page Size: Set (100)
+      const mSize = /^setPageSize\((\d+)\)/i.exec(s);
+      if (mSize) return `📬Page Size: Set (${mSize[1]})`;
+
+      // 5) page 1 of ~2 -> 📬Page 1 of 2
+      const mPg = /^page\s+(\d+)\s+of\s+~?(\d+)/i.exec(s);
+      if (mPg) return `📬Page ${mPg[1]} of ${mPg[2]}`;
+
+      // 6) collected 100 links on page 1, total 100 -> 📬Page 1: 100 links collected (total: 100)
+      const mCollect = /^collected\s+(\d+)\s+links\s+on\s+page\s+(\d+),\s*total\s+(\d+)/i.exec(s);
+      if (mCollect) return `📬Page ${mCollect[2]}: ${mCollect[1]} links collected (total: ${mCollect[3]})`;
+
+      // keep "Go to next page" as-is
+      if (/^go to next page$/i.test(s)) return s;
+
+      return raw; // fallback
+    }
+
+    function transformPolicyText(raw){
+      // examples: "lapse: mode=monthly cushion=31d dueDay=05 -> norm=5"
+      const mode = /mode=([a-z]+)/i.exec(raw)?.[1] ?? '';
+      const cushion = /cushion=([\d]+d?)/i.exec(raw)?.[1] ?? '';
+      const due = /dueDay=(\d{1,2})/i.exec(raw)?.[1] ?? '';
+      const modeLabel = mode ? mode[0].toUpperCase()+mode.slice(1) : '';
+      const dueLabel = due ? ORD(Number(due)) : '';
+      const grace = cushion || '';
+      const idx = currentPolicyIdx++;
+      return `Policy ${idx} | Mode: ${modeLabel}, Due Day: ${dueLabel}, Grace: ${grace}`;
     }
 
     function addRow(level, msg, meta = {}) {
@@ -251,16 +303,16 @@
       m.className = 'msg';
       if (meta.html) { m.innerHTML = meta.html; } else { m.textContent = msg; }
 
-      row.append(t, cap, m, ty); /* time | capsule | message | (hidden type) */
+      row.append(t, cap, m, ty);
       hostFor(level).appendChild(row);
 
       if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); }
     }
 
     /* ---------- Running totals (all badges) ---------- */
-    let totalBadged = 0;        // leads that produced a 'badge' event
+    let totalBadged = 0;
     const counts = { star:0, purple:0, orange:0, red:0, white:0 };
-    let packPremiumTotal = 0;   // cumulative across whole pack
+    let packPremiumTotal = 0;
 
     function fmtPct(n, d) { return d ? Math.round((n/d)*100) + '%' : '0%'; }
     function renderStats() {
@@ -295,7 +347,7 @@
       connDot.style.background = 'var(--ok)';
       linkLed.classList.add('ok');
       if (!t0) t0 = now();
-      addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
+      addRow('info', transformInfoText(`stream: connected${jobId ? ` (job ${jobId})` : ''}`));
     });
 
     es.addEventListener('error', () => {
@@ -306,11 +358,21 @@
 
     const handlers = {
       info: (d) => {
-        const s = (d?.msg || '').toString().toLowerCase().trim();
-        if (s.startsWith('lead: opening')) return;
-        if (s.startsWith('sheet:url')) return;
-        if (s.startsWith('lapse:')) { addRow('policy', d.msg || '', { capLabel: 'policy' }); return; }
-        addRow('info', d.msg || '');
+        const raw = (d?.msg || '').toString();
+        const low = raw.toLowerCase().trim();
+
+        // hide noisy
+        if (low.startsWith('lead: opening')) return;
+        if (low.startsWith('sheet:url')) return;
+
+        // policy lines become POLICY capsule with formatted text
+        if (low.startsWith('lapse:')) {
+          addRow('policy', transformPolicyText(raw), { capLabel: 'policy' });
+          return;
+        }
+
+        // otherwise transform the info text per rules
+        addRow('info', transformInfoText(raw));
       },
 
       start:   (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
@@ -320,6 +382,8 @@
         const h = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
         if (h) { const [, i, tot, nm] = h; name = `${nm.trim()} (${i} of ${tot})`; }
         else if (d.index && d.total && name) { name = `${name} (${d.index} of ${d.total})`; }
+        // folder icon, no space before the name
+        name = `📁${name}`;
         addRow('lead', name || (d.msg || ''));
       },
 
