@@ -2,21 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Planet Intake — Live Stream</title>
+  <title>Planet Lead Pull — Live Feed</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
   <style>
+    /* =========================================================
+       THEME SYSTEM (same tokens as login)
+       ========================================================= */
     :root{
-      --bg:#0b0b0c; --fg:#eaeaea; --muted:#a8a8a8; --border:#222;
-      --pill:#1e1f27; --pill-b:#2a2c38;
+      --bg:#0e1116; --panel:#151a22; --border:#2a2f3a; --text:#e7eef7; --muted:#8b98a5;
+      --chip:#2b3544; --pill:#1e1f27; --pill-b:#2a2c38; --accent:#6aa8ff; --shadow:0 20px 50px rgba(0,0,0,.35);
       --ok:#9be7a5; --warn:#ffd27a; --err:#ff7b7b; --info:#9bb7ff; --sheet:#9ff2ff;
-      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9; --accent:#6aa8ff;
+      --lead:#c3f77a; --badge:#f6b4ff; --done:#8ef0c9;
     }
+    .theme--modern{
+      --bg:#0d1118; --panel:#151a22; --border:#2b3441; --chip:#273141; --pill:#1e1f27; --pill-b:#2a2c38;
+      --text:#e7eef7; --muted:#8b98a5; --accent:#6aa8ff;
+    }
+    .theme--neon{
+      --bg:#0a0f0a; --panel:#111911; --border:#2c3a2f; --chip:#162116; --pill:#132018; --pill-b:#223425;
+      --text:#e8f3ea; --muted:#9aa69f; --accent:#8fffa0; --shadow:0 24px 60px rgba(0,0,0,.45);
+      --info:#86b7ff;
+    }
+    .theme--matrix{
+      --bg:#070907; --panel:#0e140f; --border:#18301e; --chip:#132016; --pill:#0f1b12; --pill-b:#1b3421;
+      --text:#e3ffe9; --muted:#95b39c; --accent:#00ff84; --shadow:0 24px 60px rgba(0,0,0,.5);
+      --info:#66ffa1;
+    }
+
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
-    header{position:sticky;top:0;background:rgba(11,11,12,.9);backdrop-filter:blur(6px);
-      border-bottom:1px solid var(--border);padding:10px 12px;z-index:10}
-    .brand{font-weight:700;letter-spacing:.3px}
+
+    header{
+      position:sticky; top:0; z-index:10;
+      background:linear-gradient(180deg, color-mix(in srgb, var(--bg) 80%, #000 20%), var(--bg));
+      border-bottom:1px solid var(--border); padding:10px 12px; box-shadow:var(--shadow);
+    }
+    .top{display:flex; align-items:center; gap:10px}
+    .brand{font-weight:800; letter-spacing:.3px}
+    .ops{font-size:12px; color:var(--muted)}
+    .spacer{flex:1}
+
     .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
     .chip{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border-radius:999px;
       background:var(--pill);border:1px solid var(--pill-b);font-size:12px;cursor:pointer;user-select:none}
@@ -26,43 +53,73 @@
     .dot.lead{background:var(--lead)} .dot.numbers{background:var(--ok)}
     .dot.badge{background:var(--badge)} .dot.sheet{background:var(--sheet)}
     .dot.error{background:var(--err)} .dot.done{background:var(--done)} .dot.client{background:#aaa}
+
     .right{margin-left:auto;display:flex;gap:8px;align-items:center}
     .button{padding:4px 10px;border-radius:8px;border:1px solid var(--pill-b);background:var(--pill);cursor:pointer}
-    .button:hover{border-color:#3a3c48}
-    .input{padding:5px 9px;border-radius:8px;border:1px solid var(--pill-b);background:#0e0f13;color:var(--fg);min-width:220px}
+    .button:hover{border-color:var(--accent)}
+    .input{padding:6px 9px;border-radius:8px;border:1px solid var(--pill-b);background:color-mix(in srgb, var(--bg) 60%, #000 40%);color:var(--text);min-width:230px}
     .legend{margin-top:6px;font-size:12px;color:var(--muted)}
-    .banner{position:sticky;top:64px;background:#201b0b;color:#ffdd99;border-bottom:1px solid #3a2d12;padding:6px 12px;display:none}
+
     .container{padding:12px 12px 20px}
-    .row{display:grid;grid-template-columns:100px 120px 1fr;gap:10px;align-items:start;
-      padding:7px 0;border-bottom:1px dashed #232323}
-    .time{color:#bbb;font-variant-numeric:tabular-nums}
-    .type{display:inline-flex;align-items:center;gap:6px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px}
+    .row{
+      display:grid;grid-template-columns:110px 140px 1fr;gap:10px;align-items:start;
+      padding:7px 0;border-bottom:1px dashed color-mix(in srgb, var(--border) 70%, #000 30%);
+      position:relative;
+    }
+    .time{color:color-mix(in srgb, var(--text) 60%, #9aa 40%);font-variant-numeric:tabular-nums}
+    .type{display:inline-flex;align-items:center;gap:8px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--pill);border:1px solid var(--pill-b);font-size:12px;color:var(--muted)}
     .msg{white-space:pre-wrap;color:#e5e7eb}
+
     .badge-AUTORUN{color:#222;background:#ffd27a;border-color:#ffde9b}
     .badge-MANUAL{color:#d7ebff;background:#243247;border-color:#3d4f6b}
     .level-info{color:var(--info)} .level-start{color:var(--warn);font-weight:600}
     .level-lead{color:var(--lead)} .level-numbers{color:var(--ok)}
     .level-badge{color:var(--badge)} .level-sheet{color:var(--sheet)}
     .level-error{color:var(--err);font-weight:600} .level-done{color:var(--done);font-weight:600}
+
     .stickyNew{position:sticky;bottom:12px;display:none;justify-content:center}
     .stickyNew .button{background:#122845;border-color:#204a86}
-    .muted{color:#909090}
+
+    /* Newest row sheen/pulse – applied to .row.new only */
+    .row.new::after{
+      content:""; position:absolute; inset:0;
+      background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 25%, transparent), transparent);
+      opacity:.0; animation: sheen 1.5s ease-out forwards;
+      pointer-events:none;
+    }
+    @keyframes sheen{
+      0%{ opacity:.0; transform: translateX(-30%) }
+      25%{ opacity:.7 }
+      100%{ opacity:0; transform: translateX(30%) }
+    }
   </style>
 </head>
-<body>
+
+<body class="theme--modern">
   <header>
-    <div class="brand">Planet Intake — Live</div>
+    <div class="top">
+      <div class="brand">OP: PLANET LEAD PULL</div>
+      <div class="ops">Live Feed</div>
+      <div class="spacer"></div>
+
+      <!-- Theme switcher chip -->
+      <div id="themeChip" class="chip" title="Theme: Modern/Neon/Matrix">
+        <span class="dot info"></span>Theme
+      </div>
+    </div>
+
     <div class="toolbar" id="toolbar">
-      <div class="chip" data-key="info" data-on="true"><span class="dot info"></span>info</div>
-      <div class="chip" data-key="start" data-on="true"><span class="dot start"></span>start</div>
-      <div class="chip" data-key="lead" data-on="true"><span class="dot lead"></span>lead</div>
+      <div class="chip" data-key="info"    data-on="true"><span class="dot info"></span>info</div>
+      <div class="chip" data-key="start"   data-on="true"><span class="dot start"></span>start</div>
+      <div class="chip" data-key="lead"    data-on="true"><span class="dot lead"></span>lead</div>
       <div class="chip" data-key="numbers" data-on="true"><span class="dot numbers"></span>numbers</div>
-      <div class="chip" data-key="badge" data-on="true"><span class="dot badge"></span>badge</div>
-      <div class="chip" data-key="sheet" data-on="true"><span class="dot sheet"></span>sheet</div>
-      <div class="chip" data-key="error" data-on="true"><span class="dot error"></span>error</div>
-      <div class="chip" data-key="done" data-on="true"><span class="dot done"></span>done</div>
-      <div class="chip" data-key="client" data-on="false"><span class="dot client"></span>client</div>
+      <div class="chip" data-key="badge"   data-on="true"><span class="dot badge"></span>badge</div>
+      <div class="chip" data-key="sheet"   data-on="true"><span class="dot sheet"></span>sheet</div>
+      <div class="chip" data-key="error"   data-on="true"><span class="dot error"></span>error</div>
+      <div class="chip" data-key="done"    data-on="true"><span class="dot done"></span>done</div>
+      <div class="chip" data-key="client"  data-on="false"><span class="dot client"></span>client</div>
+
       <div class="right">
         <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
         <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>auto-scroll</label>
@@ -70,26 +127,40 @@
         <button id="copyBtn"  class="button" title="Copy last 200 lines">Copy last 200</button>
       </div>
     </div>
-    <div class="legend">Timestamps show elapsed time since run start (first <span class="level-start">start</span> event). “Autorun” vs “Manual” is inferred client-side.</div>
+
+    <div class="legend">Timestamps show elapsed time since first <span class="level-start">start</span>. “Autorun” vs “Manual” is inferred client-side.</div>
   </header>
 
-  <div class="banner" id="banner">Reconnecting…</div>
   <div class="container" id="log"></div>
   <div class="stickyNew" id="stickyNew"><button class="button" onclick="scrollToEnd(true)">New messages ↓</button></div>
 
   <script>
+    // ---------- theme persistence ----------
+    const THEME_KEY = 'plp_theme';
+    const themeClass = { modern:'theme--modern', neon:'theme--neon', matrix:'theme--matrix' };
+    const ordered = ['modern','neon','matrix'];
+    const applyTheme = (name) => {
+      document.body.classList.remove(...Object.values(themeClass));
+      document.body.classList.add(themeClass[name] || themeClass.modern);
+      localStorage.setItem(THEME_KEY, name);
+    };
+    applyTheme(localStorage.getItem(THEME_KEY) || 'modern');
+    document.getElementById('themeChip').addEventListener('click', ()=>{
+      const cur = localStorage.getItem(THEME_KEY) || 'modern';
+      const idx = (ordered.indexOf(cur)+1) % ordered.length;
+      applyTheme(ordered[idx]);
+    });
+
+    // ---------- existing live wiring (preserves your handlers/features) ----------
     const logEl = document.getElementById('log');
     const toolbar = document.getElementById('toolbar');
-    const banner = document.getElementById('banner');
     const stickyNew = document.getElementById('stickyNew');
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
 
-    // --- helpers ------------------------------------------------------------
-    const params = new URLSearchParams(location.search);
-    const jobId = params.get('job') || null;
-
-    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')].map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
+    // filters (same behavior)
+    const filters = new Map([...toolbar.querySelectorAll('.chip[data-key]')]
+      .map(ch => [ch.dataset.key, ch.dataset.on === 'true']));
     toolbar.addEventListener('click', (e)=>{
       const ch = e.target.closest('.chip[data-key]');
       if (!ch) return;
@@ -102,7 +173,7 @@
       maybeShowNew();
     });
 
-    document.getElementById('clearBtn').onclick = ()=>{ logEl.innerHTML = ''; };
+    document.getElementById('clearBtn').onclick = ()=>{ logEl.innerHTML=''; };
     document.getElementById('copyBtn').onclick = ()=>{
       const rows = [...logEl.querySelectorAll('.row')].slice(-200);
       const text = rows.map(r => r.innerText.replace(/\s+\n/g,' ')).join('\n');
@@ -110,18 +181,16 @@
     };
     inputQ.addEventListener('input', ()=> refilter());
 
-    // --- elapsed time baseline ---------------------------------------------
+    // elapsed baseline
     let t0 = null;
     const now = () => performance.now();
     const fmtHMS = (ms) => {
       const s = Math.max(0, Math.floor(ms/1000));
-      const h = Math.floor(s/3600);
-      const m = Math.floor((s%3600)/60);
-      const ss = s%60;
+      const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
       const pad = (n)=> String(n).padStart(2,'0');
       return `${pad(h)}:${pad(m)}:${pad(ss)}`;
     };
-    function elapsed() { return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
+    function elapsed(){ return t0 ? fmtHMS(now() - t0) : '00:00:00'; }
 
     function addRow(level, msg, meta = {}) {
       if (!filters.get(level)) return;
@@ -129,32 +198,31 @@
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
-      const row = document.createElement('div'); row.className = 'row';
+      // remove "new" class from previous newest row
+      const last = logEl.lastElementChild;
+      if (last) last.classList.remove('new');
+
+      const row = document.createElement('div'); row.className = 'row new';
       const t = document.createElement('div');  t.className = 'time'; t.textContent = elapsed();
 
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
-      const badge = document.createElement('span'); badge.className = 'pill muted';
-
+      const badge = document.createElement('span'); badge.className = 'pill';
       const source = (meta.autorun === true || /autorun/i.test(meta.msg||msg)) ? 'AUTORUN' :
                      (meta.manual === true || /manual|run\/full|run:/i.test(meta.msg||msg)) ? 'MANUAL' : '';
       if (level === 'start' || source) {
         badge.textContent = source || (meta.autorun ? 'AUTORUN' : 'MANUAL');
         badge.classList.add(source ? `badge-${source}` : 'badge-MANUAL');
-      } else {
-        badge.style.display = 'none';
-      }
-
+      } else { badge.style.display = 'none'; }
       ty.append(lvl, badge);
 
       const m = document.createElement('div'); m.className = 'msg'; m.textContent = msg;
-
       row.append(t, ty, m);
       logEl.appendChild(row);
 
       if (autoScrollChip.dataset.on === 'true') {
         row.scrollIntoView({behavior:'smooth', block:'end'});
-        stickyNew.style.display = 'none';
+        stickyNew.style.display='none';
       } else {
         maybeShowNew();
       }
@@ -166,41 +234,42 @@
     }
     function scrollToEnd(force=false){
       logEl.scrollTop = logEl.scrollHeight;
-      if (force) stickyNew.style.display = 'none';
+      if (force) stickyNew.style.display='none';
     }
     logEl.addEventListener('scroll', ()=> maybeShowNew());
 
     function refilter(){
+      const q = inputQ.value.trim().toLowerCase();
       [...logEl.children].forEach(row=>{
-        const text = row.innerText.toLowerCase();
-        const q = inputQ.value.trim().toLowerCase();
-        const showText = !q || text.includes(q);
-        row.style.display = showText ? '' : 'none';
+        const levelEl = row.querySelector('[class^="level-"]');
+        const level = levelEl ? levelEl.textContent : 'info';
+        const showType = filters.get(level);
+        const showText = !q || row.innerText.toLowerCase().includes(q);
+        row.style.display = (showType && showText) ? '' : 'none';
       });
     }
 
-    // --- SSE setup (JOB-SCOPED) --------------------------------------------
-    function showBanner(on){ banner.style.display = on ? 'block' : 'none'; }
-
+    // SSE – job-scoped, same URL and handlers you already use :contentReference[oaicite:6]{index=6}
+    const params = new URLSearchParams(location.search);
+    const jobId = params.get('job') || null;
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
+
     es.addEventListener('open', () => {
-      showBanner(false);
       addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
     });
     es.addEventListener('error', () => {
-      showBanner(true);
       addRow('error', 'stream: error (trying to reconnect…)');
     });
 
     const handlers = {
-      info:  (d)=> addRow('info', d.msg || ''),
-      start: (d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
-      lead:  (d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
+      info:(d)=> addRow('info', d.msg || ''),
+      start:(d)=> { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      lead:(d)=> addRow('lead',  d.leadName ? `#${d.index}/${d.total} ${d.leadName}` : (d.msg || '')),
       numbers:(d)=> addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
-      badge: (d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
-      sheet: (d)=> addRow('sheet', d.url || d.msg || ''),
-      error: (d)=> addRow('error', d.msg || ''),
-      done:  (d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
+      badge:(d)=> addRow('badge', `${d.badge || ''} total=${d.totalPremium}`),
+      sheet:(d)=> addRow('sheet', d.url || d.msg || ''),
+      error:(d)=> addRow('error', d.msg || ''),
+      done:(d)=> addRow('done', `processed=${d.processed} in ${d.ms}ms`),
       client:(d)=> addRow('client', d.msg || '')
     };
 
@@ -210,7 +279,7 @@
           const data = JSON.parse(e.data || '{}');
           if (!t0 && type !== 'info') t0 = now();
           (handlers[type] || handlers.info)(data);
-        }catch{ /* ignore */ }
+        }catch{}
       });
     });
   </script>
