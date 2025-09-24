@@ -295,11 +295,12 @@
 
     let policyIdx = 0;
 
+    // returns either a string, or { level, text, html }
     function transformInfo(raw, data){
       const s = (raw||'').trim();
       const low = s.toLowerCase();
 
-      // hide some noisy echos
+      // hide noisy echos
       if (low.startsWith('lead: opening')) return null;
       if (low.startsWith('sheet:url'))     return null;
 
@@ -307,16 +308,19 @@
       if (low.startsWith('stream: connected')) return 'Private channel active';
       if (low.startsWith('client: subscribed')) return 'Client: Token verified, feed granted';
       if (low.startsWith('client: connected'))  return 'Client: Ready';
-      if (low.includes('handshake') || low.includes('auth')) return 'Handshake: Keys rotated & pinned';
 
-      // Login + nav
-      if (low.startsWith('login: ok')) return '✅Login';
+      // Browser/Login rephrasing
+      if (low.startsWith('browser: ready'))  return 'Browser: Ready';
+      if (low.startsWith('login: starting')) return 'Login: Starting';
+      if (low.startsWith('login: ok'))       return '✅Login';
+
+      // nav
       if (/\bgo to all leads\b/i.test(s)) return '➡️All Leads';
+      if (/^go to next page$/i.test(s))  return '➡️Go to next page';
 
       // mailbox/pack events
       const mSize = /setPageSize\((\d+)\)/i.exec(s);
       if (mSize) return `📬Page Size: Set (${mSize[1]})`;
-
       if (/inbox loaded/i.test(s)) return '📬Pack Loaded';
 
       const mPageOf = /page\s+(\d+)\s+of\s+~?(\d+)/i.exec(s);
@@ -324,8 +328,6 @@
 
       const mCollected = /collected\s+(\d+)\s+links on page\s+(\d+),\s*total\s+(\d+)/i.exec(s);
       if (mCollected) return `📬Page ${mCollected[2]}: ${mCollected[1]} links collected (total: ${mCollected[3]})`;
-
-      if (/^go to next page$/i.test(s)) return '➡️Go to next page';
 
       // POLICY pretty print from "lapse: mode=... cushion=.. dueDay=.. -> norm=.."
       if (low.startsWith('lapse:')) {
@@ -336,8 +338,13 @@
 
         const isLapsed = /lapsed/i.test(s) || data?.isLapsed === true;
         const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(due))}, Grace: ${cushion}d`;
-        return isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
+        const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
+
+        return { level: 'policy', text, html: isLapsed };
       }
+
+      // Session done line polish
+      if (/^session:\s*done\b/i.test(s)) return 'Session: Done…';
 
       return s; // default passthrough
     }
@@ -362,8 +369,16 @@
       info: (d) => {
         const out = transformInfo(d?.msg || '', d);
         if (out == null) return;
-        const useHtml = /<span\b/i.test(out); // lapsed styling uses span
-        addRow('info', out, useHtml ? {html: out} : {});
+
+        if (typeof out === 'string') {
+          const useHtml = /<span\b/i.test(out);
+          addRow('info', out, useHtml ? { html: out } : {});
+          return;
+        }
+
+        // object form: { level, text, html }
+        const level = out.level || 'info';
+        addRow(level, out.text, out.html ? { html: out.text, capLabel: level } : { capLabel: level });
       },
 
       start: (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
