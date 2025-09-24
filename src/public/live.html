@@ -112,7 +112,7 @@
 
     .t-matrix {
       --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06); --hdr-bg: rgba(6,12,7,.9);
-      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
+      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3d1; --input:#0a150b; --time:#99c699;
       --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
     }
     .t-matrix::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.2;
@@ -144,7 +144,7 @@
       <div class="stats" id="stats">
         <span id="badgeRun">⭐ 0 (0%) ⚪ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%)</span>
         <span class="sep">|</span>
-        <span id="premRun">$0.00 total</span>
+        <span id="premRun">$0.00 total pack value</span>
       </div>
 
       <div class="spacer"></div>
@@ -269,7 +269,7 @@
         `🟣 ${counts.purple} (${fmtPct(counts.purple,totalBadged)}) ` +
         `🟠 ${counts.orange} (${fmtPct(counts.orange,totalBadged)}) ` +
         `🔴 ${counts.red} (${fmtPct(counts.red,totalBadged)})`;
-      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total`;
+      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total pack value`;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -295,7 +295,7 @@
 
     let policyIdx = 0;
 
-    // returns either a string, or { level, text, html }
+    // returns string OR { level, text, html }
     function transformInfo(raw, data){
       const s = (raw||'').trim();
       const low = s.toLowerCase();
@@ -305,7 +305,7 @@
       if (low.startsWith('sheet:url'))     return null;
 
       // secure/privacy tone for early lines
-      if (low.startsWith('stream: connected')) return 'Private channel active';
+      if (low.startsWith('stream: connected'))  return 'Private channel active';
       if (low.startsWith('client: subscribed')) return 'Client: Token verified, feed granted';
       if (low.startsWith('client: connected'))  return 'Client: Ready';
 
@@ -336,15 +336,26 @@
         const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
         const due     = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
 
-        const isLapsed = /lapsed/i.test(s) || data?.isLapsed === true;
+        // Heuristics for lapsed status
+        const isLapsed =
+          /\blapsed\b/i.test(s) ||
+          /\bstatus\s*=\s*lapsed\b/i.test(s) ||
+          /\bpast\s*due\b/i.test(s) ||
+          /\boverdue\b/i.test(s) ||
+          data?.isLapsed === true;
+
         const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(due))}, Grace: ${cushion}d`;
         const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
 
         return { level: 'policy', text, html: isLapsed };
       }
 
-      // Session done line polish
-      if (/^session:\s*done\b/i.test(s)) return 'Session: Done…';
+      // Session done — keep the tail (e.g., job id)
+      const mDone = /^session:\s*done\b(.*)$/i.exec(s);
+      if (mDone) {
+        const tail = (mDone[1] || '').trim(); // e.g. "(job xyz)"
+        return `Session: Done${tail ? ' ' + tail : ''}`;
+      }
 
       return s; // default passthrough
     }
