@@ -31,180 +31,113 @@
     .ops   { font-size: 12px; color: var(--muted) }
     .spacer{ flex:1 }
 
-    .pill {
-      display:inline-flex; align-items:center; gap:6px;
-      padding:6px 10px; border-radius: 10px; font-size: 12px;
-      border:1px solid var(--chip-b); background: var(--chip);
-      user-select: none;
-    }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius: 10px; font-size: 12px; border:1px solid var(--chip-b); background: var(--chip); user-select: none; }
     /* "Connected" look (no border, transparent, right side) */
-    .pill.link {
-      border: none; background: transparent; padding: 0 2px;
-      color: var(--muted);
-    }
+    .pill.link { border: none; background: transparent; padding: 0 2px; color: var(--muted); }
     .pill.link strong { color: var(--fg); font-weight: 700 }
     .dot { width:8px; height:8px; border-radius:999px; background: var(--ok) }
 
     /* pulsing link indicator when connected */
-    #linkLed.ok .dot {
-      animation: dotPulse 1600ms ease-in-out infinite;
-      box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 70%, transparent);
-    }
-    @keyframes dotPulse {
-      0%   { transform: scale(1);   box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 40%, transparent); }
-      70%  { transform: scale(1.15); box-shadow: 0 0 0 8px transparent; }
-      100% { transform: scale(1);   box-shadow: 0 0 0 0 transparent; }
-    }
+    #linkLed.ok .dot { animation: dotPulse 1600ms ease-in-out infinite; box-shadow: 0 0 0 0 color-mix(in oklab, var(--ok) 70%, transparent); }
+    @keyframes dotPulse { 0%{transform:scale(1);box-shadow:0 0 0 0 color-mix(in oklab,var(--ok)40%,transparent)}70%{transform:scale(1.15);box-shadow:0 0 0 8px transparent}100%{transform:scale(1);box-shadow:0 0 0 0 transparent} }
 
-    .toolbar {
-      display:flex; flex-wrap: wrap; gap:8px; align-items:center;
-      padding: 0 12px 10px 12px;
-    }
-
-    .input {
-      padding:8px 10px; min-width:280px;
-      border-radius:8px; border:1px solid var(--chip-b); background: var(--input);
-      color:var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-    }
+    .toolbar { display:flex; flex-wrap: wrap; gap:8px; align-items:center; padding: 0 12px 10px 12px; }
+    .input { padding:8px 10px; min-width:280px; border-radius:8px; border:1px solid var(--chip-b); background: var(--input); color:var(--fg); font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
     .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; color:var(--fg); }
 
     /* Single chip style used only for Auto-scroll (no forced caps). */
-    .chip {
-      display:inline-flex; align-items:center; gap:6px;
-      padding:5px 10px; border-radius:8px; font-size:12px;
-      border:1px solid var(--chip-b); background:var(--chip);
-      text-transform:none; letter-spacing:.02em; cursor:pointer;
-    }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; font-size:12px; border:1px solid var(--chip-b); background:var(--chip); text-transform:none; letter-spacing:.02em; cursor:pointer; }
     .chip .dot { width:8px; height:8px; border-radius:999px; }
     .chip .dot.info { background: var(--c-info) }
 
-    /* Running badge totals (now lives in the toolbar, left) */
-    .stats {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      font-size: 12px; color: var(--muted);
-      display:flex; align-items:center; gap:12px;
-    }
+    /* Running badge totals (toolbar left) */
+    .stats { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-size:12px; color: var(--muted); display:flex; align-items:center; gap:12px; }
     .stats .sep { opacity:.35 }
     .stats strong { color: var(--fg); font-weight:600 }
 
     /* log area */
     .wrap { padding: 12px }
-    .panel {
-      /* remove outer border to avoid double line at bottom */
-      border:none; border-radius:12px;
-      background: var(--panel);
-      box-shadow: none;
-      padding: 8px 12px;
-      min-height: calc(100dvh - 160px);
-    }
+    .panel { border:none; border-radius:12px; background: var(--panel); box-shadow: none; padding: 8px 12px; min-height: calc(100dvh - 160px); }
 
-    /* Group wrapper for each lead run: lead -> ... -> badge
-       More visible: faint outline + soft halo */
+    /* Group wrapper for each lead run: lead -> ... -> badge */
     .group {
-      margin: 6px 0 12px;
-      padding: 4px 10px 8px 10px;
-      border-radius: 12px;
+      margin: 6px 0 12px; padding: 4px 10px 8px 10px; border-radius: 12px;
       border: 1px solid color-mix(in oklab, var(--line) 90%, transparent);
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.02) 35%, transparent 100%);
+      background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.02) 35%, transparent 100%);
       box-shadow: 0 0 0 1px rgba(255,255,255,.015) inset, 0 6px 20px rgba(0,0,0,.25);
     }
 
-    #log .row {
-      position: relative;
-      display:grid; grid-template-columns: 98px 1fr; gap:12px; align-items:start;
-      padding:10px 0;
-    }
-    .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
-    .type { display:none } /* kept hidden for potential filtering */
+    /* rows: time | capsule | message */
+    #log .row { position: relative; display:grid; grid-template-columns: 98px 110px 1fr; gap:12px; align-items:start; padding:10px 0; }
+    .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
+    .type { display:none } /* hidden spare */
     .msg  { white-space: pre-wrap }
+
+    /* Event capsule next to each row */
+    .cap {
+      justify-self:start;
+      display:inline-flex; align-items:center; gap:6px;
+      padding:3px 10px; border-radius:999px; font-size:11px; letter-spacing:.04em;
+      border:1px solid var(--chip-b); background:var(--chip); text-transform:uppercase; color:var(--muted);
+    }
+    .cap.lead    { color: var(--c-lead) }
+    .cap.numbers { color: var(--c-num)  }
+    .cap.badge   { color: var(--c-badge)}
+    .cap.sheet   { color: var(--c-sheet)}
+    .cap.info    { color: var(--c-info) }
+    .cap.error   { color: var(--c-err)  }
+    .cap.done    { color: var(--c-done) }
 
     a.link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
     a.link:hover { text-decoration: underline }
 
-    /* --------- Newest row sheen UNDERLINE (pulse) --------- */
+    /* Newest row sheen underline */
     #log .row.newest::after{
-      content:"";
-      position:absolute; left:0; right:0; bottom:-2px; height:2px;
-      background:
-        linear-gradient(90deg,
-          transparent 0%,
-          color-mix(in oklab, var(--c-info) 0%, transparent) 30%,
-          color-mix(in oklab, var(--c-info) 75%, transparent) 50%,
-          color-mix(in oklab, var(--c-info) 0%, transparent) 70%,
-          transparent 100%);
-      opacity:.85;
-      filter: blur(.2px);
-      animation: sheenPulse 1600ms ease-in-out infinite;
+      content:""; position:absolute; left:0; right:0; bottom:-2px; height:2px;
+      background: linear-gradient(90deg, transparent 0%, color-mix(in oklab, var(--c-info) 0%, transparent) 30%, color-mix(in oklab, var(--c-info) 75%, transparent) 50%, color-mix(in oklab, var(--c-info) 0%, transparent) 70%, transparent 100%);
+      opacity:.85; filter: blur(.2px); animation: sheenPulse 1600ms ease-in-out infinite;
     }
-    @keyframes sheenPulse {
-      0%   { opacity: .10; transform: translateX(-3%); }
-      50%  { opacity: .90; transform: translateX(0%); }
-      100% { opacity: .10; transform: translateX(3%); }
-    }
+    @keyframes sheenPulse { 0%{opacity:.10;transform:translateX(-3%)}50%{opacity:.90;transform:translateX(0%)}100%{opacity:.10;transform:translateX(3%)} }
 
     /* ===== THEMES (switch by body class) ===== */
-    /* Aurora: modern dark/blue with faint spinning light */
     .t-aurora {
-      --bg: #0b0f12;
-      --panel: linear-gradient(180deg, #0e1317, #0b1014);
-      --hdr-bg: rgba(11,15,18,.9);
-      --fg:#e8eef6; --muted:#9fb0c2;
-      --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419;
-      --time:#b9c7d6;
+      --bg:#0b0f12; --panel: linear-gradient(180deg,#0e1317,#0b1014); --hdr-bg: rgba(11,15,18,.9);
+      --fg:#e8eef6; --muted:#9fb0c2; --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419; --time:#b9c7d6;
       --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
     .t-aurora::before {
       content:""; position:fixed; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.30;
       background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
-      filter: blur(22px);
-      transform: scale(1.35);
-      animation: neb 14s linear infinite;
+      filter: blur(22px); transform: scale(1.35); animation: neb 14s linear infinite;
     }
     @keyframes neb { to { transform: scale(1.35) rotate(360deg) } }
 
-    /* Neon HUD */
     .t-neon {
-      --bg:#070b08; --panel: linear-gradient(180deg,#0a120e,#08100c);
-      --hdr-bg: rgba(10,18,14,.9);
+      --bg:#070b08; --panel: linear-gradient(180deg,#0a120e,#08100c); --hdr-bg: rgba(10,18,14,.9);
       --fg:#e7f3ea; --muted:#9aa69f; --line:#223429; --chip:#0d1611; --chip-b:#244033; --input:#0c1611; --time:#b7c5bb;
       --c-info:#8fffa0; --c-start:#ffd27a; --c-lead:#baff7e; --c-num:#80ffd1; --c-badge:#ffd2ff; --c-sheet:#9ff2ff; --c-err:#ff8b8b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
     .t-neon::before {
       content:""; position:fixed; inset:0; pointer-events:none; opacity:.35;
-      background:
-        linear-gradient(180deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0/100% 3px,
-        repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.028) 23px);
+      background: linear-gradient(180deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0/100% 3px, repeating-linear-gradient(0deg, transparent 0, transparent 22px, rgba(255,255,255,.028) 23px);
     }
 
-    /* Matrix */
     .t-matrix {
-      --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06);
-      --hdr-bg: rgba(6,12,7,.9);
+      --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06); --hdr-bg: rgba(6,12,7,.9);
       --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
       --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
     }
     .t-matrix::before {
       content:""; position:fixed; inset:0; pointer-events:none; opacity:.2;
-      background:
-        radial-gradient(1200px 800px at 15% -10%, rgba(0,255,120,.10), transparent 60%),
-        radial-gradient(1000px 900px at 110% 120%, rgba(0,180,120,.07), transparent 60%),
-        repeating-linear-gradient(0deg, rgba(0,255,120,.04) 0 1px, transparent 1px 3px);
+      background: radial-gradient(1200px 800px at 15% -10%, rgba(0,255,120,.10), transparent 60%), radial-gradient(1000px 900px at 110% 120%, rgba(0,180,120,.07), transparent 60%), repeating-linear-gradient(0deg, rgba(0,255,120,.04) 0 1px, transparent 1px 3px);
     }
-    .t-matrix::after {
-      content:""; position:fixed; inset:0; pointer-events:none; opacity:.07;
-      background: repeating-linear-gradient(90deg, rgba(0,255,100,.35) 0 1px, transparent 1px 18px);
-      mix-blend-mode: soft-light;
-    }
+    .t-matrix::after { content:""; position:fixed; inset:0; pointer-events:none; opacity:.07; background: repeating-linear-gradient(90deg, rgba(0,255,100,.35) 0 1px, transparent 1px 18px); mix-blend-mode: soft-light; }
 
-    /* Light */
     .t-light {
-      --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc;
-      --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
+      --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc; --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
       --c-info:#2563eb; --c-start:#b45309; --c-lead:#15803d; --c-num:#0e7490; --c-badge:#7c3aed; --c-sheet:#0ea5e9; --c-err:#b91c1c; --c-done:#047857; --ok:#16a34a;
     }
 
-    /* ensure readability on all themes */
     #log, #log .row, #log .row * { mix-blend-mode: normal; filter: none; color: var(--fg) }
   </style>
 </head>
@@ -216,14 +149,11 @@
       <div class="ops">Live Feed</div>
       <div class="spacer"></div>
 
-      <!-- moved right; no border; says Connected -->
       <span id="linkLed" class="pill link" title="connection">
         <span class="dot" id="connDot" aria-hidden="true"></span> <strong>Connected</strong>
       </span>
     </div>
 
-    <!-- Toolbar: stats (left) + search + Clear + Auto-scroll (right).
-         Event key removed. -->
     <div class="toolbar" id="toolbar">
       <div class="stats" id="stats">
         <span id="badgeRun">⭐ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%) ⚪ 0 (0%)</span>
@@ -234,9 +164,7 @@
       <div class="spacer"></div>
       <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
       <button id="clearBtn" class="btn">Clear</button>
-      <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages">
-        <span class="dot info"></span>Auto-scroll
-      </label>
+      <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>Auto-scroll</label>
     </div>
   </header>
 
@@ -306,11 +234,18 @@
       return logEl;
     }
 
+    function makeCap(level){
+      const c = document.createElement('span');
+      c.className = `cap ${level}`;
+      c.textContent = level;
+      return c;
+    }
+
     function addRow(level, msg, meta = {}) {
       const q = inputQ.value.trim().toLowerCase();
       if (q && !(`${level} ${JSON.stringify(meta)} ${msg}`.toLowerCase().includes(q))) return;
 
-      // remove "newest" from the previous last row BEFORE appending the new one
+      // remove "newest" from previous last row
       const wasNewest = logEl.querySelector('.row.newest');
       if (wasNewest) wasNewest.classList.remove('newest');
 
@@ -320,16 +255,18 @@
       const t = document.createElement('div');
       t.className = 'time'; t.textContent = elapsed();
 
-      // hidden type span (kept for potential future use)
+      // hidden type (kept for future use)
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
       ty.append(lvl);
+
+      const cap = makeCap(level);
 
       const m = document.createElement('div');
       m.className = 'msg';
       if (meta.html) { m.innerHTML = meta.html; } else { m.textContent = msg; }
 
-      row.append(t, m, ty); /* time | message | (hidden type) */
+      row.append(t, cap, m, ty); /* time | capsule | message | (hidden type) */
       hostFor(level).appendChild(row);
 
       if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); }
@@ -377,8 +314,16 @@
     });
 
     const handlers = {
-      info:    (d) => { if (d && typeof d.msg === 'string' && d.msg.toLowerCase().startsWith('sheet:url')) return; addRow('info', d.msg || ''); },
+      info: (d) => {
+        const s = (d?.msg || '').toString().toLowerCase().trim();
+        // hide the noisy "lead: opening" info event and sheet:url echo
+        if (s.startsWith('lead: opening')) return;
+        if (s.startsWith('sheet:url')) return;
+        addRow('info', d.msg || '');
+      },
+
       start:   (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+
       lead:    (d) => {
         let name = d.leadName || d.name || d.msg || '';
         const h = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
@@ -386,16 +331,26 @@
         else if (d.index && d.total && name) { name = `${name} (${d.index} of ${d.total})`; }
         addRow('lead', name || (d.msg || ''));
       },
-      numbers: (d) => addRow('numbers', `listed=${d.listedCount} extras=${d.extraCount} flagged=${d.flaggedCount}`),
+
+      numbers: (d) => {
+        const msg = `Listed: ${d.listedCount}  Extras: ${d.extraCount}  Flagged: ${d.flaggedCount}`;
+        addRow('numbers', msg);
+      },
+
       badge:   (d) => {
         totalBadged += 1;
         counts[classifyBadge(d.badge)] = (counts[classifyBadge(d.badge)] || 0) + 1;
         if (typeof d.totalPremium === 'number') premiumTotal = d.totalPremium;
         renderStats();
-        addRow('badge', `${d.badge || ''} total=${typeof d.totalPremium === 'number' ? d.totalPremium : premiumTotal}`);
+
+        const amt = typeof d.totalPremium === 'number' ? d.totalPremium : premiumTotal;
+        const msg = `Total Premium: ${Number(amt || 0).toLocaleString(undefined,{style:'currency',currency:'USD'})}`;
+        addRow('badge', msg);
+
         // end the current group after badge
         currentGroup = null;
       },
+
       sheet:   (d) => { if (!d.url) return; addRow('sheet', '', { html: `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>` }); },
       error:   (d) => addRow('error', d.msg || ''),
       done:    (d) => {
