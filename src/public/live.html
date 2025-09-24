@@ -7,7 +7,7 @@
 
   <style>
     * { box-sizing: border-box }
-    html, body { height: 100%; overflow-x: hidden; } /* stop flicker */
+    html, body { height: 100%; overflow-x: hidden; }
     body {
       margin: 0;
       font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
@@ -63,14 +63,13 @@
     .type { display:none }
     .msg  { white-space: pre-wrap }
 
-    /* Event capsule next to each row */
     .cap {
       justify-self:start;
       display:inline-flex; align-items:center; gap:6px;
       padding:3px 10px; border-radius:999px; font-size:11px; letter-spacing:.04em;
       border:1px solid var(--chip-b); background:var(--chip); text-transform:uppercase; color:var(--muted);
     }
-    /* colored variants (tinted bg + border) */
+    /* tinted variants */
     .cap.lead    { color: var(--c-lead);    background: color-mix(in oklab, var(--c-lead) 18%, transparent);    border-color: color-mix(in oklab, var(--c-lead) 55%, var(--chip-b)); }
     .cap.numbers { color: var(--c-num);     background: color-mix(in oklab, var(--c-num) 18%, transparent);     border-color: color-mix(in oklab, var(--c-num) 55%, var(--chip-b)); }
     .cap.badge   { color: var(--c-badge);   background: color-mix(in oklab, var(--c-badge) 18%, transparent);   border-color: color-mix(in oklab, var(--c-badge) 55%, var(--chip-b)); }
@@ -113,7 +112,7 @@
 
     .t-matrix {
       --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06); --hdr-bg: rgba(6,12,7,.9);
-      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
+      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3d1; --input:#0a150b; --time:#99c699;
       --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
     }
     .t-matrix::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.2;
@@ -145,7 +144,7 @@
       <div class="stats" id="stats">
         <span id="badgeRun">⭐ 0 (0%) ⚪ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%)</span>
         <span class="sep">|</span>
-        <span id="premRun">$0.00 total</span>
+        <span id="premRun">$0.00 total pack value</span>
       </div>
 
       <div class="spacer"></div>
@@ -173,7 +172,7 @@
     const badgeRunEl = document.getElementById('badgeRun');
     const premRunEl  = document.getElementById('premRun');
 
-    /* ---------- simple text filter + controls ---------- */
+    /* ---------- filter + controls ---------- */
     autoScrollChip.addEventListener('click', ()=> {
       autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false' : 'true';
     });
@@ -208,7 +207,7 @@
       return `${hh}:${mm}:${ss}`;
     };
 
-    // grouping: a <div.group> that holds rows from each lead until the badge
+    // grouping per lead
     let currentGroup = null;
     function startGroup() {
       currentGroup = document.createElement('div');
@@ -216,7 +215,7 @@
       logEl.appendChild(currentGroup);
     }
     function hostFor(level){
-      if (level === 'lead') { startGroup(); return currentGroup; }
+      if (level === 'lead') { startGroup(); policyIdx = 0; return currentGroup; }
       if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info' || level === 'policy')) return currentGroup;
       return logEl;
     }
@@ -251,16 +250,16 @@
       m.className = 'msg';
       if (meta.html) { m.innerHTML = meta.html; } else { m.textContent = msg; }
 
-      row.append(t, cap, m, ty); /* time | capsule | message | (hidden type) */
+      row.append(t, cap, m, ty);
       hostFor(level).appendChild(row);
 
       if (autoScrollChip.dataset.on === 'true') { row.scrollIntoView({behavior:'smooth', block:'end'}); }
     }
 
-    /* ---------- Running totals (all badges) ---------- */
-    let totalBadged = 0;        // leads that produced a 'badge' event
+    /* ---------- Running totals ---------- */
+    let totalBadged = 0;
     const counts = { star:0, purple:0, orange:0, red:0, white:0 };
-    let packPremiumTotal = 0;   // cumulative across whole pack
+    let packPremiumTotal = 0;
 
     function fmtPct(n, d) { return d ? Math.round((n/d)*100) + '%' : '0%'; }
     function renderStats() {
@@ -270,7 +269,7 @@
         `🟣 ${counts.purple} (${fmtPct(counts.purple,totalBadged)}) ` +
         `🟠 ${counts.orange} (${fmtPct(counts.orange,totalBadged)}) ` +
         `🔴 ${counts.red} (${fmtPct(counts.red,totalBadged)})`;
-      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total`;
+      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total pack value`;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -288,6 +287,79 @@
              kind === 'red' ? '🔴' : '⚪';
     }
 
+    /* ---------- text transforms ---------- */
+    const ord = n => {
+      const s = ["th","st","nd","rd"], v = n%100;
+      return n + (s[(v-20)%10] || s[v] || s[0]);
+    };
+
+    let policyIdx = 0;
+
+    // returns string OR { level, text, html }
+    function transformInfo(raw, data){
+      const s = (raw||'').trim();
+      const low = s.toLowerCase();
+
+      // hide noisy echos
+      if (low.startsWith('lead: opening')) return null;
+      if (low.startsWith('sheet:url'))     return null;
+
+      // secure/privacy tone for early lines
+      if (low.startsWith('stream: connected'))  return 'Private channel active';
+      if (low.startsWith('client: subscribed')) return 'Client: Token verified, feed granted';
+      if (low.startsWith('client: connected'))  return 'Client: Ready';
+
+      // Browser/Login rephrasing
+      if (low.startsWith('browser: ready'))  return 'Browser: Ready';
+      if (low.startsWith('login: starting')) return 'Login: Starting';
+      if (low.startsWith('login: ok'))       return '✅Login';
+
+      // nav
+      if (/\bgo to all leads\b/i.test(s)) return '➡️All Leads';
+      if (/^go to next page$/i.test(s))  return '➡️Go to next page';
+
+      // mailbox/pack events
+      const mSize = /setPageSize\((\d+)\)/i.exec(s);
+      if (mSize) return `📬Page Size: Set (${mSize[1]})`;
+      if (/inbox loaded/i.test(s)) return '📬Pack Loaded';
+
+      const mPageOf = /page\s+(\d+)\s+of\s+~?(\d+)/i.exec(s);
+      if (mPageOf) return `📬Page ${mPageOf[1]} of ${mPageOf[2]}`;
+
+      const mCollected = /collected\s+(\d+)\s+links on page\s+(\d+),\s*total\s+(\d+)/i.exec(s);
+      if (mCollected) return `📬Page ${mCollected[2]}: ${mCollected[1]} links collected (total: ${mCollected[3]})`;
+
+      // POLICY pretty print from "lapse: mode=... cushion=.. dueDay=.. -> norm=.."
+      if (low.startsWith('lapse:')) {
+        policyIdx += 1;
+        const mode    = /mode\s*=\s*([a-z]+)/i.exec(s)?.[1] || 'monthly';
+        const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
+        const due     = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
+
+        // Heuristics for lapsed status
+        const isLapsed =
+          /\blapsed\b/i.test(s) ||
+          /\bstatus\s*=\s*lapsed\b/i.test(s) ||
+          /\bpast\s*due\b/i.test(s) ||
+          /\boverdue\b/i.test(s) ||
+          data?.isLapsed === true;
+
+        const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(due))}, Grace: ${cushion}d`;
+        const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
+
+        return { level: 'policy', text, html: isLapsed };
+      }
+
+      // Session done — keep the tail (e.g., job id)
+      const mDone = /^session:\s*done\b(.*)$/i.exec(s);
+      if (mDone) {
+        const tail = (mDone[1] || '').trim(); // e.g. "(job xyz)"
+        return `Session: Done${tail ? ' ' + tail : ''}`;
+      }
+
+      return s; // default passthrough
+    }
+
     /* ---------- SSE ---------- */
     const es = new EventSource(jobId ? `/events?jobId=${encodeURIComponent(jobId)}` : '/events');
 
@@ -295,7 +367,7 @@
       connDot.style.background = 'var(--ok)';
       linkLed.classList.add('ok');
       if (!t0) t0 = now();
-      addRow('info', `stream: connected${jobId ? ` (job ${jobId})` : ''}`);
+      addRow('info', 'Private channel active');
     });
 
     es.addEventListener('error', () => {
@@ -306,21 +378,29 @@
 
     const handlers = {
       info: (d) => {
-        const s = (d?.msg || '').toString().toLowerCase().trim();
-        if (s.startsWith('lead: opening')) return;
-        if (s.startsWith('sheet:url')) return;
-        if (s.startsWith('lapse:')) { addRow('policy', d.msg || '', { capLabel: 'policy' }); return; }
-        addRow('info', d.msg || '');
+        const out = transformInfo(d?.msg || '', d);
+        if (out == null) return;
+
+        if (typeof out === 'string') {
+          const useHtml = /<span\b/i.test(out);
+          addRow('info', out, useHtml ? { html: out } : {});
+          return;
+        }
+
+        // object form: { level, text, html }
+        const level = out.level || 'info';
+        addRow(level, out.text, out.html ? { html: out.text, capLabel: level } : { capLabel: level });
       },
 
-      start:   (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
+      start: (d) => { if (!t0) t0 = now(); addRow('start', `max=${d.maxLeads ?? ''}`, d); },
 
-      lead:    (d) => {
+      lead: (d) => {
         let name = d.leadName || d.name || d.msg || '';
         const h = /^#?(\d+)\s*\/\s*(\d+)\s+(.+)$/i.exec(name);
         if (h) { const [, i, tot, nm] = h; name = `${nm.trim()} (${i} of ${tot})`; }
         else if (d.index && d.total && name) { name = `${name} (${d.index} of ${d.total})`; }
-        addRow('lead', name || (d.msg || ''));
+        addRow('lead', `📁${name || (d.msg || '')}`);
+        policyIdx = 0; // reset for this lead’s policy block(s)
       },
 
       numbers: (d) => {
@@ -328,7 +408,7 @@
         addRow('numbers', msg);
       },
 
-      badge:   (d) => {
+      badge: (d) => {
         totalBadged += 1;
         const kind = classifyBadge(d.badge);
         counts[kind] = (counts[kind] || 0) + 1;
@@ -343,14 +423,20 @@
         currentGroup = null;
       },
 
-      sheet:   (d) => { if (!d.url) return; addRow('sheet', '', { html: `sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>` }); },
-      error:   (d) => addRow('error', d.msg || ''),
-      done:    (d) => {
+      sheet: (d) => {
+        if (!d.url) return;
+        addRow('sheet', '', { html: `📊sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>` });
+      },
+
+      error: (d) => addRow('error', d.msg || ''),
+
+      done: (d) => {
         if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
         const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
-        addRow('done', `${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`);
+        addRow('done', `🏁${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`);
         currentGroup = null;
       },
+
       client:  (d) => addRow('client', d.msg || '')
     };
 
