@@ -40,7 +40,6 @@
     .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; color:var(--fg); }
 
     .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; font-size:12px; border:1px solid var(--chip-b); background:var(--chip); text-transform:none; letter-spacing:.02em; cursor:pointer; }
-    .chip .dot { width:8px; height:8px; border-radius:999px; }
     .chip .dot.info { background: var(--c-info) }
 
     .stats { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-size:12px; color: var(--muted); display:flex; align-items:center; gap:12px; }
@@ -69,15 +68,14 @@
       padding:3px 10px; border-radius:999px; font-size:11px; letter-spacing:.04em;
       border:1px solid var(--chip-b); background:var(--chip); text-transform:uppercase; color:var(--muted);
     }
-    /* tinted variants */
-    .cap.lead    { color: var(--c-lead);    background: color-mix(in oklab, var(--c-lead) 18%, transparent);    border-color: color-mix(in oklab, var(--c-lead) 55%, var(--chip-b)); }
-    .cap.numbers { color: var(--c-num);     background: color-mix(in oklab, var(--c-num) 18%, transparent);     border-color: color-mix(in oklab, var(--c-num) 55%, var(--chip-b)); }
-    .cap.badge   { color: var(--c-badge);   background: color-mix(in oklab, var(--c-badge) 18%, transparent);   border-color: color-mix(in oklab, var(--c-badge) 55%, var(--chip-b)); }
-    .cap.sheet   { color: var(--c-sheet);   background: color-mix(in oklab, var(--c-sheet) 18%, transparent);   border-color: color-mix(in oklab, var(--c-sheet) 55%, var(--chip-b)); }
-    .cap.info    { color: var(--c-info);    background: color-mix(in oklab, var(--c-info) 18%, transparent);    border-color: color-mix(in oklab, var(--c-info) 55%, var(--chip-b)); }
-    .cap.policy  { color: var(--c-info);    background: color-mix(in oklab, var(--c-info) 18%, transparent);    border-color: color-mix(in oklab, var(--c-info) 55%, var(--chip-b)); }
-    .cap.error   { color: var(--c-err);     background: color-mix(in oklab, var(--c-err) 18%, transparent);     border-color: color-mix(in oklab, var(--c-err) 55%, var(--chip-b)); }
-    .cap.done    { color: var(--c-done);    background: color-mix(in oklab, var(--c-done) 18%, transparent);    border-color: color-mix(in oklab, var(--c-done) 55%, var(--chip-b)); }
+    .cap.lead    { color: var(--c-lead);  background: color-mix(in oklab, var(--c-lead) 18%, transparent);  border-color: color-mix(in oklab, var(--c-lead) 55%, var(--chip-b)); }
+    .cap.numbers { color: var(--c-num);   background: color-mix(in oklab, var(--c-num) 18%, transparent);   border-color: color-mix(in oklab, var(--c-num) 55%, var(--chip-b)); }
+    .cap.badge   { color: var(--c-badge); background: color-mix(in oklab, var(--c-badge) 18%, transparent); border-color: color-mix(in oklab, var(--c-badge) 55%, var(--chip-b)); }
+    .cap.sheet   { color: var(--c-sheet); background: color-mix(in oklab, var(--c-sheet) 18%, transparent); border-color: color-mix(in oklab, var(--c-sheet) 55%, var(--chip-b)); }
+    .cap.info    { color: var(--c-info);  background: color-mix(in oklab, var(--c-info) 18%, transparent);  border-color: color-mix(in oklab, var(--c-info) 55%, var(--chip-b)); }
+    .cap.policy  { color: var(--c-info);  background: color-mix(in oklab, var(--c-info) 18%, transparent);  border-color: color-mix(in oklab, var(--c-info) 55%, var(--chip-b)); }
+    .cap.error   { color: var(--c-err);   background: color-mix(in oklab, var(--c-err) 18%, transparent);   border-color: color-mix(in oklab, var(--c-err) 55%, var(--chip-b)); }
+    .cap.done    { color: var(--c-done);  background: color-mix(in oklab, var(--c-done) 18%, transparent);  border-color: color-mix(in oklab, var(--c-done) 55%, var(--chip-b)); }
 
     a.link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
     a.link:hover { text-decoration: underline }
@@ -112,7 +110,7 @@
 
     .t-matrix {
       --bg:#050805; --panel: linear-gradient(180deg,#071007,#060d06); --hdr-bg: rgba(6,12,7,.9);
-      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3d1; --input:#0a150b; --time:#99c699;
+      --fg:#d5f7d5; --muted:#8cab8c; --line:#103314; --chip:#0a160b; --chip-b:#1a3a1d; --input:#0a150b; --time:#99c699;
       --c-info:#7cff8f; --c-start:#c9ff72; --c-lead:#99ff66; --c-num:#66ffc2; --c-badge:#b3ffb3; --c-sheet:#66ffe0; --c-err:#ff6b6b; --c-done:#8ef0c9; --ok:#80ff99;
     }
     .t-matrix::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.2;
@@ -144,7 +142,7 @@
       <div class="stats" id="stats">
         <span id="badgeRun">⭐ 0 (0%) ⚪ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%)</span>
         <span class="sep">|</span>
-        <span id="premRun">$0.00 total pack value</span>
+        <span id="premRun">$0 total pack value</span>
       </div>
 
       <div class="spacer"></div>
@@ -269,7 +267,9 @@
         `🟣 ${counts.purple} (${fmtPct(counts.purple,totalBadged)}) ` +
         `🟠 ${counts.orange} (${fmtPct(counts.orange,totalBadged)}) ` +
         `🔴 ${counts.red} (${fmtPct(counts.red,totalBadged)})`;
-      premRunEl.textContent = `${packPremiumTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} total pack value`;
+
+      const rounded = Math.round(packPremiumTotal);
+      premRunEl.textContent = `${rounded.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0})} total pack value`;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -336,13 +336,20 @@
         const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
         const due     = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
 
-        // Heuristics for lapsed status
+        // Robust lapsed detection: string cues and payload flags
         const isLapsed =
           /\blapsed\b/i.test(s) ||
           /\bstatus\s*=\s*lapsed\b/i.test(s) ||
           /\bpast\s*due\b/i.test(s) ||
           /\boverdue\b/i.test(s) ||
-          data?.isLapsed === true;
+          /->\s*lapsed\b/i.test(s) ||
+          data?.isLapsed === true ||
+          data?.lapsed === true ||
+          data?.status?.toString().toLowerCase?.() === 'lapsed' ||
+          data?.state?.toString().toLowerCase?.() === 'lapsed' ||
+          data?.isPastDue === true ||
+          data?.overdue === true ||
+          data?.policy?.lapsed === true;
 
         const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(due))}, Grace: ${cushion}d`;
         const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
@@ -353,7 +360,7 @@
       // Session done — keep the tail (e.g., job id)
       const mDone = /^session:\s*done\b(.*)$/i.exec(s);
       if (mDone) {
-        const tail = (mDone[1] || '').trim(); // e.g. "(job xyz)"
+        const tail = (mDone[1] || '').trim();
         return `Session: Done${tail ? ' ' + tail : ''}`;
       }
 
