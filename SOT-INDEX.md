@@ -13,6 +13,10 @@ This document anchors the **exact** state we share. Any time we accept a change,
 - **Event stream (SSE) client**: `public/live.html` + `src/events.js`
 - **Tests**: `test-e2e.js`, `test-push.js`, `scripts/test-push.js`
 - **Environment**: `.env` (e.g., `MAX_LEADS`; **no secrets** in repo)
+- Live UI served at **/live** on forwarded port **3000**.
+- Files updated in latest confirmed change:
+  - `public/live.html`
+  - `src/server.js` (adds `sheet_done` SSE)
 
 > Run basics
 > ```bash
@@ -42,6 +46,10 @@ This document anchors the **exact** state we share. Any time we accept a change,
 - Pill types: Info, Lead, Policy, Numbers, Badge; lapsed tag (red); ⭐ badge logic.
 - Newest-event “pulse” preferred on top item only (Change 1c implements refinement).
 - Sheet name formatting: LAST, FIRST → First Last (Apps Script).
+- Toolbar chips: Auto-scroll, **Only ⭐/🔴** filter.
+- Run meta: elapsed time + processed leads.
+- Newest-event pulse on top row only.
+- Sheet toast appears on `sheet_done`.
 
 ---
 
@@ -65,6 +73,9 @@ This document anchors the **exact** state we share. Any time we accept a change,
 - **Apps Script Tag**: `v4-planet-intake-canonical`
 - **Sheet Version Tag**: `sheet-polish-v4`
 - **This SoT Index**: initialized on Change 0; update on every confirmed change.
+- Apps Script Tag: `v4-planet-intake-canonical`
+- Sheet Version Tag: `sheet-polish-v4`
+- SoT: includes **Change 1C (2025-09-25)**.
 
 ---
 

@@ -10,6 +10,17 @@
 ---
 
 ## Change 0 — Bookkeeping: Live Change Log + SoT Index
+## 2025-09-25 — Change 1C: Deluxe Live-Feed Polish
+- **Status**: confirmed
+- **Scope**:
+  - `public/live.html`
+  - `src/server.js` (emit `sheet_done`)
+- **What**:
+  - Header chips: Auto-scroll + “Only ⭐/🔴”.
+  - Run meta: elapsed clock + processed leads.
+  - Newest-line pulse refined.
+  - Sheet completion toast via `sheet_done` SSE.
+- **Notes**: No scraper or Apps Script logic changes.
 - **Date**: <fill on commit>
 - **Status**: applied (awaiting confirm)
 - **Scope**:
