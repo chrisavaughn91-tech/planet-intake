@@ -4,27 +4,15 @@
   <meta charset="utf-8" />
   <title>Planet Lead Pull — Live</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <style>
     * { box-sizing: border-box }
     html, body { height: 100%; overflow-x: hidden; }
-    body {
-      margin: 0;
-      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
-      color: var(--fg);
-      background: var(--bg);
-    }
+    body { margin: 0; font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial; color: var(--fg); background: var(--bg); }
 
-    header {
-      position: sticky; top: 0; z-index: 50;
-      background: var(--hdr-bg);
-      backdrop-filter: blur(6px);
-      border-bottom: 1px solid var(--line);
-      box-shadow: 0 6px 16px rgba(0,0,0,.25);
-    }
+    header { position: sticky; top: 0; z-index: 50; background: var(--hdr-bg); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); box-shadow: 0 6px 16px rgba(0,0,0,.25); }
     .top { display:flex; align-items:center; gap:10px; padding:10px 12px; }
     .brand { font-weight: 800; letter-spacing: .4px }
-    .ops   { font-size: 12px; color: var(--muted) }
+    .ops { font-size: 12px; color: var(--muted) }
     .spacer{ flex:1 }
 
     .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius: 10px; font-size: 12px; border:1px solid var(--chip-b); background: var(--chip); user-select: none; }
@@ -40,6 +28,7 @@
     .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; color:var(--fg); }
 
     .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; font-size:12px; border:1px solid var(--chip-b); background:var(--chip); text-transform:none; letter-spacing:.02em; cursor:pointer; }
+    .chip .dot { width:8px; height:8px; border-radius:999px; }
     .chip .dot.info { background: var(--c-info) }
 
     .stats { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-size:12px; color: var(--muted); display:flex; align-items:center; gap:12px; }
@@ -49,8 +38,7 @@
     .wrap { padding: 12px }
     .panel { border:none; border-radius:12px; background: var(--panel); box-shadow: none; padding: 8px 12px; min-height: calc(100dvh - 160px); }
 
-    .group {
-      margin: 6px 0 12px; padding: 4px 10px 8px 10px; border-radius: 12px;
+    .group { margin: 6px 0 12px; padding: 4px 10px 8px 10px; border-radius: 12px;
       border: 1px solid color-mix(in oklab, var(--line) 90%, transparent);
       background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.02) 35%, transparent 100%);
       box-shadow: 0 0 0 1px rgba(255,255,255,.015) inset, 0 6px 20px rgba(0,0,0,.25);
@@ -62,9 +50,7 @@
     .type { display:none }
     .msg  { white-space: pre-wrap }
 
-    .cap {
-      justify-self:start;
-      display:inline-flex; align-items:center; gap:6px;
+    .cap { justify-self:start; display:inline-flex; align-items:center; gap:6px;
       padding:3px 10px; border-radius:999px; font-size:11px; letter-spacing:.04em;
       border:1px solid var(--chip-b); background:var(--chip); text-transform:uppercase; color:var(--muted);
     }
@@ -93,8 +79,7 @@
       --fg:#e8eef6; --muted:#9fb0c2; --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419; --time:#b9c7d6;
       --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
-    .t-aurora::before {
-      content:""; position:fixed; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.30;
+    .t-aurora::before { content:""; position:fixed; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.30;
       background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
       filter: blur(22px); transform: scale(1.35); animation: neb 14s linear infinite;
     }
@@ -142,7 +127,7 @@
       <div class="stats" id="stats">
         <span id="badgeRun">⭐ 0 (0%) ⚪ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%)</span>
         <span class="sep">|</span>
-        <span id="premRun">$0 total pack value</span>
+        <span id="premRun">$0 total premiums paid</span>
       </div>
 
       <div class="spacer"></div>
@@ -269,7 +254,7 @@
         `🔴 ${counts.red} (${fmtPct(counts.red,totalBadged)})`;
 
       const rounded = Math.round(packPremiumTotal);
-      premRunEl.textContent = `${rounded.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0})} total pack value`;
+      premRunEl.textContent = `${rounded.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0})} total premiums paid`;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -305,7 +290,7 @@
       if (low.startsWith('sheet:url'))     return null;
 
       // secure/privacy tone for early lines
-      if (low.startsWith('stream: connected'))  return 'Private channel active';
+      if (low.startsWith('stream: connected'))  return `Private channel active${jobId ? ` (job: ${jobId})` : ''}`;
       if (low.startsWith('client: subscribed')) return 'Client: Token verified, feed granted';
       if (low.startsWith('client: connected'))  return 'Client: Ready';
 
@@ -329,14 +314,14 @@
       const mCollected = /collected\s+(\d+)\s+links on page\s+(\d+),\s*total\s+(\d+)/i.exec(s);
       if (mCollected) return `📬Page ${mCollected[2]}: ${mCollected[1]} links collected (total: ${mCollected[3]})`;
 
-      // POLICY pretty print from "lapse: mode=... cushion=.. dueDay=.. -> norm=.."
+      // POLICY pretty print from "lapse: ..."
       if (low.startsWith('lapse:')) {
         policyIdx += 1;
         const mode    = /mode\s*=\s*([a-z]+)/i.exec(s)?.[1] || 'monthly';
         const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
         const due     = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
 
-        // Robust lapsed detection: string cues and payload flags
+        // Robust lapsed detection
         const isLapsed =
           /\blapsed\b/i.test(s) ||
           /\bstatus\s*=\s*lapsed\b/i.test(s) ||
@@ -345,8 +330,8 @@
           /->\s*lapsed\b/i.test(s) ||
           data?.isLapsed === true ||
           data?.lapsed === true ||
-          data?.status?.toString().toLowerCase?.() === 'lapsed' ||
-          data?.state?.toString().toLowerCase?.() === 'lapsed' ||
+          (typeof data?.status === 'string' && data.status.toLowerCase() === 'lapsed') ||
+          (typeof data?.state  === 'string' && data.state.toLowerCase()  === 'lapsed') ||
           data?.isPastDue === true ||
           data?.overdue === true ||
           data?.policy?.lapsed === true;
@@ -374,7 +359,8 @@
       connDot.style.background = 'var(--ok)';
       linkLed.classList.add('ok');
       if (!t0) t0 = now();
-      addRow('info', 'Private channel active');
+      // mirror the same phrasing as transformInfo('stream: connected')
+      addRow('info', `Private channel active${jobId ? ` (job: ${jobId})` : ''}`);
     });
 
     es.addEventListener('error', () => {
