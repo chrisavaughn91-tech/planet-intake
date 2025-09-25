@@ -28,7 +28,7 @@
 
     /* ===== card ===== */
     .card{
-      width:100%; max-width:640px;
+      width:100%; max-width:820px;
       background:var(--panel);
       border:1px solid var(--line);
       border-radius:14px;
@@ -45,11 +45,11 @@
     .sub{ margin:4px 0 14px; color:var(--muted) }
 
     label{ display:block; font-size:13px; color:var(--muted); margin:10px 0 6px }
-    input{
+    input, select{
       width:100%; padding:10px 12px; font-size:14px; color:var(--fg);
       background:var(--input); border:1px solid var(--chip-b); border-radius:10px; outline:none;
     }
-    input:focus{ border-color: var(--c-info); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-info) 25%, transparent) inset }
+    input:focus, select:focus{ border-color: var(--c-info); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-info) 25%, transparent) inset }
 
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     .actions{ display:flex; gap:12px; align-items:center; margin-top:16px }
@@ -67,6 +67,35 @@
     }
     .link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
     .link:hover { text-decoration: underline }
+
+    /* ===== Badge Parameters panel ===== */
+    .panel {
+      margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:12px; background: color-mix(in oklab, var(--panel) 90%, transparent);
+    }
+    .panel h2 { margin:0 0 10px; font-size:15px; letter-spacing:.3px }
+    .b-grid { display:grid; grid-template-columns: 28px 130px 1fr; gap:10px; align-items:center }
+    .b-row { display:contents }
+    .tgl {
+      appearance:none; width:18px; height:18px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; display:inline-block;
+      position:relative;
+    }
+    .tgl:checked{ outline: 1px solid color-mix(in oklab, var(--c-info) 35%, transparent); box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
+    .b-label { font-weight:700; letter-spacing:.2px }
+    .b-label.star { color:#ffd27a }  /* visual hint, optional */
+    .b-label.white{ color:#e8eef6 }
+    .b-label.purple{ color:#f6b4ff }
+    .b-label.orange{ color:#ffd27a }
+    .b-label.red{ color:#ff7b7b }
+
+    .mode { width: 140px }
+    .range { display:flex; gap:8px; align-items:center }
+    .range input[type="text"]{
+      width:140px; padding:8px 10px; font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    }
+    .sep { color:var(--muted) }
+
+    .range.disabled { opacity:.55; pointer-events:none; }
+    .help { margin-top:8px; color:var(--muted); font-size:12px }
   </style>
 </head>
 
@@ -97,6 +126,22 @@
         <div></div>
       </div>
 
+      <!-- ===== Badge Parameters ===== -->
+      <div class="panel" id="badgePanel">
+        <h2>Badge Parameters</h2>
+
+        <div class="b-grid" id="bGrid">
+          <!-- rows injected by JS -->
+        </div>
+
+        <div class="help">
+          Order is top→bottom: ⭐ Star, ⚪ White, 🟣 Purple, 🟠 Orange, 🔴 Red.  
+          “Lapsed” and “No Numbers” override premium ranges (Lapsed wins over No Numbers).  
+          Amount fields display <code>0.00</code> but are only used if you type a value.  
+          Between fields reads “to”, e.g., <code>50.00 to 99.99</code>.
+        </div>
+      </div>
+
       <div class="actions">
         <button type="submit">Start Run</button>
         <span id="status" class="note"></span>
@@ -110,20 +155,235 @@
   </main>
 
   <script>
-    // ---------- login flow: always auto-start ----------
+    // ---------- helpers ----------
     const $ = s => document.querySelector(s);
+    const $$ = s => Array.from(document.querySelectorAll(s));
     const status = $('#status');
 
+    // Config
+    const BADGE_ORDER = ['star','white','purple','orange','red'];
+    const DEFAULT_FALLBACK = 'white';
+    const MODE = { NUMBER:'NUMBER', LAPSED:'LAPSED', NO_NUMBERS:'NO_NUMBERS' };
+
+    const badgeMeta = {
+      star:   { label:'Star',   emoji:'⭐', css:'star'   },
+      white:  { label:'White',  emoji:'⚪', css:'white'  },
+      purple: { label:'Purple', emoji:'🟣', css:'purple' },
+      orange: { label:'Orange', emoji:'🟠', css:'orange' },
+      red:    { label:'Red',    emoji:'🔴', css:'red'    },
+    };
+
+    // Build UI rows
+    const grid = $('#bGrid');
+    BADGE_ORDER.forEach(kind => {
+      const meta = badgeMeta[kind];
+      const row = document.createElement('div');
+      row.className = 'b-row';
+      row.dataset.kind = kind;
+
+      // toggle
+      const tgl = document.createElement('input');
+      tgl.type = 'checkbox';
+      tgl.className = 'tgl';
+      tgl.checked = false; // off by default
+
+      // label + mode
+      const labelWrap = document.createElement('div');
+      const lbl = document.createElement('div');
+      lbl.className = `b-label ${meta.css}`;
+      lbl.textContent = `${meta.emoji} ${meta.label}`;
+      const mode = document.createElement('select');
+      mode.className = 'mode';
+      mode.innerHTML = `
+        <option value="${MODE.NUMBER}">Number</option>
+        <option value="${MODE.LAPSED}">Lapsed</option>
+        <option value="${MODE.NO_NUMBERS}">No Numbers</option>
+      `;
+      labelWrap.append(lbl, mode);
+
+      // range
+      const range = document.createElement('div');
+      range.className = 'range';
+      const fld = document.createElement('input');
+      fld.type = 'text';
+      fld.placeholder = '0.00';
+      fld.inputMode = 'decimal';
+      fld.autocapitalize = 'off';
+      fld.autocomplete = 'off';
+      fld.dataset.touched = 'false';
+
+      const sep = document.createElement('span');
+      sep.className = 'sep';
+      sep.textContent = 'to';
+
+      const cel = document.createElement('input');
+      cel.type = 'text';
+      cel.placeholder = '0.00';
+      cel.inputMode = 'decimal';
+      cel.autocapitalize = 'off';
+      cel.autocomplete = 'off';
+      cel.dataset.touched = 'false';
+
+      range.append(fld, sep, cel);
+
+      // touched tracking: we only use a value if user typed anything
+      [fld, cel].forEach(inp => {
+        inp.addEventListener('input', () => { inp.dataset.touched = (inp.value.trim() !== '') ? 'true' : 'false'; });
+      });
+
+      // enable/disable range depending on mode/toggle
+      const syncDisabled = () => {
+        const isNumber = mode.value === MODE.NUMBER;
+        range.classList.toggle('disabled', !isNumber || !tgl.checked);
+      };
+      mode.addEventListener('change', syncDisabled);
+      tgl.addEventListener('change', syncDisabled);
+      syncDisabled();
+
+      // mount
+      const c1 = document.createElement('div'); c1.appendChild(tgl);
+      const c2 = document.createElement('div'); c2.appendChild(labelWrap);
+      const c3 = document.createElement('div'); c3.appendChild(range);
+
+      // stash refs for reading later
+      row._refs = { tgl, mode, fld, cel, range };
+      grid.append(c1, c2, c3);
+      grid.append(row); // maintain display:contents grouping semantics
+    });
+
+    // ---------- value parsing / math helpers ----------
+    const toCents = (v) => Math.round(v * 100);
+    const fromCents = (c) => Math.max(0, c) / 100;
+    const parseMoney = (s) => {
+      if (s == null) return null;
+      const t = String(s).trim();
+      if (!t) return null;
+      const m = t.replace(/[^\d.]/g,'');
+      if (m === '') return null;
+      const n = Number(m);
+      return Number.isFinite(n) ? Math.round(n*100)/100 : null;
+    };
+
+    // Build badgeConfig from UI with auto-fill:
+    // - Lapsed > No Numbers > Numeric (tiered)
+    // - Numeric ranges are non-overlapping, gap-free where possible
+    function buildBadgeConfig(){
+      // collect raw inputs
+      const rows = $$('div.b-row');
+      const raw = BADGE_ORDER.map(kind => {
+        const row = rows.find(r => r.dataset.kind === kind);
+        const { tgl, mode, fld, cel } = row._refs;
+        const on = !!tgl.checked;
+        const m = mode.value;
+        const floorTyped = (fld.dataset.touched === 'true') ? parseMoney(fld.value) : null;
+        const ceilTyped  = (cel.dataset.touched === 'true') ? parseMoney(cel.value) : null;
+        return { kind, on, mode:m, floor:floorTyped, ceil:ceilTyped };
+      });
+
+      // ----- Prepare numeric badges (only NUMBER+on)
+      const numerics = raw
+        .map(r => ({...r}))
+        .filter(r => r.on && r.mode === MODE.NUMBER);
+
+      // Step 1: resolve ceilings based on next lower floor (top→bottom)
+      for (let i = 0; i < numerics.length; i++){
+        const r = numerics[i];
+        if (r.ceil == null){
+          let nextFloor = null;
+          for (let j = i+1; j < numerics.length; j++){
+            if (numerics[j].floor != null) { nextFloor = numerics[j].floor; break; }
+          }
+          if (nextFloor != null){
+            r.ceil = Math.max(0, Math.round((nextFloor - 0.01) * 100) / 100);
+          } // else stays null → extends to MAX
+        }
+      }
+
+      // Step 2: assign lowest remaining open range to NUMBER+on with no floor & no ceil typed
+      // Build "taken" intervals list from numerics with floor present; treat null ceil as MAX
+      const MAX = Number.POSITIVE_INFINITY;
+      const taken = [];
+      numerics.forEach(r => {
+        if (r.floor != null){
+          taken.push([r.floor, (r.ceil != null ? r.ceil : MAX)]);
+        }
+      });
+      // Normalize 'taken' by sorting
+      taken.sort((a,b)=> a[0]-b[0]);
+
+      const needFill = numerics.filter(r => (r.floor == null && r.ceil == null));
+      const lowestOpenFor = () => {
+        // find smallest gap from 0 upward not covered by 'taken'
+        let start = 0;
+        if (taken.length === 0) return [0, MAX];
+        // check gap before first
+        if (taken[0][0] > 0) return [0, Math.round((taken[0][0] - 0.01)*100)/100];
+        // otherwise scan between intervals
+        for (let i=0;i<taken.length-1;i++){
+          const endA = taken[i][1];
+          const startB = taken[i+1][0];
+          if (endA !== MAX && startB - endA > 0.01){
+            const lo = Math.round((endA + 0.01)*100)/100;
+            const hi = Math.round((startB - 0.01)*100)/100;
+            return [lo, hi];
+          }
+        }
+        // otherwise tail to MAX
+        const last = taken[taken.length-1];
+        if (last[1] === MAX) return null; // no open range
+        const lo = Math.round((last[1] + 0.01)*100)/100;
+        return [lo, MAX];
+      };
+
+      for (const r of needFill){
+        const gap = lowestOpenFor();
+        if (gap){
+          r.floor = gap[0];
+          r.ceil  = (gap[1] === MAX ? null : gap[1]);
+          taken.push([r.floor, (r.ceil ?? MAX)]);
+          taken.sort((a,b)=>a[0]-b[0]);
+        } else {
+          // nothing left; leave nulls (scraper will ignore numeric match)
+        }
+      }
+
+      // Stitch final rules back in visual order
+      const finalRules = {};
+      for (const r of raw){
+        finalRules[r.kind] = {
+          on: !!r.on,
+          mode: r.mode,
+          floor: (r.mode === MODE.NUMBER ? r.floor ?? null : null),
+          ceil:  (r.mode === MODE.NUMBER ? r.ceil  ?? null : null),
+        };
+      }
+
+      return {
+        order: [...BADGE_ORDER],
+        defaultFallback: DEFAULT_FALLBACK,
+        // priority explained:
+        // Tier A1: LAPSED (on)
+        // Tier A2: NO_NUMBERS (on)
+        // Tier B : NUMBER   (on)
+        priority: { lapsedFirst: true }, // informs server/scraper
+        rules: finalRules
+      };
+    }
+
+    // ---------- login flow: always auto-start + badgeConfig ----------
     $('#f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       status.textContent = 'Creating job…';
       try {
+        const badgeConfig = buildBadgeConfig();
+
         const payload = {
           username: $('#u').value.trim(),
           password: $('#p').value,
           email:    $('#e').value.trim(),
           max:      ($('#m').value || '').trim(),
-          autoStart: true
+          autoStart: true,
+          badgeConfig
         };
 
         const res = await fetch('/session', {
