@@ -6,108 +6,78 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <style>
-    /* =========================================================
-       THEME SYSTEM (3 presets) – no external CSS required
-       Body carries one of: theme--modern (default), theme--neon, theme--matrix
-       ========================================================= */
-    :root{
-      /* App tokens used by layout */
-      --bg: #0e1116;
-      --panel: #151a22;
-      --border: #2a2f3a;
-      --text: #e7eef7;
-      --muted:#8b98a5;
-      --chip:#2b3544;
-      --accent:#6aa8ff;
-      --ok:#7dffa0; --warn:#ffd27a; --err:#ff7d7d;
-      --input:#111722;
-      --shadow: 0 20px 50px rgba(0,0,0,.35);
-    }
-    /* Modern (dark/blue) */
-    .theme--modern{
-      --bg: #0d1118;
-      --panel:#151a22; --border:#2b3441; --chip:#273141;
-      --text:#e7eef7; --muted:#8b98a5; --accent:#6aa8ff;
-      --input:#101722;
-    }
-    /* Neon (night-vision) */
-    .theme--neon{
-      --bg:#0a0f0a; --panel:#111911; --border:#2c3a2f; --chip:#162116;
-      --text:#e8f3ea; --muted:#9aa69f; --accent:#8fffa0;
-      --input:#0b120c;
-      --shadow: 0 24px 60px rgba(0,0,0,.45);
-    }
-    /* Matrix (phosphor green) */
-    .theme--matrix{
-      --bg:#070907; --panel:#0e140f; --border:#18301e; --chip:#132016;
-      --text:#e3ffe9; --muted:#95b39c; --accent:#00ff84;
-      --input:#0b140d;
-      --shadow: 0 24px 60px rgba(0,0,0,.5);
+    * { box-sizing: border-box }
+    html, body { height: 100%; overflow-x: hidden; }
+    body {
+      margin: 0; padding: 28px; display: grid; place-items: center;
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
+      color: var(--fg); background: var(--bg);
     }
 
-    /* ====== Page layout (theme-driven) ====== */
-    *{ box-sizing:border-box }
-    html,body{ height:100% }
-    body{
-      margin:0; padding:28px; display:grid; place-items:center;
-      color:var(--text);
-      background:
-        radial-gradient(1000px 700px at 10% -10%, rgba(106,168,255,.06), transparent 60%),
-        radial-gradient(900px 600px at 100% 120%, rgba(143,255,160,.05), transparent 60%),
-        linear-gradient(180deg, var(--bg), #0b0e13 45%, var(--bg));
+    /* ===== match live.html (t-aurora) ===== */
+    .t-aurora {
+      --bg:#0b0f12; --panel: linear-gradient(180deg,#0e1317,#0b1014); --hdr-bg: rgba(11,15,18,.9);
+      --fg:#e8eef6; --muted:#9fb0c2; --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419; --time:#b9c7d6;
+      --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
     }
+    .t-aurora::before { content:""; position:fixed; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.30;
+      background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
+      filter: blur(22px); transform: scale(1.35); animation: neb 14s linear infinite;
+    }
+    @keyframes neb { to { transform: scale(1.35) rotate(360deg) } }
+
+    /* ===== card ===== */
     .card{
-      width:100%; max-width:620px;
+      width:100%; max-width:640px;
       background:var(--panel);
-      border:1px solid var(--border);
+      border:1px solid var(--line);
       border-radius:14px;
       padding:22px;
-      box-shadow:var(--shadow);
+      box-shadow: 0 20px 50px rgba(0,0,0,.35);
+      position: relative;
     }
-    h1{ margin:0 0 8px; font-size:22px; letter-spacing:.2px }
-    .sub{ margin:0 0 14px; color:var(--muted) }
 
-    .theme-picker{
-      display:flex; gap:8px; align-items:center; margin:10px 0 18px;
-      font-size:12px; color:var(--muted)
+    header{
+      display:flex; align-items:center; gap:10px; margin-bottom:8px;
+      padding-bottom:8px; border-bottom:1px solid var(--line);
     }
-    .theme-pill{
-      padding:4px 10px; border-radius:999px; cursor:pointer; user-select:none;
-      background:var(--chip); border:1px solid var(--border);
-    }
+    .brand{ font-weight:800; letter-spacing:.4px }
+    .sub{ margin:4px 0 14px; color:var(--muted) }
 
     label{ display:block; font-size:13px; color:var(--muted); margin:10px 0 6px }
-    input, select{
-      width:100%; padding:10px 12px; font-size:14px; color:var(--text);
-      background:var(--input); border:1px solid var(--border); border-radius:10px; outline:none;
+    input{
+      width:100%; padding:10px 12px; font-size:14px; color:var(--fg);
+      background:var(--input); border:1px solid var(--chip-b); border-radius:10px; outline:none;
     }
-    input:focus, select:focus{ border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent) inset }
+    input:focus{ border-color: var(--c-info); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-info) 25%, transparent) inset }
 
     .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
     .actions{ display:flex; gap:12px; align-items:center; margin-top:16px }
     button{
-      padding:10px 14px; border-radius:10px; border:1px solid var(--border);
-      background:linear-gradient(180deg, color-mix(in srgb, var(--panel) 85%, #000 15%), var(--panel));
-      color:var(--text); cursor:pointer; font-weight:600;
+      padding:10px 14px; border-radius:10px; border:1px solid var(--chip-b);
+      background:linear-gradient(180deg, color-mix(in oklab, var(--panel) 85%, #000 15%), var(--panel));
+      color:var(--fg); cursor:pointer; font-weight:600;
     }
-    button:hover{ border-color:var(--accent) }
+    button:hover{ border-color:var(--c-info) }
     .note{ font-size:12px; color:var(--muted) }
-    .ok{ color:var(--ok)} .err{ color:var(--err)}
+    .ok{ color:var(--ok)} .err{ color:var(--c-err)}
+
+    .foot {
+      margin-top: 14px; display:flex; justify-content:space-between; align-items:center; color:var(--muted);
+    }
+    .link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
+    .link:hover { text-decoration: underline }
   </style>
 </head>
 
-<body class="theme--modern">
+<body class="t-aurora">
   <main class="card">
-    <h1>Planet Lead Pull — Start a Scrape</h1>
-    <p class="sub">Enter your credentials for this run. You’ll get a private live stream and your own sheet.</p>
+    <header>
+      <div class="brand">OP: PLANET LEAD PULL</div>
+      <div class="sub">Start a scrape</div>
+    </header>
 
-    <!-- Theme picker -->
-    <div class="theme-picker">
-      Theme:
-      <span class="theme-pill" data-theme="modern">Modern</span>
-      <span class="theme-pill" data-theme="neon">Neon</span>
-      <span class="theme-pill" data-theme="matrix">Matrix</span>
-    </div>
+    <p class="sub">Enter credentials for this run. We’ll auto-start and take you to your private live stream.</p>
 
     <form id="f" autocomplete="on">
       <label for="u">Username</label>
@@ -124,13 +94,7 @@
           <label for="m">Max leads (optional)</label>
           <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
         </div>
-        <div>
-          <label for="s">Start immediately</label>
-          <select id="s">
-            <option value="true" selected>Yes</option>
-            <option value="false">No (just open live)</option>
-          </select>
-        </div>
+        <div></div>
       </div>
 
       <div class="actions">
@@ -139,31 +103,14 @@
       </div>
     </form>
 
-    <div class="note" style="margin-top:10px">
-      After submit, you’ll be redirected to your private <code>/live?job=…</code>.
+    <div class="foot">
+      <span class="note">After submit, you’ll be redirected to <code>/live?job=…</code>.</span>
+      <a class="link" href="/live" title="Open live without creating a new job">Open Live</a>
     </div>
   </main>
 
   <script>
-    // ---------- theme persistence ----------
-    const THEME_KEY = 'plp_theme';
-    const themeClass = {
-      modern: 'theme--modern',
-      neon: 'theme--neon',
-      matrix: 'theme--matrix'
-    };
-    const applyTheme = (name) => {
-      const body = document.body;
-      body.classList.remove(...Object.values(themeClass));
-      body.classList.add(themeClass[name] || themeClass.modern);
-      localStorage.setItem(THEME_KEY, name);
-    };
-    applyTheme(localStorage.getItem(THEME_KEY) || 'modern');
-    document.querySelectorAll('.theme-pill').forEach(p =>
-      p.addEventListener('click', () => applyTheme(p.dataset.theme))
-    );
-
-    // ---------- existing login flow (unchanged) ----------
+    // ---------- login flow: always auto-start ----------
     const $ = s => document.querySelector(s);
     const status = $('#status');
 
@@ -176,7 +123,7 @@
           password: $('#p').value,
           email:    $('#e').value.trim(),
           max:      ($('#m').value || '').trim(),
-          autoStart: $('#s').value === 'true'
+          autoStart: true
         };
 
         const res = await fetch('/session', {
