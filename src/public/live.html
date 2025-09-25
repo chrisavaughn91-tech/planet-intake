@@ -277,6 +277,11 @@
       const s = ["th","st","nd","rd"], v = n%100;
       return n + (s[(v-20)%10] || s[v] || s[0]);
     };
+    // last day of current month (fallback for dueDay=0/00)
+    function lastDayOfThisMonth(){
+      const d = new Date();
+      return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+    }
 
     let policyIdx = 0;
 
@@ -317,9 +322,24 @@
       // POLICY pretty print from "lapse: ..."
       if (low.startsWith('lapse:')) {
         policyIdx += 1;
+
         const mode    = /mode\s*=\s*([a-z]+)/i.exec(s)?.[1] || 'monthly';
         const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
-        const due     = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
+        const rawDue  = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
+
+        // try to read a normalized day from text (handles "-> norm=30", "norm=30", "normalized=30")
+        const normMatch =
+          /(?:->\s*norm\s*=\s*|norm(?:al(?:ized)?)?\s*=\s*)(\d{1,2})/i.exec(s) ||
+          /->\s*(\d{1,2})\b/i.exec(s);
+        const normalized = normMatch ? Number(normMatch[1]) : null;
+
+        let dueNum = Number(rawDue);
+        if (!Number.isFinite(dueNum)) dueNum = 1;
+        // if raw due is 0/00 and no normalized value was found, use last day of THIS month
+        if (dueNum === 0 && normalized == null) {
+          dueNum = lastDayOfThisMonth();
+        }
+        const dueDisplay = normalized != null ? normalized : dueNum;
 
         // Robust lapsed detection
         const isLapsed =
@@ -336,7 +356,7 @@
           data?.overdue === true ||
           data?.policy?.lapsed === true;
 
-        const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(due))}, Grace: ${cushion}d`;
+        const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(dueDisplay))}, Grace: ${cushion}d`;
         const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
 
         return { level: 'policy', text, html: isLapsed };
@@ -359,7 +379,6 @@
       connDot.style.background = 'var(--ok)';
       linkLed.classList.add('ok');
       if (!t0) t0 = now();
-      // mirror the same phrasing as transformInfo('stream: connected')
       addRow('info', `Private channel active${jobId ? ` (job: ${jobId})` : ''}`);
     });
 
