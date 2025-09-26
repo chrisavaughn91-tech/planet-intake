@@ -1,5 +1,15 @@
 # Planet Intake – Change Log
 
+## Change 2a — Test harness sync (2025-09-26)
+
+- Updated `scripts/test-scrape.sh` to target **port 3000** and trigger `GET /run/full?max=…`.
+- Updated `scripts/test-e2e.js` to **trigger a run** (no SSE parsing). Prints server JSON and tips to watch `/live`.
+- E2E environment:
+  - `E2E_SERVER` (default: `http://127.0.0.1:3000`)
+  - `E2E_LIMIT` (default: `10`)
+- Rationale: Codespaces has **3000 public**, **8080 private**. Test scripts should use the public route and match `/run/full`.
+
+
 > Protocol: Each change is numbered (Change 1, 1b, 2, …). We commit *full-file* replacements and update SoT after your confirmation. This log is the human-readable timeline.
 
 ## Legend

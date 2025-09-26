@@ -2,6 +2,11 @@
 
 This document anchors the **exact** state we share. Any time we accept a change, we update this file (and the Change Log) so we never drift.
 
+- **Codespaces**: public port **3000** (Live UI + trigger endpoints), private port **8080**
+  - Live UI served at **/live** on **3000**
+  - Trigger a run with: `GET /run/full?max=200` (on port **3000**)
+
+
 ---
 
 ## A. Repositories & Running Context
@@ -87,3 +92,4 @@ This document anchors the **exact** state we share. Any time we accept a change,
 4. Include **post-change commands** (git add/commit/push; server/test steps).  
 5. Update **SOT-INDEX.md** + **CHANGELOG.md** after confirmation.  
 6. **No secrets in repo** — use `.env`.
+- SoT: includes **Change 1C (2025-09-25)**, **Change 2a (2025-09-26)**.

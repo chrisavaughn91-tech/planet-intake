@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
+# Triggers a full scrape run via the app server and prints a helpful tip.
+# Defaults:
+#   BASE  -> http://127.0.0.1:3000  (override with E2E_SERVER)
+#   MAX   -> 10                     (override with first arg)
+
 set -euo pipefail
 
-# Load .env into this shell (supports special chars like ! in passwords)
-if [[ -f .env ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
-fi
+BASE="${E2E_SERVER:-http://127.0.0.1:3000}"
+MAX="${1:-10}"
 
-: "${PLANET_USERNAME:?Set PLANET_USERNAME in .env}"
-: "${PLANET_PASSWORD:?Set PLANET_PASSWORD in .env}"
-: "${REPORT_EMAIL:?Set REPORT_EMAIL in .env}"
+echo "[scrape] Base: ${BASE}"
+echo "[scrape] Max:  ${MAX}"
+URL="${BASE}/run/full?max=${MAX}"
+echo "[scrape] GET ${URL}"
 
-curl -sS -X POST http://localhost:8080/scrape \
-  -H 'Content-Type: application/json' \
-  -d "{
-        \"username\": \"${PLANET_USERNAME}\",
-        \"password\": \"${PLANET_PASSWORD}\",
-        \"email\":    \"${REPORT_EMAIL}\"
-      }"
+# Fire the run
+RESP="$(curl -fsS "${URL}")" || {
+  echo "[scrape] ERROR: request failed"
+  exit 1
+}
+
+echo "[scrape] Server response:"
+echo "${RESP}"
+echo
+LIVE="${BASE/127.0.0.1/localhost}/live"
+echo "[scrape] Watch progress at: ${LIVE}"
