@@ -12,6 +12,7 @@
     "test": "npm run -s test:push",
     "scrape": "node src/scraper.js",
     "test:e2e": "node scripts/test-e2e.js"
+    "smoke:run": "node -e \"(async()=>{const u=process.env.SMOKE_URL||'http://127.0.0.1:3000/run/full?max=10'; const r=await fetch(u); console.log(await r.text())})()\""
   },
   "dependencies": {
     "axios": "^1.11.0",
