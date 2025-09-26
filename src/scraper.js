@@ -690,7 +690,7 @@ async function parseLeadDetail(page) {
     let paidTo = null;
     if (paidM) {
       const s = paidM[1];
-      const parts = s.includes("-") ? s.split("-).map(Number) : s.split("/").map(Number);
+      const parts = s.includes("-") ? s.split("-").map(Number) : s.split("/").map(Number);
       if (s.includes("-")) {
         paidTo = new Date(parts[0], parts[1] - 1, parts[2]);
       } else {
