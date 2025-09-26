@@ -12,6 +12,10 @@ async function getScrapePlanet() {
 }
 
 dotenv.config();
+// --- env fallback mapping (accept either naming) ---
+process.env.PLANET_USER ||= process.env.PLANET_USERNAME;
+process.env.PLANET_PASS ||= process.env.PLANET_PASSWORD;
+process.env.MAX_LEADS_DEFAULT ||= process.env.START_MAX || process.env.MAX_LEADS || process.env.MAX_LEADS_DEFAULT;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
