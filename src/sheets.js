@@ -90,7 +90,7 @@ function buildSummaryRows(leads) {
   return (leads || []).map((L) => [
     L.star || "",                            // Badge emoji
     L.primaryName || "",                     // Lead
-    Number(L.monthlySpecialTotal || 0),      // Total Premium (Apps Script formats to currency)
+    Number(L.monthlySpecialTotal || 0),      // Total Premium
     (L.clickToCall || []).length,            // Listed #’s (ClickToCall count)
     (L.policyPhones || []).length,           // + Policy #’s (extras-only policy numbers)
   ]);
@@ -119,12 +119,11 @@ function buildGoodAndFlagged(leads) {
         return;
       }
 
-      // Build flags WITHOUT "Extra" (policy extras should be treated like normal numbers)
+      // Build flags WITHOUT "Extra" (policy extras treated like normal numbers)
       const flags = [];
       if (r.international) flags.push("International");
       if (raw.length === 7) flags.push("Needs area code");
       if (r.valid === false) flags.push("Invalid");
-      // If you still want to carry through explicit "Fax" markers from the scrape:
       if (Array.isArray(r.flags) && r.flags.some(f => /fax/i.test(String(f)))) flags.push("Fax");
 
       if (flags.length > 0) {
@@ -143,9 +142,41 @@ function buildGoodAndFlagged(leads) {
   return { goodNumbers, flaggedNumbers };
 }
 
+/* ---------- lightweight counts for server toast/statistics ---------- */
+function computeCounts(leads) {
+  const out = {
+    totals: {
+      leads: 0,
+      premiumSum: 0,
+      listedNumbers: 0,
+      policyNumbers: 0,
+      lapsedLeads: 0,
+    },
+    badges: { star: 0, white: 0, purple: 0, orange: 0, red: 0 },
+  };
+
+  for (const L of (leads || [])) {
+    out.totals.leads += 1;
+    out.totals.premiumSum += Number(L.monthlySpecialTotal || 0);
+    out.totals.listedNumbers += (L.clickToCall || []).length;
+    out.totals.policyNumbers += (L.policyPhones || []).length;
+    if (L.allPoliciesLapsed) out.totals.lapsedLeads += 1;
+
+    const badge =
+      L.star === "⭐" ? "star" :
+      L.star === "🟣" ? "purple" :
+      L.star === "🟠" ? "orange" :
+      L.star === "🔴" ? "red" : "white";
+    out.badges[badge] = (out.badges[badge] || 0) + 1;
+  }
+
+  // Round premiumSum to 2 decimals
+  out.totals.premiumSum = Math.round(out.totals.premiumSum * 100) / 100;
+  return out;
+}
+
 /* ---------- main entry ---------- */
 async function createSheetAndShare({ email, result }) {
-  // Prefer a pre-resolved echo URL if you set one; else use the /exec URL
   const webappUrl = process.env.GSCRIPT_REAL_URL || process.env.GSCRIPT_WEBAPP_URL;
   const sharedKey = process.env.GSCRIPT_SHARED_SECRET || ""; // optional
   if (!webappUrl) throw new Error("Missing GSCRIPT_WEBAPP_URL (or GSCRIPT_REAL_URL) env var");
@@ -217,10 +248,11 @@ async function createSheetAndShare({ email, result }) {
     throw new Error(`Apps Script failed: ${data && data.error ? data.error : "unknown error"}`);
   }
 
-  return { spreadsheetId: data.spreadsheetId, url: data.url };
+  // Augment with local counts for server/UI toast
+  const counts = computeCounts(result.leads);
+
+  return { spreadsheetId: data.spreadsheetId, url: data.url, counts };
 }
 
-// Export BOTH helpers in a single CommonJS export.
-// (Avoid mixing `exports.foo = ...` and `module.exports = ...`.)
+// Export in ESM style
 export { pushToSheets, createSheetAndShare };
-
