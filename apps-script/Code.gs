@@ -1,5 +1,6 @@
 // After edits: Deploy → Manage deployments → select current Web app → Edit → Deploy
 // Execute as: Me    |  Who has access: Anyone (or Anyone with the link)
+
 /**
  * Planet Intake – Sheet Writer (polished + formatting rules)
  * - Creates a new spreadsheet when no spreadsheetId is provided.
@@ -346,4 +347,3 @@ function json_(status, obj) {
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
-
