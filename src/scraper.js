@@ -665,7 +665,7 @@ async function parseLeadDetail(page) {
     policyBlockCount++;
     const block = rawBlock.slice(0, 2500);
 
-    const isLapsed =
+    const isLapsedByText =
       /\bLAPSED\s+POLICY\b/i.test(block) ||
       /^\s*Lapsed\b/i.test(block) ||
       /\bStat:\s*99\b/i.test(block);
@@ -678,18 +678,19 @@ async function parseLeadDetail(page) {
     }
 
     const modeM = block.match(/\bMode\s+([A-Za-z]+)/i);
-    const dueM = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2}|00)\b/i);
+    const dueM  = block.match(/\bDue\s*(?:Date|Day)\s+([0-9]{1,2}|00)\b/i);
     const paidM = block.match(
       /\bPolicy\s+Paid\s+To\s+([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4}|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2})\b/i
     );
 
     const mode = modeM ? modeM[1].toLowerCase() : null;
     const today = new Date();
-    let paidTo = null;
 
+    // parse paid-to date if present
+    let paidTo = null;
     if (paidM) {
       const s = paidM[1];
-      const parts = s.includes("-") ? s.split("-").map(Number) : s.split("/").map(Number);
+      const parts = s.includes("-") ? s.split("-).map(Number) : s.split("/").map(Number);
       if (s.includes("-")) {
         paidTo = new Date(parts[0], parts[1] - 1, parts[2]);
       } else {
@@ -698,18 +699,25 @@ async function parseLeadDetail(page) {
       }
     }
 
-    let active = !isLapsed;
-    if (active && paidTo) {
-      const cushion = cushionForMode(mode || "");
-      const diff = daysBetween(today, paidTo);
-      active = diff <= cushion;
+    // compute cushion and normalized due-day (even if paidTo missing)
+    const cushion       = cushionForMode(mode || "");
+    const dueDayRaw     = dueM ? dueM[1] : null;
+    const normalizedDue = normalizeDueDay(dueDayRaw, today);
 
-      const dueDayRaw = dueM ? dueM[1] : null;
-      const normalizedDueDay = normalizeDueDay(dueDayRaw, today);
-      emit("info", {
-        msg: `lapse: mode=${mode || "unknown"} cushion=${cushion}d dueDay=${dueDayRaw ?? "N/A"} → norm=${normalizedDueDay}`,
-      });
+    // start active state from textual signal
+    let active = !isLapsedByText;
+
+    // refine with grace window if we have a paid-to date
+    if (paidTo) {
+      const diff = daysBetween(today, paidTo);
+      active = diff <= cushion && active;
     }
+
+    // ALWAYS emit a lapse line with status + normalized day
+    emit("info", {
+      msg: `lapse: mode=${mode || "unknown"} cushion=${cushion}d dueDay=${dueDayRaw ?? "N/A"} -> norm=${normalizedDue} status=${active ? "active" : "lapsed"}`,
+      isLapsed: !active
+    });
 
     if (active && specialMonthly > 0) monthlyTotalActive += specialMonthly;
     if (active) activeBlockCount++;
@@ -863,11 +871,132 @@ async function collectPaginated(page, max) {
 }
 
 /* =========================
+   Badge config + resolution (NEW)
+   ========================= */
+
+const BADGE_ORDER = ["star", "white", "purple", "orange", "red"];
+const BADGE_EMOJI = { star: "⭐", white: "⚪", purple: "🟣", orange: "🟠", red: "🔴" };
+
+function numOrUndef(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+function lc(v) { return String(v || "").toLowerCase(); }
+
+/**
+ * Normalize the badge config coming from opts.badgeConfig.
+ * Supports either an array of {name,on,mode,floor,ceil} or an object keyed by name.
+ */
+function normalizeBadgeConfig(input) {
+  if (!input) return null;
+
+  const out = {};
+  const arr = Array.isArray(input) ? input : BADGE_ORDER.map(k => ({ name: k, ...(input[k] || {}) }));
+
+  for (const raw of arr) {
+    const name = lc(raw?.name);
+    if (!BADGE_ORDER.includes(name)) continue;
+    const mode = ["number","lapsed","no_numbers"].includes(lc(raw?.mode)) ? lc(raw.mode) :
+                 (raw?.bool === "lapsed" ? "lapsed" : raw?.bool === "no_numbers" ? "no_numbers" : "number");
+
+    out[name] = {
+      on: raw?.on === true || raw?.on === "true" || raw?.on === 1,
+      mode,
+      floor: numOrUndef(raw?.floor),
+      ceil:  numOrUndef(raw?.ceil),
+    };
+  }
+  return out;
+}
+
+/**
+ * Given normalized config, compute effective numeric bands.
+ * - Missing ceil is filled to next higher floor - 0.01 (if any), else +Infinity
+ * - Missing floor stays undefined (interpreted as 0 later)
+ * - Badges with neither floor nor ceil stay "open"; they’ll match only if nothing else caught them.
+ */
+function computeNumericBands(cfg) {
+  if (!cfg) return null;
+  const floors = BADGE_ORDER
+    .map(k => ({ k, f: cfg[k]?.mode === "number" ? numOrUndef(cfg[k].floor) : undefined }))
+    .filter(x => x.f != null)
+    .sort((a,b) => a.f - b.f);
+
+  const nextFloor = (f) => {
+    const idx = floors.findIndex(x => x.f === f);
+    // find the next *greater* distinct floor
+    for (const row of floors) { if (row.f > f) return row.f; }
+    return undefined;
+  };
+
+  const bands = {};
+  for (const k of BADGE_ORDER) {
+    const b = cfg[k];
+    if (!b || !b.on || b.mode !== "number") continue;
+    const f = numOrUndef(b.floor);
+    const c = numOrUndef(b.ceil);
+    let lo = f != null ? f : undefined;
+    let hi = c != null ? c : undefined;
+
+    if (hi == null && f != null) {
+      const nf = nextFloor(f);
+      hi = nf != null ? Math.max(f, Math.fround(nf - 0.01)) : Number.POSITIVE_INFINITY;
+    }
+
+    bands[k] = { floor: lo, ceil: hi };
+  }
+  return bands;
+}
+
+function pickBadgeByRules(total, hasValidNumbers, allPoliciesLapsed, cfg) {
+  // 1) If no config: keep your legacy behavior (exactly as before)
+  if (!cfg) {
+    if (total >= 100) return "star";
+    if (total > 0 && total < 50) return "purple";
+    if (total > 0 && !hasValidNumbers) return "orange";
+    if (total === 0 || allPoliciesLapsed) return "red";
+    return "white";
+  }
+
+  // Fill numeric bands from cfg
+  const bands = computeNumericBands(cfg);
+  const inBand = (name) => {
+    const band = bands?.[name];
+    if (!band) return false;
+    const lo = band.floor != null ? band.floor : 0;
+    const hi = band.ceil != null ? band.ceil : Number.POSITIVE_INFINITY;
+    return total >= lo && total <= hi;
+  };
+
+  // 2) Priority A1: any Lapsed badge (top→bottom order)
+  for (const k of BADGE_ORDER) {
+    const b = cfg[k];
+    if (b?.on && b.mode === "lapsed" && allPoliciesLapsed) return k;
+  }
+
+  // 3) Priority A2: any No Numbers badge (top→bottom order)
+  for (const k of BADGE_ORDER) {
+    const b = cfg[k];
+    if (b?.on && b.mode === "no_numbers" && !hasValidNumbers) return k;
+  }
+
+  // 4) Numeric bands (top→bottom order)
+  for (const k of BADGE_ORDER) {
+    const b = cfg[k];
+    if (b?.on && b.mode === "number" && inBand(k)) return k;
+  }
+
+  // 5) Fallback to white
+  return "white";
+}
+
+/* =========================
    Main scraper
    ========================= */
 export async function scrapePlanet(opts = {}) {
   const { username, password, jobId } = opts;
   const max = opts?.max ?? Number(process.env.MAX_LEADS_DEFAULT ?? 200);
+  const badgeConfigNorm = normalizeBadgeConfig(opts?.badgeConfig || null); // NEW (optional)
   const startTime = Date.now();
 
   emit("start", { username, maxLeads: max, jobId: jobId || null });
@@ -968,6 +1097,7 @@ export async function scrapePlanet(opts = {}) {
       const hasAnyPolicy = detail.policyBlockCount > 0;
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
 
+      // Valid numbers for "No Numbers" rule: valid + 10-digit
       const validDigits = new Set();
       const accValid = (r) => {
         if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits);
@@ -975,19 +1105,18 @@ export async function scrapePlanet(opts = {}) {
       (c2c || []).forEach(accValid);
       (policyPhonesExtra || []).forEach(accValid);
 
-      let leadStar;
-      if (leadMonthly >= 100) leadStar = "⭐";
-      else if (leadMonthly > 0 && leadMonthly < 50) leadStar = "🟣";
-      else if (leadMonthly > 0 && validDigits.size === 0) leadStar = "🟠";
-      else if (leadMonthly === 0 || allPoliciesLapsed) leadStar = "🔴";
-      else leadStar = "⚪";
+      const hasValidNumbers = validDigits.size > 0;
 
-      emit("badge", { leadName: primaryName, badge: leadStar, totalPremium: leadMonthly, jobId: jobId || null });
+      // ==== NEW: resolve badge using config (or legacy if none) ====
+      const chosen = pickBadgeByRules(leadMonthly, hasValidNumbers, allPoliciesLapsed, badgeConfigNorm);
+      const badgeEmoji = BADGE_EMOJI[chosen] || "⚪";
+
+      emit("badge", { leadName: primaryName, badge: badgeEmoji, totalPremium: leadMonthly, jobId: jobId || null });
 
       leads.push({
         primaryName: primaryName || null,
         monthlySpecialTotal: leadMonthly,
-        star: leadStar,
+        star: badgeEmoji,
         clickToCall: c2c,
         policyPhones: policyPhonesExtra,
         allPoliciesLapsed,
