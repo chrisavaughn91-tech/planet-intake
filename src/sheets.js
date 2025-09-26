@@ -1,11 +1,34 @@
 import axios from "axios";
 
-// Low-level helper used by scripts/test-push.js
+/* ---------- helpers ---------- */
+
+// Default-badge rules (match login defaults + lapsed override)
+function badgeEmojiForLead(L) {
+  if (L?.allPoliciesLapsed) return "🔴";
+
+  const amt = Number(L?.monthlySpecialTotal || 0);
+  if (Number.isFinite(amt)) {
+    if (amt >= 100) return "⭐";
+    if (amt >= 50)  return "⚪";
+    if (amt >= 0.01) return "🟣";
+  }
+  // If truly $0 with no other signals, keep as white basic
+  return "⚪";
+}
+
+function emojiToKey(emoji) {
+  return emoji === "⭐" ? "star" :
+         emoji === "⚪" ? "white" :
+         emoji === "🟣" ? "purple" :
+         emoji === "🟠" ? "orange" :
+         emoji === "🔴" ? "red" : "white";
+}
+
+/* ---------- low-level push (used by test script) ---------- */
 async function pushToSheets(execUrl, payload) {
   if (!execUrl) throw new Error("Missing execUrl");
   const res = await axios.post(execUrl, payload, {
     headers: { "Content-Type": "application/json" },
-    // follow the script.google.com -> script.googleusercontent.com redirect
     maxRedirects: 5,
     validateStatus: s => s < 500,
     timeout: 120000,
@@ -52,7 +75,6 @@ function buildAllNumbersRows(leads) {
       if (!r) return;
       const raw = String(r.rawDigits || "");
       const isSeven = raw.length === 7;
-      // Pretty for 7-digit in flagged view
       const sevenPretty = isSeven ? `${raw.slice(0,3)}-${raw.slice(3)}` : null;
       const phoneText = isSeven ? sevenPretty : (r.phone || r.rawDigits || r.original || "");
 
@@ -87,13 +109,16 @@ function buildAllNumbersRows(leads) {
 
 function buildSummaryRows(leads) {
   // BODY ONLY (no header row) — Code.gs writes headers and formatting
-  return (leads || []).map((L) => [
-    L.star || "",                            // Badge emoji
-    L.primaryName || "",                     // Lead
-    Number(L.monthlySpecialTotal || 0),      // Total Premium
-    (L.clickToCall || []).length,            // Listed #’s (ClickToCall count)
-    (L.policyPhones || []).length,           // + Policy #’s (extras-only policy numbers)
-  ]);
+  return (leads || []).map((L) => {
+    const badgeEmoji = badgeEmojiForLead(L); // derive from totals/lapsed
+    return [
+      badgeEmoji,                              // Badge emoji
+      L.primaryName || "",                     // Lead
+      Number(L.monthlySpecialTotal || 0),      // Total Premium
+      (L.clickToCall || []).length,            // Listed #’s (ClickToCall count)
+      (L.policyPhones || []).length,           // + Policy #’s (extras-only policy numbers)
+    ];
+  });
 }
 
 /**
@@ -162,12 +187,9 @@ function computeCounts(leads) {
     out.totals.policyNumbers += (L.policyPhones || []).length;
     if (L.allPoliciesLapsed) out.totals.lapsedLeads += 1;
 
-    const badge =
-      L.star === "⭐" ? "star" :
-      L.star === "🟣" ? "purple" :
-      L.star === "🟠" ? "orange" :
-      L.star === "🔴" ? "red" : "white";
-    out.badges[badge] = (out.badges[badge] || 0) + 1;
+    // Use derived emoji so counts match what we put on the sheet
+    const key = emojiToKey(badgeEmojiForLead(L));
+    out.badges[key] = (out.badges[key] || 0) + 1;
   }
 
   // Round premiumSum to 2 decimals
@@ -187,7 +209,7 @@ async function createSheetAndShare({ email, result }) {
     const code = err?.code || "";
     const status = err?.response?.status || 0;
     return status >= 500 || ["ECONNRESET", "ETIMEDOUT", "ECONNABORTED"].includes(code);
-  };
+    };
 
   const { goodNumbers, flaggedNumbers } = buildGoodAndFlagged(result.leads);
 
@@ -254,5 +276,4 @@ async function createSheetAndShare({ email, result }) {
   return { spreadsheetId: data.spreadsheetId, url: data.url, counts };
 }
 
-// Export in ESM style
 export { pushToSheets, createSheetAndShare };
