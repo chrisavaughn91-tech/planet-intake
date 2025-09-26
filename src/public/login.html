@@ -4,175 +4,206 @@
   <meta charset="utf-8" />
   <title>Planet Lead Pull — Start a Scrape</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
   <style>
     * { box-sizing: border-box }
     html, body { height: 100%; overflow-x: hidden; }
     body {
-      margin: 0; padding: 28px; display: grid; place-items: center;
+      margin: 0; padding: 32px;
       font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Inter, Roboto, Helvetica, Arial;
       color: var(--fg); background: var(--bg);
     }
-
-    /* ===== match live.html (t-aurora) ===== */
-    .t-aurora {
-      --bg:#0b0f12; --panel: linear-gradient(180deg,#0e1317,#0b1014); --hdr-bg: rgba(11,15,18,.9);
-      --fg:#e8eef6; --muted:#9fb0c2; --line:#1e2a34; --chip:#0f151b; --chip-b:#20303a; --input:#0e1419; --time:#b9c7d6;
-      --c-info:#86b7ff; --c-start:#ffd27a; --c-lead:#a8ff8a; --c-num:#80ffc8; --c-badge:#f6b4ff; --c-sheet:#9ff2ff; --c-err:#ff7b7b; --c-done:#8ef0c9; --ok:#8fffa0;
+    :root, .t-aurora {
+      --bg:#0b0f12; --panel:#0f151b; --panel2:#0d1318; --hdr:#0b1014;
+      --fg:#e8eef6; --muted:#9fb0c2; --line:#1b2631; --chip:#0f151b; --chip-b:#243240; --input:#0e1419;
+      --c-info:#86b7ff; --c-err:#ff7b7b; --ok:#8fffa0;
     }
-    .t-aurora::before { content:""; position:fixed; inset:0; pointer-events:none; mix-blend-mode:soft-light; opacity:.30;
-      background: conic-gradient(from 0deg, rgba(80,180,255,.15), transparent 25%, rgba(120,255,170,.12), transparent 55%, rgba(255,220,120,.12), transparent 85%);
-      filter: blur(22px); transform: scale(1.35); animation: neb 14s linear infinite;
+    .t-aurora::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;mix-blend-mode:soft-light;
+      background: radial-gradient(60% 60% at 20% 0%, rgba(150,220,255,.18), transparent 60%),
+                  radial-gradient(60% 60% at 100% 30%, rgba(255,180,120,.10), transparent 60%);
+      filter: blur(22px);
     }
-    @keyframes neb { to { transform: scale(1.35) rotate(360deg) } }
 
-    /* ===== card ===== */
+    .wrap{max-width:1120px;margin:0 auto}
+    .grid{display:grid;grid-template-columns: 1.3fr .9fr;gap:22px}
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+
     .card{
-      width:100%; max-width:820px;
-      background:var(--panel);
-      border:1px solid var(--line);
-      border-radius:14px;
-      padding:22px;
+      background:linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--line); border-radius:14px; padding:20px;
       box-shadow: 0 20px 50px rgba(0,0,0,.35);
-      position: relative;
     }
+    .card header{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+    .brand{font-weight:800}
+    .sub{color:var(--muted)}
 
-    header{
-      display:flex; align-items:center; gap:10px; margin-bottom:8px;
-      padding-bottom:8px; border-bottom:1px solid var(--line);
-    }
-    .brand{ font-weight:800; letter-spacing:.4px }
-    .sub{ margin:4px 0 14px; color:var(--muted) }
-
-    label{ display:block; font-size:13px; color:var(--muted); margin:10px 0 6px }
+    label{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
     input, select{
-      width:100%; padding:10px 12px; font-size:14px; color:var(--fg);
-      background:var(--input); border:1px solid var(--chip-b); border-radius:10px; outline:none;
+      width:100%;padding:10px 12px;font-size:14px;color:var(--fg);
+      background:var(--input);border:1px solid var(--chip-b);border-radius:10px;outline:none;
     }
     input:focus, select:focus{ border-color: var(--c-info); box-shadow: 0 0 0 2px color-mix(in oklab, var(--c-info) 25%, transparent) inset }
 
-    .row{ display:grid; grid-template-columns:1fr 1fr; gap:12px }
-    .actions{ display:flex; gap:12px; align-items:center; margin-top:16px }
+    /* Max Leads row: single column so placeholder fits; keep label on one line */
+    .row2{display:grid;grid-template-columns:1fr;gap:14px}
+    label[for="m"]{white-space:nowrap}
+
+    .actions{display:flex;gap:12px;align-items:center;margin-top:16px}
     button{
-      padding:10px 14px; border-radius:10px; border:1px solid var(--chip-b);
+      padding:10px 14px;border-radius:10px;border:1px solid var(--chip-b);
       background:linear-gradient(180deg, color-mix(in oklab, var(--panel) 85%, #000 15%), var(--panel));
-      color:var(--fg); cursor:pointer; font-weight:600;
+      color:var(--fg);cursor:pointer;font-weight:600;
     }
-    button:hover{ border-color:var(--c-info) }
-    .note{ font-size:12px; color:var(--muted) }
-    .ok{ color:var(--ok)} .err{ color:var(--c-err)}
+    button:hover{border-color:var(--c-info)}
+    .note{font-size:12px;color:var(--muted)}
+    .ok{color:var(--ok)} .err{color:var(--c-err)}
 
-    .foot {
-      margin-top: 14px; display:flex; justify-content:space-between; align-items:center; color:var(--muted);
-    }
-    .link { color: var(--c-sheet); text-decoration: none; border-bottom:1px dashed var(--c-sheet) }
-    .link:hover { text-decoration: underline }
+    /* ===== Badge panel ===== */
+    .panel h2{margin:0 0 10px;font-size:15px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+    .tooltip{position:relative;display:inline-block}
+    .hint{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--chip-b);
+      color:var(--muted);font-weight:700;font-size:12px;cursor:pointer;user-select:none}
+    .tip{display:none;position:absolute;left:24px;top:-4px;z-index:10;min-width:260px;max-width:420px;
+      background:#0c1218;border:1px solid var(--line);border-radius:10px;padding:10px;color:var(--muted);font-size:12px;
+      box-shadow:0 8px 28px rgba(0,0,0,.35)}
+    .tooltip.show .tip{display:block}
 
-    /* ===== Badge Parameters panel ===== */
-    .panel {
-      margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:12px; background: color-mix(in oklab, var(--panel) 90%, transparent);
+    /* grid: dot | name | on | mode | range */
+    .b-head,.b-row{
+      display:grid;
+      grid-template-columns: 24px 1fr 74px 180px minmax(360px, 1fr);
+      gap:12px;align-items:center
     }
-    .panel h2 { margin:0 0 10px; font-size:15px; letter-spacing:.3px }
-    .b-grid { display:grid; grid-template-columns: 28px 160px 1fr; gap:10px; align-items:center }
-    .b-row { display:contents }
-    .tgl {
-      appearance:none; width:18px; height:18px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; display:inline-block;
-      position:relative;
-    }
-    .tgl:checked{ outline: 1px solid color-mix(in oklab, var(--c-info) 35%, transparent); box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
-    .b-label { font-weight:700; letter-spacing:.2px }
-    .b-label.star { color:#ffd27a }
-    .b-label.white{ color:#e8eef6 }
-    .b-label.purple{ color:#f6b4ff }
-    .b-label.orange{ color:#ffd27a }
-    .b-label.red{ color:#ff7b7b }
+    .b-head{color:var(--muted);font-size:12px;margin-bottom:6px}
+    .b-head > div:nth-child(1), .b-head > div:nth-child(2){ text-align:left }
+    .b-head > div:nth-child(3), .b-head > div:nth-child(4), .b-head > div:nth-child(5){ text-align:center }
+    .b-row{margin-bottom:8px}
 
-    .mode { width: 150px }
-    .range { display:flex; gap:8px; align-items:center }
-    .range input[type="text"]{
-      width:140px; padding:8px 10px; font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-    }
-    .sep { color:var(--muted) }
+    .name{display:flex;align-items:center;gap:10px;font-weight:700}
+    .handle{display:none; cursor:grab; color:var(--muted); user-select:none}
+    .drag-mode .handle{display:inline-block}
+    .drag-mode .b-row{border:1px dashed #223045;border-radius:10px;padding:6px}
+    .drag-hover{outline:1px solid #2b4058}
 
-    .range.disabled { opacity:.55; pointer-events:none; }
-    .help { margin-top:8px; color:var(--muted); font-size:12px }
+    .dot{width:8px;height:8px;border-radius:50%}
+    .dot.star{background:#ffd27a}.dot.white{background:#e8eef6}.dot.purple{background:#f6b4ff}.dot.orange{background:#ffd27a}.dot.red{background:#ff7b7b}
+
+    .sw{position:relative;display:inline-block;width:40px;height:22px;margin:0 auto}
+    .sw input{display:none}
+    .knob{position:absolute;cursor:pointer;inset:0;background:#0f151b;border:1px solid var(--chip-b);border-radius:999px;transition:.2s}
+    .knob::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;left:2px;top:2px;background:#6b7c8e;transition:.2s}
+    .sw input:checked + .knob{background:#0f1c2a;border-color:#2d4663}
+    .sw input:checked + .knob::after{transform:translateX(18px);background:#9fd0ff}
+
+    .mode{width:180px;margin:0 auto}
+
+    .range{display:flex;gap:10px;align-items:center;justify-content:center}
+    .range input{
+      flex:1 1 0; min-width:140px; max-width:220px; text-align:right;
+      font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace
+    }
+    .range.disabled{opacity:.55;pointer-events:none}
+    .sep{color:var(--muted)}
+
+    .prio-controls{display:none;gap:8px;margin-top:8px}
+    .drag-mode + .prio-controls{display:flex}
   </style>
 </head>
-
 <body class="t-aurora">
-  <main class="card">
-    <header>
-      <div class="brand">OP: PLANET LEAD PULL</div>
-      <div class="sub">Start a scrape</div>
-    </header>
+  <div class="wrap">
+    <div class="grid">
+      <!-- Left: Credentials -->
+      <section class="card">
+        <header>
+          <div class="brand">OP: PLANET LEAD PULL</div>
+          <div class="sub">Start a scrape</div>
+        </header>
 
-    <p class="sub">Enter credentials for this run. We’ll auto-start and take you to your private live stream.</p>
+        <p class="sub">Enter credentials for this run. Your lead pull will auto-start and you will be navigated to your private live stream.</p>
 
-    <form id="f" autocomplete="on">
-      <label for="u">Username</label>
-      <input id="u" autocomplete="username" required />
+        <form id="f" autocomplete="on">
+          <label for="u">Username</label>
+          <input id="u" autocomplete="username" required />
 
-      <label for="p">Password</label>
-      <input id="p" type="password" autocomplete="current-password" required />
+          <label for="p">Password</label>
+          <input id="p" type="password" autocomplete="current-password" required />
 
-      <label for="e">Report email (where the sheet is shared)</label>
-      <input id="e" type="email" autocomplete="email" required />
+          <label for="e">Report email (where the sheet is shared)</label>
+          <input id="e" type="email" autocomplete="email" required />
 
-      <div class="row">
-        <div>
-          <label for="m">Max leads (optional)</label>
-          <input id="m" type="number" min="1" step="1" placeholder="blank = default" />
+          <div class="row2">
+            <div>
+              <label for="m">Max leads (optional)</label>
+              <input id="m" type="number" min="1" step="1" placeholder="Default: 500" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit">Start Run</button>
+            <span id="status" class="note"></span>
+          </div>
+
+          <p class="note" style="margin-top:10px">After submit, you’ll be redirected to <code>/live?job=…</code>.</p>
+        </form>
+      </section>
+
+      <!-- Right: Badge panel -->
+      <aside class="card panel" id="badgePanel">
+        <h2>
+          Badges
+          <span class="tooltip" id="badgeHelp">
+            <span class="hint">?</span>
+            <span class="tip">
+              <b>Modes:</b> <i>Premium Range</i> uses the amount range; <i>Invalid Number</i> and <i>Lapsed</i> ignore amounts (Lapsed wins over Invalid Number).<br/>
+              <b>Range:</b> leave blank if you don’t want a bound.<br/>
+              <b>Priority:</b> click <i>Change Priority</i> to drag badges (top has highest precedence).
+            </span>
+          </span>
+        </h2>
+
+        <div class="b-head">
+          <div></div><div>Badge</div><div>On</div><div>Mode</div><div>Range</div>
         </div>
-        <div></div>
-      </div>
+        <div id="bRows"></div>
 
-      <!-- ===== Badge Parameters ===== -->
-      <div class="panel" id="badgePanel">
-        <h2>Badge Parameters</h2>
-
-        <div class="b-grid" id="bGrid">
-          <!-- rows injected by JS -->
+        <div class="actions prio-controls" id="prioControls">
+          <button id="prioDone" type="button">Done</button>
+          <button id="prioCancel" type="button">Cancel</button>
         </div>
 
-        <div class="help">
-          Order is top→bottom: ⭐ Star, ⚪ White, 🟣 Purple, 🟠 Orange, 🔴 Red.
-          “Lapsed” and “No Numbers” override premium ranges (Lapsed wins over No Numbers).
-          Amount fields show <code>0.00</code> as a placeholder and are only used if a value is present.
+        <div class="actions" style="margin-top:10px">
+          <button id="prioBtn" type="button">Change Priority</button>
         </div>
-      </div>
-
-      <div class="actions">
-        <button type="submit">Start Run</button>
-        <span id="status" class="note"></span>
-      </div>
-    </form>
-
-    <div class="foot">
-      <span class="note">After submit, you’ll be redirected to <code>/live?job=…</code>.</span>
-      <a class="link" href="/live" title="Open live without creating a new job">Open Live</a>
+      </aside>
     </div>
-  </main>
+  </div>
 
   <script>
-    // ---------- helpers ----------
-    const $ = s => document.querySelector(s);
+    const $  = s => document.querySelector(s);
     const $$ = s => Array.from(document.querySelectorAll(s));
     const status = $('#status');
 
+    // Tooltip
+    (() => {
+      const t = $('#badgeHelp');
+      t.addEventListener('click', () => t.classList.toggle('show'));
+      document.addEventListener('click', e => { if (!t.contains(e.target)) t.classList.remove('show'); });
+    })();
+
     // Config
-    const BADGE_ORDER = ['star','white','purple','orange','red'];
+    let BADGE_ORDER = ['star','white','purple','orange','red'];   // mutable in drag mode
     const DEFAULT_FALLBACK = 'white';
     const MODE = { NUMBER:'NUMBER', LAPSED:'LAPSED', NO_NUMBERS:'NO_NUMBERS' };
+    const MODE_LABEL = { NUMBER: 'Premium Range', NO_NUMBERS: 'Invalid Number', LAPSED: 'Lapsed' };
 
-    const badgeMeta = {
-      star:   { label:'Star',   emoji:'⭐', css:'star'   },
-      white:  { label:'White',  emoji:'⚪', css:'white'  },
-      purple: { label:'Purple', emoji:'🟣', css:'purple' },
-      orange: { label:'Orange', emoji:'🟠', css:'orange' },
-      red:    { label:'Red',    emoji:'🔴', css:'red'    },
+    const LABEL = {
+      star:   { txt:'Star',   dot:'star',   emoji:'⭐' },
+      white:  { txt:'White',  dot:'white',  emoji:'⚪' },
+      purple: { txt:'Purple', dot:'purple', emoji:'🟣' },
+      orange: { txt:'Orange', dot:'orange', emoji:'🟠' },
+      red:    { txt:'Red',    dot:'red',    emoji:'🔴' },
     };
 
-    // value helpers
+    // money helpers
     const parseMoney = (s) => {
       if (s == null) return null;
       const t = String(s).trim();
@@ -180,150 +211,199 @@
       const n = Number(t.replace(/[^\d.]/g, ''));
       return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
     };
+    const toDollar = n => (Number.isFinite(n) ? ('$' + n.toFixed(2)) : '');
 
-    // Build UI rows
-    const grid = $('#bGrid');
-    BADGE_ORDER.forEach(kind => {
-      const meta = badgeMeta[kind];
-      const row = document.createElement('div');
-      row.className = 'b-row';
-      row.dataset.kind = kind;
+    // Badge rows
+    const bRows = $('#bRows');
+    function mkRow(kind){
+      const r = document.createElement('div');
+      r.className = 'b-row';
+      r.dataset.kind = kind;
 
-      const tgl = document.createElement('input');
-      tgl.type = 'checkbox';
-      tgl.className = 'tgl';
-      tgl.checked = true; // defaults ON
+      const dot = document.createElement('span');
+      dot.className = 'dot ' + LABEL[kind].dot;
 
-      const labelWrap = document.createElement('div');
-      const lbl = document.createElement('div');
-      lbl.className = `b-label ${meta.css}`;
-      lbl.textContent = `${meta.emoji} ${meta.label}`;
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.innerHTML = `<span class="handle">☰</span>${LABEL[kind].emoji} ${LABEL[kind].txt}`;
+
+      const sw = document.createElement('label');
+      sw.className = 'sw';
+      sw.innerHTML = `<input type="checkbox" checked><span class="knob"></span>`;
+
       const mode = document.createElement('select');
       mode.className = 'mode';
       mode.innerHTML = `
-        <option value="${MODE.NUMBER}">Number</option>
-        <option value="${MODE.LAPSED}">Lapsed</option>
-        <option value="${MODE.NO_NUMBERS}">No Numbers</option>
+        <option value="${MODE.NUMBER}">${MODE_LABEL.NUMBER}</option>
+        <option value="${MODE.NO_NUMBERS}">${MODE_LABEL.NO_NUMBERS}</option>
+        <option value="${MODE.LAPSED}">${MODE_LABEL.LAPSED}</option>
       `;
-      labelWrap.append(lbl, mode);
 
       const range = document.createElement('div');
       range.className = 'range';
-      const fld = document.createElement('input');
-      fld.type = 'text';
-      fld.placeholder = '0.00';
-      fld.inputMode = 'decimal';
-      fld.autocomplete = 'off';
-      fld.dataset.touched = 'false';
+      range.innerHTML = `
+        <input type="text" class="floor" placeholder="" inputmode="decimal" autocomplete="off" data-touched="false" />
+        <span class="sep">to</span>
+        <input type="text" class="ceil"  placeholder="" inputmode="decimal" autocomplete="off" data-touched="false" />
+      `;
 
-      const sep = document.createElement('span');
-      sep.className = 'sep';
-      sep.textContent = 'to';
+      const floor = range.querySelector('.floor');
+      const ceil  = range.querySelector('.ceil');
 
-      const cel = document.createElement('input');
-      cel.type = 'text';
-      cel.placeholder = '0.00';
-      cel.inputMode = 'decimal';
-      cel.autocomplete = 'off';
-      cel.dataset.touched = 'false';
-
-      range.append(fld, sep, cel);
-
-      [fld, cel].forEach(inp => {
-        inp.addEventListener('input', () => {
-          inp.dataset.touched = (inp.value.trim() !== '') ? 'true' : 'false';
-        });
+      const onFocus = inp => { const v = parseMoney(inp.value); inp.value = (v==null ? '' : String(v)); };
+      const onBlur  = inp => {
+        const v = parseMoney(inp.value);
+        if (v==null){ inp.value=''; inp.dataset.touched='false'; }
+        else { inp.value = toDollar(v); inp.dataset.touched='true'; }
+      };
+      [floor, ceil].forEach(inp=>{
+        inp.addEventListener('focus', ()=>onFocus(inp));
+        inp.addEventListener('blur',  ()=>onBlur(inp));
+        inp.addEventListener('input', ()=>{ inp.dataset.touched = inp.value.trim()!=='' ? 'true' : 'false'; });
       });
 
-      const syncDisabled = () => {
-        const isNumber = mode.value === MODE.NUMBER;
-        range.classList.toggle('disabled', !isNumber || !tgl.checked);
+      const sync = () => {
+        const on  = sw.querySelector('input').checked;
+        const isN = mode.value === MODE.NUMBER;
+        range.classList.toggle('disabled', !(on && isN));
       };
-      mode.addEventListener('change', syncDisabled);
-      tgl.addEventListener('change', syncDisabled);
+      sw.querySelector('input').addEventListener('change', sync);
+      mode.addEventListener('change', sync);
 
-      const c1 = document.createElement('div'); c1.appendChild(tgl);
-      const c2 = document.createElement('div'); c2.appendChild(labelWrap);
-      const c3 = document.createElement('div'); c3.appendChild(range);
+      r._refs = { on: sw.querySelector('input'), mode, floor, ceil, range };
+      r.append(dot, name, sw, mode, range);
+      return r;
+    }
 
-      row._refs = { tgl, mode, fld, cel, range };
-      grid.append(c1, c2, c3);
-      grid.append(row);
-    });
+    BADGE_ORDER.forEach(k => bRows.appendChild(mkRow(k)));
 
-    // Apply ORIGINAL DEFAULTS:
-    // ⭐ Number: floor 100, no ceil
-    // ⚪ Number: floor 50,  ceil 99.99
-    // 🟣 Number: floor 0.01, ceil 49.99
-    // 🟠 No Numbers
-    // 🔴 Lapsed
-    (function applyDefaults(){
-      const rows = $$('div.b-row');
-      const setRow = (k, {mode, floor, ceil}) => {
-        const r = rows.find(x => x.dataset.kind === k)._refs;
+    // Defaults
+    (function setDefaults(){
+      const row = k => $$('.b-row').find(x => x.dataset.kind===k)._refs;
+      const set = (k,{on=true,mode, floor, ceil})=>{
+        const r=row(k);
+        r.on.checked = on;
         r.mode.value = mode;
-        if (mode === MODE.NUMBER) {
-          if (floor != null) { r.fld.value = String(floor); r.fld.dataset.touched = 'true'; }
-          if (ceil  != null) { r.cel.value = String(ceil);  r.cel.dataset.touched = 'true'; }
-        } else {
-          r.fld.value = ''; r.cel.value = '';
-          r.fld.dataset.touched = r.cel.dataset.touched = 'false';
+        if (mode===MODE.NUMBER){
+          if (floor!=null){ r.floor.value=toDollar(Number(floor)); r.floor.dataset.touched='true'; }
+          if (ceil !=null){ r.ceil.value =toDollar(Number(ceil));   r.ceil.dataset.touched='true'; }
+          if (ceil==null){ r.ceil.value=''; r.ceil.dataset.touched='false'; }
+        }else{
+          r.floor.value=''; r.ceil.value='';
+          r.floor.dataset.touched=r.ceil.dataset.touched='false';
         }
+        r.range.classList.toggle('disabled', !(r.on.checked && r.mode.value===MODE.NUMBER));
       };
-      setRow('star',   { mode:MODE.NUMBER,    floor:100,  ceil:null   });
-      setRow('white',  { mode:MODE.NUMBER,    floor:50,   ceil:99.99 });
-      setRow('purple', { mode:MODE.NUMBER,    floor:0.01, ceil:49.99 });
-      setRow('orange', { mode:MODE.NO_NUMBERS });
-      setRow('red',    { mode:MODE.LAPSED });
-
-      // reflect disabled/enabled states now
-      $$('div.b-row').forEach(r => r._refs && r._refs.range && (r._refs.tgl.checked = true));
-      $$('div.b-row').forEach(r => r._refs && r._refs.range && r._refs.range.classList.toggle('disabled', r._refs.mode.value !== MODE.NUMBER));
+      set('star',   { mode:MODE.NUMBER,    floor:100,  ceil:null   });
+      set('white',  { mode:MODE.NUMBER,    floor:50,   ceil:99.99 });
+      set('purple', { mode:MODE.NUMBER,    floor:0.01, ceil:49.99 });
+      set('orange', { mode:MODE.NO_NUMBERS });
+      set('red',    { mode:MODE.LAPSED });
     })();
 
-    // Build badgeConfig from UI with proper auto-fill:
-    // Fill CEIL for lower tiers using the previous higher tier's FLOOR (top→bottom).
-    function buildBadgeConfig(){
-      const rows = $$('div.b-row').map(r => ({ kind:r.dataset.kind, ...r._refs }));
+    // ===== Drag reordering on the rows themselves =====
+    const panel = $('#badgePanel');
+    const prioBtn = $('#prioBtn');
+    const prioControls = $('#prioControls');
+    let snapshotOrder = [];
 
-      // snapshot raw
-      const raw = rows.map(({kind,tgl,mode,fld,cel}) => ({
+    function getCurrentOrderFromDOM(){ return $$('#bRows .b-row').map(r=>r.dataset.kind); }
+    function applyOrder(order){
+      const frag = document.createDocumentFragment();
+      order.forEach(k => frag.appendChild($(`#bRows .b-row[data-kind="${k}"]`)));
+      $('#bRows').appendChild(frag);
+    }
+
+    function enterDragMode(){
+      snapshotOrder = getCurrentOrderFromDOM();
+      panel.classList.add('drag-mode');
+      prioBtn.textContent = 'Finish Reordering';
+      prioControls.style.display = 'flex';
+      $$('#bRows .b-row').forEach(row=>{
+        row.draggable = true;
+        row.addEventListener('dragstart', onDragStart);
+        row.addEventListener('dragover', onDragOver);
+        row.addEventListener('dragleave', onDragLeave);
+        row.addEventListener('drop', onDrop);
+        row.addEventListener('dragend', onDragEnd);
+      });
+    }
+    function exitDragMode(save=true){
+      if(!save){ applyOrder(snapshotOrder); }
+      panel.classList.remove('drag-mode');
+      prioBtn.textContent = 'Change Priority';
+      prioControls.style.display = 'none';
+      $$('#bRows .b-row').forEach(row=>{
+        row.draggable = false;
+        row.removeEventListener('dragstart', onDragStart);
+        row.removeEventListener('dragover', onDragOver);
+        row.removeEventListener('dragleave', onDragLeave);
+        row.removeEventListener('drop', onDrop);
+        row.removeEventListener('dragend', onDragEnd);
+        row.classList.remove('drag-hover');
+      });
+      // Save final order
+      BADGE_ORDER = getCurrentOrderFromDOM();
+    }
+
+    let dragEl=null;
+    function onDragStart(e){ dragEl = e.currentTarget; e.dataTransfer.effectAllowed='move'; }
+    function onDragOver(e){
+      e.preventDefault();
+      const tgt = e.currentTarget;
+      if (tgt===dragEl) return;
+      const rect = tgt.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < rect.height/2;
+      tgt.classList.add('drag-hover');
+      $('#bRows').insertBefore(dragEl, before ? tgt : tgt.nextSibling);
+    }
+    function onDragLeave(e){ e.currentTarget.classList.remove('drag-hover'); }
+    function onDrop(e){ e.preventDefault(); e.currentTarget.classList.remove('drag-hover'); }
+    function onDragEnd(){ dragEl=null; }
+
+    // Toggle with the same button
+    prioBtn.addEventListener('click', ()=>{
+      if (!panel.classList.contains('drag-mode')) enterDragMode();
+      else exitDragMode(true);  // clicking again saves & exits
+    });
+    $('#prioCancel').addEventListener('click', ()=> exitDragMode(false));
+    $('#prioDone').addEventListener('click',   ()=> exitDragMode(true));
+
+    // ===== Build badgeConfig & submit =====
+    function buildBadgeConfig(){
+      const rows = BADGE_ORDER.map(k => {
+        const n = $$('.b-row').find(x => x.dataset.kind===k)._refs;
+        return { kind:k, ...n };
+      });
+
+      const raw = rows.map(({kind,on,mode,floor,ceil}) => ({
         kind,
-        on: !!tgl.checked,
+        on: !!on.checked,
         mode: mode.value,
-        floor: (fld.dataset.touched === 'true') ? parseMoney(fld.value) : null,
-        ceil:  (cel.dataset.touched === 'true') ? parseMoney(cel.value) : null,
+        floor: (floor.dataset.touched==='true') ? parseMoney(floor.value) : null,
+        ceil:  (ceil.dataset.touched==='true')  ? parseMoney(ceil.value)  : null,
       }));
 
-      // numeric rows in visual order
-      const numerics = raw.filter(r => r.on && r.mode === MODE.NUMBER);
-
-      // fill ceil for LOWER tiers based on previous higher tier's floor
-      let lastHigherFloor = null; // floor of the last numeric row above
-      for (let i = 0; i < numerics.length; i++) {
+      const numerics = raw.filter(r => r.on && r.mode===MODE.NUMBER);
+      let lastHigherFloor = null;
+      for (let i=0;i<numerics.length;i++){
         const r = numerics[i];
-        if (i === 0) {
-          // top tier never gets capped by this rule
-          lastHigherFloor = r.floor != null ? r.floor : lastHigherFloor;
-          continue;
-        }
-        if (r.ceil == null && lastHigherFloor != null) {
+        if (i===0){ lastHigherFloor = r.floor ?? lastHigherFloor; continue; }
+        if (r.ceil==null && lastHigherFloor!=null){
           r.ceil = Math.round((lastHigherFloor - 0.01) * 100) / 100;
         }
-        if (r.floor != null) lastHigherFloor = r.floor;
+        if (r.floor!=null) lastHigherFloor = r.floor;
       }
 
-      // Finalize rules object in UI order
       const rules = {};
-      for (const r of raw) {
+      for (const r of raw){
         rules[r.kind] = {
-          on: r.on,
+          on:   r.on,
           mode: r.mode,
-          floor: r.mode === MODE.NUMBER ? (r.floor ?? null) : null,
-          ceil:  r.mode === MODE.NUMBER ? (r.ceil  ?? null) : null,
+          floor: r.mode===MODE.NUMBER ? (r.floor ?? null) : null,
+          ceil:  r.mode===MODE.NUMBER ? (r.ceil  ?? null) : null,
         };
       }
-
       return {
         order: [...BADGE_ORDER],
         defaultFallback: DEFAULT_FALLBACK,
@@ -332,17 +412,17 @@
       };
     }
 
-    // ---------- login flow: always auto-start + badgeConfig ----------
     $('#f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       status.textContent = 'Creating job…';
       try {
         const badgeConfig = buildBadgeConfig();
+        const maxField = ($('#m').value || '').trim();
         const payload = {
           username: $('#u').value.trim(),
           password: $('#p').value,
           email:    $('#e').value.trim(),
-          max:      ($('#m').value || '').trim(),
+          max:      (maxField === '' ? 500 : Number(maxField)),
           autoStart: true,
           badgeConfig
         };
