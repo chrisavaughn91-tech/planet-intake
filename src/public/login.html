@@ -277,7 +277,7 @@
 
     BADGE_ORDER.forEach(k => bRows.appendChild(mkRow(k)));
 
-    // Defaults
+    // Defaults (exactly the working set)
     (function setDefaults(){
       const row = k => $$('.b-row').find(x => x.dataset.kind===k)._refs;
       const set = (k,{on=true,mode, floor, ceil})=>{
@@ -317,8 +317,8 @@
     function enterDragMode(){
       snapshotOrder = getCurrentOrderFromDOM();
       panel.classList.add('drag-mode');
-      prioBtn.textContent = 'Finish Reordering';
-      prioControls.style.display = 'flex';
+      prioBtn.style.display = 'none';          // hide Change Priority in drag mode
+      prioControls.style.display = 'flex';     // show Done/Cancel
       $$('#bRows .b-row').forEach(row=>{
         row.draggable = true;
         row.addEventListener('dragstart', onDragStart);
@@ -330,9 +330,10 @@
     }
     function exitDragMode(save=true){
       if(!save){ applyOrder(snapshotOrder); }
+      else { BADGE_ORDER = getCurrentOrderFromDOM(); }
       panel.classList.remove('drag-mode');
-      prioBtn.textContent = 'Change Priority';
       prioControls.style.display = 'none';
+      prioBtn.style.display = '';              // restore the button
       $$('#bRows .b-row').forEach(row=>{
         row.draggable = false;
         row.removeEventListener('dragstart', onDragStart);
@@ -342,8 +343,6 @@
         row.removeEventListener('dragend', onDragEnd);
         row.classList.remove('drag-hover');
       });
-      // Save final order
-      BADGE_ORDER = getCurrentOrderFromDOM();
     }
 
     let dragEl=null;
@@ -361,13 +360,12 @@
     function onDrop(e){ e.preventDefault(); e.currentTarget.classList.remove('drag-hover'); }
     function onDragEnd(){ dragEl=null; }
 
-    // Toggle with the same button
-    prioBtn.addEventListener('click', ()=>{
-      if (!panel.classList.contains('drag-mode')) enterDragMode();
-      else exitDragMode(true);  // clicking again saves & exits
-    });
+    // Enter drag mode
+    prioBtn.addEventListener('click', ()=>{ if (!panel.classList.contains('drag-mode')) enterDragMode(); });
+    // Cancel: revert and exit
     $('#prioCancel').addEventListener('click', ()=> exitDragMode(false));
-    $('#prioDone').addEventListener('click',   ()=> exitDragMode(true));
+    // Done: save if changed; exit either way
+    $('#prioDone').addEventListener('click', ()=> exitDragMode(true));
 
     // ===== Build badgeConfig & submit =====
     function buildBadgeConfig(){
@@ -384,6 +382,7 @@
         ceil:  (ceil.dataset.touched==='true')  ? parseMoney(ceil.value)  : null,
       }));
 
+      // Auto-fill lower-tier ceilings based on previous tier floor - 0.01
       const numerics = raw.filter(r => r.on && r.mode===MODE.NUMBER);
       let lastHigherFloor = null;
       for (let i=0;i<numerics.length;i++){
@@ -412,6 +411,7 @@
       };
     }
 
+    // Submit -> /session (autoStart)
     $('#f').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       status.textContent = 'Creating job…';
