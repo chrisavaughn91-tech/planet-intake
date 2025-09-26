@@ -77,3 +77,4 @@ Behavior:
 ## Notes
 - The scraper module is **lazy-loaded** on first run to keep startup light in Codespaces.
 - Server binds to **0.0.0.0** to ensure port forwarding works reliably.
+- SoT: includes **Change 1C (2025-09-25)**, **Change 2a (2025-09-26)**.
