@@ -105,7 +105,7 @@
     .t-matrix::after { content:""; position:fixed; inset:0; pointer-events:none; opacity:.07; background: repeating-linear-gradient(90deg, rgba(0,255,100,.35) 0 1px, transparent 1px 18px); mix-blend-mode: soft-light; }
 
     .t-light {
-      --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc; --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --chip:#f1f5f9; --chip-b:#d7dee6; --input:#ffffff; --time:#334155;
+      --bg:#f8fafc; --panel:#ffffff; --hdr-bg:#ffffffcc; --fg:#0f172a; --muted:#475569; --line:#d4dbe3; --chip:#f1f5f9; --input:#ffffff; --time:#334155;
       --c-info:#2563eb; --c-start:#b45309; --c-lead:#15803d; --c-num:#0e7490; --c-badge:#7c3aed; --c-sheet:#0ea5e9; --c-err:#b91c1c; --c-done:#047857; --ok:#16a34a;
     }
 
@@ -285,15 +285,32 @@
       premRunEl.textContent = `${rounded.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0})} total premiums paid`;
       procEl.textContent = processed;
     }
-    function classifyBadge(txt){
-      const t = (txt||'').toString().toLowerCase();
-      if (/[⭐]|star|prem/.test(t)) return 'star';
-      if (/purple|🟣/.test(t))     return 'purple';
-      if (/orange|🟠/.test(t))     return 'orange';
-      if (/red|🔴/.test(t))        return 'red';
-      if (/white|⚪|basic/.test(t))return 'white';
+
+    // NEW: robust badge classifier — prefer data over text
+    function classifyBadgeDataFirst(d) {
+      // 1) explicit flags from server
+      if (d && (d.isLapsed === true || /lapsed/i.test(d.status || ''))) return 'red';
+      if (d && (d.hasInvalidNumber === true || /invalid\s*number/i.test(d.badge || ''))) return 'orange';
+
+      // 2) numeric fallback (aligns with login defaults)
+      const amt = Number(d?.totalPremium);
+      if (Number.isFinite(amt)) {
+        if (amt >= 100) return 'star';
+        if (amt >= 50)  return 'white';
+        if (amt >= 0.01) return 'purple';
+      }
+
+      // 3) textual hints (last fallback)
+      const t = (d?.badge || '').toString().toLowerCase();
+      if (/[⭐]|star/.test(t))  return 'star';
+      if (/purple|🟣/.test(t))  return 'purple';
+      if (/orange|🟠/.test(t))  return 'orange';
+      if (/red|🔴/.test(t))     return 'red';
+      if (/white|⚪|basic/.test(t)) return 'white';
+
       return 'white';
     }
+
     function badgeEmoji(kind){
       return kind === 'star' ? '⭐' :
              kind === 'purple' ? '🟣' :
@@ -328,9 +345,8 @@
       if (low.startsWith('login: starting')) return 'Login: Starting';
       if (low.startsWith('login: ok'))       return '✅Login';
 
-      // badge config confirmation (new)
+      // badge config confirmation
       if (low.startsWith('badge:config')) {
-        // expect: 'badge:config {"order":[...],"priority":{...}}'
         const m = s.match(/badge:config\s+(.+)$/i);
         if (m) {
           try {
@@ -450,7 +466,9 @@
 
       badge: (d) => {
         totalBadged += 1;
-        const kind = classifyBadge(d.badge);
+
+        // *** key change: pass whole payload to classifier ***
+        const kind = classifyBadgeDataFirst(d);
         counts[kind] = (counts[kind] || 0) + 1;
 
         const leadTotal = Number(d.totalPremium || 0);
