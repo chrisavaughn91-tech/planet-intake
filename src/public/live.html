@@ -27,9 +27,10 @@
     .input { padding:8px 10px; min-width:280px; border-radius:8px; border:1px solid var(--chip-b); background: var(--input); color:var(--fg); font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
     .btn { padding:6px 10px; border-radius:8px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; color:var(--fg); }
 
-    .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; font-size:12px; border:1px solid var(--chip-b); background:var(--chip); text-transform:none; letter-spacing:.02em; cursor:pointer; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; font-size:12px; border:1px solid var(--chip-b); background:var(--chip); text-transform:none; letter-spacing:.02em; cursor:pointer; user-select: none; }
     .chip .dot { width:8px; height:8px; border-radius:999px; }
     .chip .dot.info { background: var(--c-info) }
+    .chip[data-on="true"] { outline: 1px solid color-mix(in oklab, var(--c-info) 35%, transparent); box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
 
     .stats { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; font-size:12px; color: var(--muted); display:flex; align-items:center; gap:12px; }
     .stats .sep { opacity:.35 }
@@ -46,6 +47,7 @@
 
     /* rows: time | capsule | message */
     #log .row { position: relative; display:grid; grid-template-columns: 98px 110px 1fr; gap:12px; align-items:start; padding:10px 0; }
+    .row.policy .msg { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
     .time { color: var(--time); font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; }
     .type { display:none }
     .msg  { white-space: pre-wrap }
@@ -107,7 +109,15 @@
       --c-info:#2563eb; --c-start:#b45309; --c-lead:#15803d; --c-num:#0e7490; --c-badge:#7c3aed; --c-sheet:#0ea5e9; --c-err:#b91c1c; --c-done:#047857; --ok:#16a34a;
     }
 
+    /* highlight filter (Only ⭐/🔴) */
+    body[data-highlights="on"] .group:not([data-badge-kind="star"]):not([data-badge-kind="red"]) { display:none; }
+
     #log, #log .row, #log .row * { mix-blend-mode: normal; filter: none; color: var(--fg) }
+
+    /* toast */
+    #toast { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
+    .toast { background: var(--panel); border: 1px solid var(--line); color: var(--fg); padding: 10px 12px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 13px; }
+    .toast a { color: var(--c-sheet); text-decoration: none; border-bottom: 1px dashed var(--c-sheet); }
   </style>
 </head>
 <body class="t-aurora">
@@ -128,12 +138,15 @@
         <span id="badgeRun">⭐ 0 (0%) ⚪ 0 (0%) 🟣 0 (0%) 🟠 0 (0%) 🔴 0 (0%)</span>
         <span class="sep">|</span>
         <span id="premRun">$0 total premiums paid</span>
+        <span class="sep">|</span>
+        <span id="metaRun">⏱ <span id="elapsed">00:00:00</span> · <span id="proc">0</span> leads</span>
       </div>
 
       <div class="spacer"></div>
       <input id="q" class="input" placeholder="Filter text (e.g. jobId, sheet:url)" />
       <button id="clearBtn" class="btn">Clear</button>
       <label class="chip" id="autoScroll" data-on="true" title="Auto-scroll on new messages"><span class="dot info"></span>Auto-scroll</label>
+      <label class="chip" id="highlightsOnly" data-on="false" title="Show only ⭐ / 🔴 groups"><span class="dot info"></span>Only ⭐/🔴</label>
     </div>
   </header>
 
@@ -143,22 +156,33 @@
     </div>
   </div>
 
+  <div id="toast" aria-live="polite" aria-atomic="true"></div>
+
   <script>
     /* ---------- UI refs ---------- */
     const logEl = document.getElementById('log');
     const inputQ = document.getElementById('q');
     const autoScrollChip = document.getElementById('autoScroll');
+    const highlightsChip = document.getElementById('highlightsOnly');
     const connDot = document.getElementById('connDot');
     const linkLed = document.getElementById('linkLed');
+    const toastWrap = document.getElementById('toast');
 
     // running totals
     const badgeRunEl = document.getElementById('badgeRun');
     const premRunEl  = document.getElementById('premRun');
+    const elapsedEl  = document.getElementById('elapsed');
+    const procEl     = document.getElementById('proc');
 
     /* ---------- filter + controls ---------- */
-    autoScrollChip.addEventListener('click', ()=> {
-      autoScrollChip.dataset.on = autoScrollChip.dataset.on === 'true' ? 'false' : 'true';
+    const toggleChip = (chipEl) => chipEl.dataset.on = chipEl.dataset.on === 'true' ? 'false' : 'true';
+
+    autoScrollChip.addEventListener('click', () => toggleChip(autoScrollChip));
+    highlightsChip.addEventListener('click', () => {
+      toggleChip(highlightsChip);
+      document.body.dataset.highlights = highlightsChip.dataset.on === 'true' ? 'on' : 'off';
     });
+
     document.getElementById('clearBtn').onclick = () => { logEl.innerHTML=''; currentGroup = null; };
     inputQ.addEventListener('input', ()=> refilter());
 
@@ -181,7 +205,7 @@
       const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
       return (h? h+'h ' : '') + (m? m+'m ' : '') + (ss? ss+'s' : '0s');
     };
-    const elapsed = () => {
+    const elapsedHMS = () => {
       if (!t0) return '00:00:00';
       const d = now()-t0;
       const hh = pad2(Math.floor(d/3600000));
@@ -189,9 +213,12 @@
       const ss = pad2(Math.floor((d%60000)/1000));
       return `${hh}:${mm}:${ss}`;
     };
+    setInterval(() => { elapsedEl.textContent = elapsedHMS(); }, 1000);
 
     // grouping per lead
     let currentGroup = null;
+    let processed = 0;
+
     function startGroup() {
       currentGroup = document.createElement('div');
       currentGroup.className = 'group';
@@ -199,7 +226,7 @@
     }
     function hostFor(level){
       if (level === 'lead') { startGroup(); policyIdx = 0; return currentGroup; }
-      if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info' || level === 'policy')) return currentGroup;
+      if (currentGroup && (level === 'numbers' || level === 'badge' || level === 'info' || level === 'policy' || level === 'sheet')) return currentGroup;
       return logEl;
     }
 
@@ -219,9 +246,10 @@
 
       const row = document.createElement('div');
       row.className = 'row newest';
+      row.classList.add(level);
 
       const t = document.createElement('div');
-      t.className = 'time'; t.textContent = elapsed();
+      t.className = 'time'; t.textContent = elapsedHMS();
 
       const ty = document.createElement('div'); ty.className = 'type';
       const lvl = document.createElement('span'); lvl.className = `level-${level}`; lvl.textContent = level;
@@ -255,6 +283,7 @@
 
       const rounded = Math.round(packPremiumTotal);
       premRunEl.textContent = `${rounded.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0})} total premiums paid`;
+      procEl.textContent = processed;
     }
     function classifyBadge(txt){
       const t = (txt||'').toString().toLowerCase();
@@ -277,11 +306,6 @@
       const s = ["th","st","nd","rd"], v = n%100;
       return n + (s[(v-20)%10] || s[v] || s[0]);
     };
-    // last day of current month (fallback for dueDay=0/00)
-    function lastDayOfThisMonth(){
-      const d = new Date();
-      return new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
-    }
 
     let policyIdx = 0;
 
@@ -304,9 +328,27 @@
       if (low.startsWith('login: starting')) return 'Login: Starting';
       if (low.startsWith('login: ok'))       return '✅Login';
 
+      // badge config confirmation (new)
+      if (low.startsWith('badge:config')) {
+        // expect: 'badge:config {"order":[...],"priority":{...}}'
+        const m = s.match(/badge:config\s+(.+)$/i);
+        if (m) {
+          try {
+            const obj = JSON.parse(m[1]);
+            const ord = Array.isArray(obj.order) ? obj.order.join(' > ') : 'star,white,purple,orange,red';
+            const lFirst = obj?.priority?.lapsedFirst !== false;
+            return `Badge config received · order: ${ord} · lapsedFirst: ${lFirst ? 'yes' : 'no'}`;
+          } catch {}
+        }
+        return 'Badge config received';
+      }
+
       // nav
-      if (/\bgo to all leads\b/i.test(s)) return '➡️All Leads';
+      if (/\bgo to all leads\b/i.test(s)) return '➡️Go to All Leads';
       if (/^go to next page$/i.test(s))  return '➡️Go to next page';
+
+      // header fallback notice
+      if (/listed#:\s*header fallback used/i.test(s)) return 'Listed #: header fallback used';
 
       // mailbox/pack events
       const mSize = /setPageSize\((\d+)\)/i.exec(s);
@@ -325,51 +367,38 @@
 
         const mode    = /mode\s*=\s*([a-z]+)/i.exec(s)?.[1] || 'monthly';
         const cushion = /cushion\s*=\s*(\d+)d/i.exec(s)?.[1] || '31';
-        const rawDue  = /dueDay\s*=\s*(\d+)/i.exec(s)?.[1] || '1';
+        const dueRaw  = /dueDay\s*=\s*([0-9]{1,2}|N\/A|NA)/i.exec(s)?.[1] || null;
+        const normM   = /->\s*norm\s*=\s*(\d+)/i.exec(s);
+        const normDue = normM ? Number(normM[1]) : null;
+        const statusM = /status\s*=\s*(lapsed|active)/i.exec(s);
+        const status  = statusM ? statusM[1].toLowerCase() : null;
 
-        // try to read a normalized day from text (handles "-> norm=30", "norm=30", "normalized=30")
-        const normMatch =
-          /(?:->\s*norm\s*=\s*|norm(?:al(?:ized)?)?\s*=\s*)(\d{1,2})/i.exec(s) ||
-          /->\s*(\d{1,2})\b/i.exec(s);
-        const normalized = normMatch ? Number(normMatch[1]) : null;
-
-        let dueNum = Number(rawDue);
-        if (!Number.isFinite(dueNum)) dueNum = 1;
-        // if raw due is 0/00 and no normalized value was found, use last day of THIS month
-        if (dueNum === 0 && normalized == null) {
-          dueNum = lastDayOfThisMonth();
-        }
-        const dueDisplay = normalized != null ? normalized : dueNum;
-
-        // Robust lapsed detection
         const isLapsed =
-          /\blapsed\b/i.test(s) ||
-          /\bstatus\s*=\s*lapsed\b/i.test(s) ||
-          /\bpast\s*due\b/i.test(s) ||
-          /\boverdue\b/i.test(s) ||
-          /->\s*lapsed\b/i.test(s) ||
           data?.isLapsed === true ||
-          data?.lapsed === true ||
-          (typeof data?.status === 'string' && data.status.toLowerCase() === 'lapsed') ||
-          (typeof data?.state  === 'string' && data.state.toLowerCase()  === 'lapsed') ||
-          data?.isPastDue === true ||
-          data?.overdue === true ||
-          data?.policy?.lapsed === true;
+          status === 'lapsed' ||
+          /\blapsed\b/i.test(s) ||
+          /\bpast\s*due\b/i.test(s) ||
+          /\boverdue\b/i.test(s);
 
-        const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${ord(Number(dueDisplay))}, Grace: ${cushion}d`;
+        const dayNum = (typeof normDue === 'number' && Number.isFinite(normDue))
+          ? normDue
+          : (dueRaw && /^\d+$/.test(dueRaw) ? Number(dueRaw) : null);
+
+        const dueText = (dayNum != null) ? ord(dayNum) : (dueRaw || 'N/A');
+
+        const base = `Policy ${policyIdx} | Mode: ${mode.charAt(0).toUpperCase()+mode.slice(1)}, Due Day: ${dueText}, Grace: ${cushion}d`;
         const text = isLapsed ? `${base} <span style="color:#ff4d4d">(Lapsed)</span>` : base;
 
         return { level: 'policy', text, html: isLapsed };
       }
 
-      // Session done — keep the tail (e.g., job id)
       const mDone = /^session:\s*done\b(.*)$/i.exec(s);
       if (mDone) {
         const tail = (mDone[1] || '').trim();
         return `Session: Done${tail ? ' ' + tail : ''}`;
       }
 
-      return s; // default passthrough
+      return s;
     }
 
     /* ---------- SSE ---------- */
@@ -399,7 +428,6 @@
           return;
         }
 
-        // object form: { level, text, html }
         const level = out.level || 'info';
         addRow(level, out.text, out.html ? { html: out.text, capLabel: level } : { capLabel: level });
       },
@@ -412,7 +440,7 @@
         if (h) { const [, i, tot, nm] = h; name = `${nm.trim()} (${i} of ${tot})`; }
         else if (d.index && d.total && name) { name = `${name} (${d.index} of ${d.total})`; }
         addRow('lead', `📁${name || (d.msg || '')}`);
-        policyIdx = 0; // reset for this lead’s policy block(s)
+        policyIdx = 0;
       },
 
       numbers: (d) => {
@@ -429,6 +457,8 @@
         packPremiumTotal += isFinite(leadTotal) ? leadTotal : 0;
         renderStats();
 
+        if (currentGroup) currentGroup.dataset.badgeKind = kind;
+
         const msg = `Total Premium: ${leadTotal.toLocaleString(undefined,{style:'currency',currency:'USD'})} ${badgeEmoji(kind)}`;
         addRow('badge', msg);
 
@@ -440,11 +470,23 @@
         addRow('sheet', '', { html: `📊sheet: <a class="link" href="${d.url}" target="_blank" rel="noopener">${d.url}</a>` });
       },
 
+      sheet_done: (d) => {
+        if (!d?.url) return;
+        const div = document.createElement('div');
+        div.className = 'toast';
+        div.innerHTML = `✅ Sheet ready: <a href="${d.url}" target="_blank" rel="noopener">open</a>` +
+                        (d.spreadsheetId ? ` <small>(id: ${d.spreadsheetId})</small>` : '');
+        toastWrap.appendChild(div);
+        setTimeout(() => { try { toastWrap.removeChild(div); } catch {} }, 7000);
+      },
+
       error: (d) => addRow('error', d.msg || ''),
 
       done: (d) => {
         if (!d || (typeof d.processed === 'number' && d.processed === 0)) return;
         const human = (typeof d.ms === 'number') ? hmsFromMs(d.ms) : '';
+        processed = Number(d.processed || processed);
+        renderStats();
         addRow('done', `🏁${d.processed ?? 0} ${d.processed === 1 ? 'lead' : 'leads'} processed in ${human || '0s'}`);
         currentGroup = null;
       },
@@ -452,7 +494,7 @@
       client:  (d) => addRow('client', d.msg || '')
     };
 
-    ['info','start','lead','numbers','badge','sheet','error','done','client'].forEach(type=>{
+    ['info','start','lead','numbers','badge','sheet','sheet_done','error','done','client'].forEach(type=>{
       es.addEventListener(type, (e)=>{
         try{
           const data = JSON.parse(e.data || '{}');
