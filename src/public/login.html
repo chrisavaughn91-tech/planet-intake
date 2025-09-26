@@ -73,7 +73,7 @@
       margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:12px; background: color-mix(in oklab, var(--panel) 90%, transparent);
     }
     .panel h2 { margin:0 0 10px; font-size:15px; letter-spacing:.3px }
-    .b-grid { display:grid; grid-template-columns: 28px 130px 1fr; gap:10px; align-items:center }
+    .b-grid { display:grid; grid-template-columns: 28px 160px 1fr; gap:10px; align-items:center }
     .b-row { display:contents }
     .tgl {
       appearance:none; width:18px; height:18px; border-radius:999px; border:1px solid var(--chip-b); background:var(--chip); cursor:pointer; display:inline-block;
@@ -81,13 +81,13 @@
     }
     .tgl:checked{ outline: 1px solid color-mix(in oklab, var(--c-info) 35%, transparent); box-shadow: 0 0 0 2px rgba(0,0,0,.15) inset; }
     .b-label { font-weight:700; letter-spacing:.2px }
-    .b-label.star { color:#ffd27a }  /* visual hint, optional */
+    .b-label.star { color:#ffd27a }
     .b-label.white{ color:#e8eef6 }
     .b-label.purple{ color:#f6b4ff }
     .b-label.orange{ color:#ffd27a }
     .b-label.red{ color:#ff7b7b }
 
-    .mode { width: 140px }
+    .mode { width: 150px }
     .range { display:flex; gap:8px; align-items:center }
     .range input[type="text"]{
       width:140px; padding:8px 10px; font-variant-numeric: tabular-nums; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
@@ -135,10 +135,9 @@
         </div>
 
         <div class="help">
-          Order is top→bottom: ⭐ Star, ⚪ White, 🟣 Purple, 🟠 Orange, 🔴 Red.  
-          “Lapsed” and “No Numbers” override premium ranges (Lapsed wins over No Numbers).  
-          Amount fields display <code>0.00</code> but are only used if you type a value.  
-          Between fields reads “to”, e.g., <code>50.00 to 99.99</code>.
+          Order is top→bottom: ⭐ Star, ⚪ White, 🟣 Purple, 🟠 Orange, 🔴 Red.
+          “Lapsed” and “No Numbers” override premium ranges (Lapsed wins over No Numbers).
+          Amount fields show <code>0.00</code> as a placeholder and are only used if a value is present.
         </div>
       </div>
 
@@ -173,6 +172,15 @@
       red:    { label:'Red',    emoji:'🔴', css:'red'    },
     };
 
+    // value helpers
+    const parseMoney = (s) => {
+      if (s == null) return null;
+      const t = String(s).trim();
+      if (!t) return null;
+      const n = Number(t.replace(/[^\d.]/g, ''));
+      return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+    };
+
     // Build UI rows
     const grid = $('#bGrid');
     BADGE_ORDER.forEach(kind => {
@@ -181,13 +189,11 @@
       row.className = 'b-row';
       row.dataset.kind = kind;
 
-      // toggle
       const tgl = document.createElement('input');
       tgl.type = 'checkbox';
       tgl.className = 'tgl';
-      tgl.checked = false; // off by default
+      tgl.checked = true; // defaults ON
 
-      // label + mode
       const labelWrap = document.createElement('div');
       const lbl = document.createElement('div');
       lbl.className = `b-label ${meta.css}`;
@@ -201,14 +207,12 @@
       `;
       labelWrap.append(lbl, mode);
 
-      // range
       const range = document.createElement('div');
       range.className = 'range';
       const fld = document.createElement('input');
       fld.type = 'text';
       fld.placeholder = '0.00';
       fld.inputMode = 'decimal';
-      fld.autocapitalize = 'off';
       fld.autocomplete = 'off';
       fld.dataset.touched = 'false';
 
@@ -220,153 +224,111 @@
       cel.type = 'text';
       cel.placeholder = '0.00';
       cel.inputMode = 'decimal';
-      cel.autocapitalize = 'off';
       cel.autocomplete = 'off';
       cel.dataset.touched = 'false';
 
       range.append(fld, sep, cel);
 
-      // touched tracking: we only use a value if user typed anything
       [fld, cel].forEach(inp => {
-        inp.addEventListener('input', () => { inp.dataset.touched = (inp.value.trim() !== '') ? 'true' : 'false'; });
+        inp.addEventListener('input', () => {
+          inp.dataset.touched = (inp.value.trim() !== '') ? 'true' : 'false';
+        });
       });
 
-      // enable/disable range depending on mode/toggle
       const syncDisabled = () => {
         const isNumber = mode.value === MODE.NUMBER;
         range.classList.toggle('disabled', !isNumber || !tgl.checked);
       };
       mode.addEventListener('change', syncDisabled);
       tgl.addEventListener('change', syncDisabled);
-      syncDisabled();
 
-      // mount
       const c1 = document.createElement('div'); c1.appendChild(tgl);
       const c2 = document.createElement('div'); c2.appendChild(labelWrap);
       const c3 = document.createElement('div'); c3.appendChild(range);
 
-      // stash refs for reading later
       row._refs = { tgl, mode, fld, cel, range };
       grid.append(c1, c2, c3);
-      grid.append(row); // maintain display:contents grouping semantics
+      grid.append(row);
     });
 
-    // ---------- value parsing / math helpers ----------
-    const toCents = (v) => Math.round(v * 100);
-    const fromCents = (c) => Math.max(0, c) / 100;
-    const parseMoney = (s) => {
-      if (s == null) return null;
-      const t = String(s).trim();
-      if (!t) return null;
-      const m = t.replace(/[^\d.]/g,'');
-      if (m === '') return null;
-      const n = Number(m);
-      return Number.isFinite(n) ? Math.round(n*100)/100 : null;
-    };
-
-    // Build badgeConfig from UI with auto-fill:
-    // - Lapsed > No Numbers > Numeric (tiered)
-    // - Numeric ranges are non-overlapping, gap-free where possible
-    function buildBadgeConfig(){
-      // collect raw inputs
+    // Apply ORIGINAL DEFAULTS:
+    // ⭐ Number: floor 100, no ceil
+    // ⚪ Number: floor 50,  ceil 99.99
+    // 🟣 Number: floor 0.01, ceil 49.99
+    // 🟠 No Numbers
+    // 🔴 Lapsed
+    (function applyDefaults(){
       const rows = $$('div.b-row');
-      const raw = BADGE_ORDER.map(kind => {
-        const row = rows.find(r => r.dataset.kind === kind);
-        const { tgl, mode, fld, cel } = row._refs;
-        const on = !!tgl.checked;
-        const m = mode.value;
-        const floorTyped = (fld.dataset.touched === 'true') ? parseMoney(fld.value) : null;
-        const ceilTyped  = (cel.dataset.touched === 'true') ? parseMoney(cel.value) : null;
-        return { kind, on, mode:m, floor:floorTyped, ceil:ceilTyped };
-      });
-
-      // ----- Prepare numeric badges (only NUMBER+on)
-      const numerics = raw
-        .map(r => ({...r}))
-        .filter(r => r.on && r.mode === MODE.NUMBER);
-
-      // Step 1: resolve ceilings based on next lower floor (top→bottom)
-      for (let i = 0; i < numerics.length; i++){
-        const r = numerics[i];
-        if (r.ceil == null){
-          let nextFloor = null;
-          for (let j = i+1; j < numerics.length; j++){
-            if (numerics[j].floor != null) { nextFloor = numerics[j].floor; break; }
-          }
-          if (nextFloor != null){
-            r.ceil = Math.max(0, Math.round((nextFloor - 0.01) * 100) / 100);
-          } // else stays null → extends to MAX
-        }
-      }
-
-      // Step 2: assign lowest remaining open range to NUMBER+on with no floor & no ceil typed
-      // Build "taken" intervals list from numerics with floor present; treat null ceil as MAX
-      const MAX = Number.POSITIVE_INFINITY;
-      const taken = [];
-      numerics.forEach(r => {
-        if (r.floor != null){
-          taken.push([r.floor, (r.ceil != null ? r.ceil : MAX)]);
-        }
-      });
-      // Normalize 'taken' by sorting
-      taken.sort((a,b)=> a[0]-b[0]);
-
-      const needFill = numerics.filter(r => (r.floor == null && r.ceil == null));
-      const lowestOpenFor = () => {
-        // find smallest gap from 0 upward not covered by 'taken'
-        let start = 0;
-        if (taken.length === 0) return [0, MAX];
-        // check gap before first
-        if (taken[0][0] > 0) return [0, Math.round((taken[0][0] - 0.01)*100)/100];
-        // otherwise scan between intervals
-        for (let i=0;i<taken.length-1;i++){
-          const endA = taken[i][1];
-          const startB = taken[i+1][0];
-          if (endA !== MAX && startB - endA > 0.01){
-            const lo = Math.round((endA + 0.01)*100)/100;
-            const hi = Math.round((startB - 0.01)*100)/100;
-            return [lo, hi];
-          }
-        }
-        // otherwise tail to MAX
-        const last = taken[taken.length-1];
-        if (last[1] === MAX) return null; // no open range
-        const lo = Math.round((last[1] + 0.01)*100)/100;
-        return [lo, MAX];
-      };
-
-      for (const r of needFill){
-        const gap = lowestOpenFor();
-        if (gap){
-          r.floor = gap[0];
-          r.ceil  = (gap[1] === MAX ? null : gap[1]);
-          taken.push([r.floor, (r.ceil ?? MAX)]);
-          taken.sort((a,b)=>a[0]-b[0]);
+      const setRow = (k, {mode, floor, ceil}) => {
+        const r = rows.find(x => x.dataset.kind === k)._refs;
+        r.mode.value = mode;
+        if (mode === MODE.NUMBER) {
+          if (floor != null) { r.fld.value = String(floor); r.fld.dataset.touched = 'true'; }
+          if (ceil  != null) { r.cel.value = String(ceil);  r.cel.dataset.touched = 'true'; }
         } else {
-          // nothing left; leave nulls (scraper will ignore numeric match)
+          r.fld.value = ''; r.cel.value = '';
+          r.fld.dataset.touched = r.cel.dataset.touched = 'false';
         }
+      };
+      setRow('star',   { mode:MODE.NUMBER,    floor:100,  ceil:null   });
+      setRow('white',  { mode:MODE.NUMBER,    floor:50,   ceil:99.99 });
+      setRow('purple', { mode:MODE.NUMBER,    floor:0.01, ceil:49.99 });
+      setRow('orange', { mode:MODE.NO_NUMBERS });
+      setRow('red',    { mode:MODE.LAPSED });
+
+      // reflect disabled/enabled states now
+      $$('div.b-row').forEach(r => r._refs && r._refs.range && (r._refs.tgl.checked = true));
+      $$('div.b-row').forEach(r => r._refs && r._refs.range && r._refs.range.classList.toggle('disabled', r._refs.mode.value !== MODE.NUMBER));
+    })();
+
+    // Build badgeConfig from UI with proper auto-fill:
+    // Fill CEIL for lower tiers using the previous higher tier's FLOOR (top→bottom).
+    function buildBadgeConfig(){
+      const rows = $$('div.b-row').map(r => ({ kind:r.dataset.kind, ...r._refs }));
+
+      // snapshot raw
+      const raw = rows.map(({kind,tgl,mode,fld,cel}) => ({
+        kind,
+        on: !!tgl.checked,
+        mode: mode.value,
+        floor: (fld.dataset.touched === 'true') ? parseMoney(fld.value) : null,
+        ceil:  (cel.dataset.touched === 'true') ? parseMoney(cel.value) : null,
+      }));
+
+      // numeric rows in visual order
+      const numerics = raw.filter(r => r.on && r.mode === MODE.NUMBER);
+
+      // fill ceil for LOWER tiers based on previous higher tier's floor
+      let lastHigherFloor = null; // floor of the last numeric row above
+      for (let i = 0; i < numerics.length; i++) {
+        const r = numerics[i];
+        if (i === 0) {
+          // top tier never gets capped by this rule
+          lastHigherFloor = r.floor != null ? r.floor : lastHigherFloor;
+          continue;
+        }
+        if (r.ceil == null && lastHigherFloor != null) {
+          r.ceil = Math.round((lastHigherFloor - 0.01) * 100) / 100;
+        }
+        if (r.floor != null) lastHigherFloor = r.floor;
       }
 
-      // Stitch final rules back in visual order
-      const finalRules = {};
-      for (const r of raw){
-        finalRules[r.kind] = {
-          on: !!r.on,
+      // Finalize rules object in UI order
+      const rules = {};
+      for (const r of raw) {
+        rules[r.kind] = {
+          on: r.on,
           mode: r.mode,
-          floor: (r.mode === MODE.NUMBER ? r.floor ?? null : null),
-          ceil:  (r.mode === MODE.NUMBER ? r.ceil  ?? null : null),
+          floor: r.mode === MODE.NUMBER ? (r.floor ?? null) : null,
+          ceil:  r.mode === MODE.NUMBER ? (r.ceil  ?? null) : null,
         };
       }
 
       return {
         order: [...BADGE_ORDER],
         defaultFallback: DEFAULT_FALLBACK,
-        // priority explained:
-        // Tier A1: LAPSED (on)
-        // Tier A2: NO_NUMBERS (on)
-        // Tier B : NUMBER   (on)
-        priority: { lapsedFirst: true }, // informs server/scraper
-        rules: finalRules
+        priority: { lapsedFirst: true },
+        rules
       };
     }
 
@@ -376,7 +338,6 @@
       status.textContent = 'Creating job…';
       try {
         const badgeConfig = buildBadgeConfig();
-
         const payload = {
           username: $('#u').value.trim(),
           password: $('#p').value,
