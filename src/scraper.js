@@ -885,26 +885,44 @@ function lc(v) { return String(v || "").toLowerCase(); }
 
 /**
  * Normalize the badge config coming from opts.badgeConfig.
- * Supports either an array of {name,on,mode,floor,ceil} or an object keyed by name.
+ * Accepts:
+ * 1) Server-validated shape: { order, defaultFallback, priority, rules:{ star:{…}, … } }
+ * 2) Flat object keyed by badge name: { star:{…}, white:{…}, … }
+ * 3) Array: [ {name:'star', on, mode, floor, ceil}, … ]
  */
 function normalizeBadgeConfig(input) {
   if (!input) return null;
 
+  // ✨ NEW: prefer .rules if present (server sends this shape)
+  const source = input.rules && typeof input.rules === "object" ? input.rules : input;
+
   const out = {};
-  const arr = Array.isArray(input) ? input : BADGE_ORDER.map(k => ({ name: k, ...(input[k] || {}) }));
-
-  for (const raw of arr) {
-    const name = lc(raw?.name);
-    if (!BADGE_ORDER.includes(name)) continue;
-    const mode = ["number","lapsed","no_numbers"].includes(lc(raw?.mode)) ? lc(raw.mode) :
-                 (raw?.bool === "lapsed" ? "lapsed" : raw?.bool === "no_numbers" ? "no_numbers" : "number");
-
-    out[name] = {
-      on: raw?.on === true || raw?.on === "true" || raw?.on === 1,
-      mode,
-      floor: numOrUndef(raw?.floor),
-      ceil:  numOrUndef(raw?.ceil),
-    };
+  if (Array.isArray(source)) {
+    for (const raw of source) {
+      const name = lc(raw?.name);
+      if (!BADGE_ORDER.includes(name)) continue;
+      const mode = ["number","lapsed","no_numbers"].includes(lc(raw?.mode))
+        ? lc(raw.mode)
+        : (raw?.bool === "lapsed" ? "lapsed" : raw?.bool === "no_numbers" ? "no_numbers" : "number");
+      out[name] = {
+        on: raw?.on === true || raw?.on === "true" || raw?.on === 1,
+        mode,
+        floor: numOrUndef(raw?.floor),
+        ceil:  numOrUndef(raw?.ceil),
+      };
+    }
+  } else {
+    // object keyed by name (either top-level or .rules)
+    for (const name of BADGE_ORDER) {
+      const raw = source[name] || {};
+      const mode = ["number","lapsed","no_numbers"].includes(lc(raw?.mode)) ? lc(raw.mode) : "number";
+      out[name] = {
+        on: raw?.on === true || raw?.on === "true" || raw?.on === 1,
+        mode,
+        floor: numOrUndef(raw?.floor),
+        ceil:  numOrUndef(raw?.ceil),
+      };
+    }
   }
   return out;
 }
@@ -913,7 +931,6 @@ function normalizeBadgeConfig(input) {
  * Given normalized config, compute effective numeric bands.
  * - Missing ceil is filled to next higher floor - 0.01 (if any), else +Infinity
  * - Missing floor stays undefined (interpreted as 0 later)
- * - Badges with neither floor nor ceil stay "open"; they’ll match only if nothing else caught them.
  */
 function computeNumericBands(cfg) {
   if (!cfg) return null;
@@ -923,8 +940,6 @@ function computeNumericBands(cfg) {
     .sort((a,b) => a.f - b.f);
 
   const nextFloor = (f) => {
-    const idx = floors.findIndex(x => x.f === f);
-    // find the next *greater* distinct floor
     for (const row of floors) { if (row.f > f) return row.f; }
     return undefined;
   };
@@ -949,7 +964,7 @@ function computeNumericBands(cfg) {
 }
 
 function pickBadgeByRules(total, hasValidNumbers, allPoliciesLapsed, cfg) {
-  // 1) If no config: keep your legacy behavior (exactly as before)
+  // 1) If no config: keep legacy behavior (original defaults)
   if (!cfg) {
     if (total >= 100) return "star";
     if (total > 0 && total < 50) return "purple";
@@ -958,7 +973,7 @@ function pickBadgeByRules(total, hasValidNumbers, allPoliciesLapsed, cfg) {
     return "white";
   }
 
-  // Fill numeric bands from cfg
+  // Numeric bands
   const bands = computeNumericBands(cfg);
   const inBand = (name) => {
     const band = bands?.[name];
@@ -968,25 +983,25 @@ function pickBadgeByRules(total, hasValidNumbers, allPoliciesLapsed, cfg) {
     return total >= lo && total <= hi;
   };
 
-  // 2) Priority A1: any Lapsed badge (top→bottom order)
+  // 2) Priority A1: Lapsed over everything (top→bottom)
   for (const k of BADGE_ORDER) {
     const b = cfg[k];
     if (b?.on && b.mode === "lapsed" && allPoliciesLapsed) return k;
   }
 
-  // 3) Priority A2: any No Numbers badge (top→bottom order)
+  // 3) Priority A2: No Numbers next (top→bottom)
   for (const k of BADGE_ORDER) {
     const b = cfg[k];
     if (b?.on && b.mode === "no_numbers" && !hasValidNumbers) return k;
   }
 
-  // 4) Numeric bands (top→bottom order)
+  // 4) Numeric ranges (top→bottom)
   for (const k of BADGE_ORDER) {
     const b = cfg[k];
     if (b?.on && b.mode === "number" && inBand(k)) return k;
   }
 
-  // 5) Fallback to white
+  // 5) Fallback
   return "white";
 }
 
@@ -996,7 +1011,7 @@ function pickBadgeByRules(total, hasValidNumbers, allPoliciesLapsed, cfg) {
 export async function scrapePlanet(opts = {}) {
   const { username, password, jobId } = opts;
   const max = opts?.max ?? Number(process.env.MAX_LEADS_DEFAULT ?? 200);
-  const badgeConfigNorm = normalizeBadgeConfig(opts?.badgeConfig || null); // NEW (optional)
+  const badgeConfigNorm = normalizeBadgeConfig(opts?.badgeConfig || null); // ✅ fixed to read .rules
   const startTime = Date.now();
 
   emit("start", { username, maxLeads: max, jobId: jobId || null });
@@ -1054,7 +1069,7 @@ export async function scrapePlanet(opts = {}) {
       // 1) Try normal click-to-call
       let c2c = await harvestClickToCall(page);
 
-      // 2) Fallback: if nothing came back, go harvest from header (without clicking Call again)
+      // 2) Fallback: header numbers if none appeared
       if ((c2c || []).length === 0) {
         const onDetail = /Lead\/InboxDetail/i.test(page.url());
         if (!onDetail) {
@@ -1097,7 +1112,7 @@ export async function scrapePlanet(opts = {}) {
       const hasAnyPolicy = detail.policyBlockCount > 0;
       const allPoliciesLapsed = hasAnyPolicy && detail.activeBlockCount === 0;
 
-      // Valid numbers for "No Numbers" rule: valid + 10-digit
+      // Valid numbers for "No Numbers" = valid US 10-digits (7-digit/garbage excluded)
       const validDigits = new Set();
       const accValid = (r) => {
         if (r && r.valid && (r.rawDigits || "").length === 10) validDigits.add(r.rawDigits);
@@ -1107,7 +1122,7 @@ export async function scrapePlanet(opts = {}) {
 
       const hasValidNumbers = validDigits.size > 0;
 
-      // ==== NEW: resolve badge using config (or legacy if none) ====
+      // Resolve badge using config (or legacy if none)
       const chosen = pickBadgeByRules(leadMonthly, hasValidNumbers, allPoliciesLapsed, badgeConfigNorm);
       const badgeEmoji = BADGE_EMOJI[chosen] || "⚪";
 
